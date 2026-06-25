@@ -23,3 +23,57 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test --no-daemon
+
+      - name: Create failed test report fallback
+        if: failure()
+        run: |
+          mkdir -p build/ci-report
+          {
+            echo "# 테스트 실패 리포트"
+            echo
+            echo "- 실패한 워크플로우: ${GITHUB_WORKFLOW}"
+            echo "- 실행 번호: ${GITHUB_RUN_NUMBER}"
+            echo "- 커밋: ${GITHUB_SHA}"
+          } > build/ci-report/test-report-summary.md
+
+      - name: Upload failed test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-test-report
+          path: |
+            build/ci-report
+            build/reports/tests/test
+            build/test-results/test
+          if-no-files-found: ignore
+
+  test-report:
+    # test job이 실패했을 때만 리포트 요약을 생성합니다.
+    if: failure()
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download test report
+        uses: actions/download-artifact@v4
+        with:
+          name: gradle-test-report
+          path: gradle-test-report
+
+      - name: Create test report summary
+        run: |
+          {
+            echo "# 테스트 실패 리포트"
+            echo
+            echo "- 실패한 워크플로우: ${GITHUB_WORKFLOW}"
+            echo "- 실행 번호: ${GITHUB_RUN_NUMBER}"
+            echo "- 커밋: ${GITHUB_SHA}"
+            echo
+            echo "Gradle 테스트 리포트 artifact: gradle-test-report"
+          } > test-report-summary.md
+
+      - name: Upload test report summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-summary
+          path: test-report-summary.md
