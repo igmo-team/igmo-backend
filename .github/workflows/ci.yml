@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+    # prod로 들어오는 PR에서만 워크플로우를 시작합니다.
+    branches:
+      - prod
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
