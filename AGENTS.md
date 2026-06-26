@@ -18,12 +18,17 @@
 
 - 현재 요구사항에 필요한 코드만 추가한다.
 - 새 의존성은 기존 코드나 표준 라이브러리로 해결하기 어려울 때만 추가한다.
-- 애플리케이션 코드 작성 세부 규칙은 `src/main/java/AGENTS.md`를 따른다.
+- `src/main/java` 하위 코드를 수정할 때만 `src/main/java/AGENTS.md`를 참고한다.
 
 ## 테스트
 
 - 테스트는 `src/test/java`에 둔다.
-- 테스트 코드 작성 세부 규칙은 `src/test/java/AGENTS.md`를 따른다.
+- `src/test/java` 하위 코드를 수정할 때만 `src/test/java/AGENTS.md`를 참고한다.
+
+## 지침 읽기 범위
+
+- 단순 질문, 문서 수정, PR 본문 작성만 하는 경우 하위 `AGENTS.md` 파일은 읽지 않는다.
+- 작업 대상이 애플리케이션 코드나 테스트 코드로 확정된 뒤 필요한 하위 지침만 읽는다.
 
 ## PR
 
