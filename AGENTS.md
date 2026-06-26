@@ -33,3 +33,7 @@
 ## PR
 
 - PR 본문에는 `closed #이슈번호`, As-Is, To-Be, 체크리스트를 작성한다.
+
+## Review guidelines
+
+- PR 리뷰 작업일 때만 `.github/codex/review-guidelines.md`를 참고한다.
