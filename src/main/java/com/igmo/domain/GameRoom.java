@@ -1,15 +1,13 @@
 package com.igmo.domain;
 
+import com.igmo.exception.DuplicateNicknameException;
+import com.igmo.exception.GameAlreadyStartedException;
+import com.igmo.exception.RoomFullException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.Getter;
 
-/**
- * 가변 상태(players, phase)는 스레드 안전하지 않다.
- * 검증과 추가처럼 여러 메서드를 묶어 처리하는 호출은
- * 호출 측에서 {@code synchronized(room)}으로 원자성을 보장해야 한다.
- */
 public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
@@ -33,25 +31,34 @@ public class GameRoom {
         return new GameRoom(code, host);
     }
 
-    public String addPlayer(Player player) {
+    public synchronized String addPlayer(Player player) {
+        if (!isInLobby()) {
+            throw new GameAlreadyStartedException();
+        }
+        if (isFull()) {
+            throw new RoomFullException();
+        }
+        if (hasNickname(player.getNickname())) {
+            throw new DuplicateNicknameException();
+        }
         players.put(player.getId(), player);
         return player.getId();
     }
 
-    public boolean isFull() {
-        return players.size() >= MAX_PLAYERS;
+    public synchronized List<Player> getPlayers() {
+        return List.copyOf(players.values());
     }
 
-    public boolean hasNickname(String nickname) {
-        return players.values().stream()
-                .anyMatch(player -> player.getNickname().equals(nickname));
-    }
-
-    public boolean isInLobby() {
+    private boolean isInLobby() {
         return phase == GamePhase.LOBBY;
     }
 
-    public List<Player> getPlayers() {
-        return List.copyOf(players.values());
+    private boolean isFull() {
+        return players.size() >= MAX_PLAYERS;
+    }
+
+    private boolean hasNickname(String nickname) {
+        return players.values().stream()
+                .anyMatch(player -> player.getNickname().equals(nickname));
     }
 }
