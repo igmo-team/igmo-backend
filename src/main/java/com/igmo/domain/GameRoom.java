@@ -1,11 +1,12 @@
 package com.igmo.domain;
 
-import com.igmo.exception.DuplicateNicknameException;
-import com.igmo.exception.GameAlreadyStartedException;
-import com.igmo.exception.RoomFullException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.RoomFullException;
 import lombok.Getter;
 
 public class GameRoom {

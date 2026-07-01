@@ -5,11 +5,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.GamePhase;
-import com.igmo.exception.DuplicateNicknameException;
-import com.igmo.exception.RoomFullException;
-import com.igmo.exception.RoomNotFoundException;
+import com.igmo.domain.exception.RoomFullException;
 import com.igmo.service.GameService;
+import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;

@@ -2,8 +2,8 @@ package com.igmo.service;
 
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
-import com.igmo.exception.RoomCodeGenerationFailedException;
-import com.igmo.exception.RoomNotFoundException;
+import com.igmo.service.exception.RoomCodeGenerationFailedException;
+import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;

@@ -5,9 +5,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-import com.igmo.exception.DuplicateNicknameException;
-import com.igmo.exception.RoomCodeGenerationFailedException;
-import com.igmo.exception.RoomNotFoundException;
+import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.service.exception.RoomCodeGenerationFailedException;
+import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;

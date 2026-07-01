@@ -1,4 +1,4 @@
-package com.igmo.exception;
+package com.igmo.service.exception;
 
 public class RoomNotFoundException extends RuntimeException {
 

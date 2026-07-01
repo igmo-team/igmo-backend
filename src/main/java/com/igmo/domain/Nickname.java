@@ -1,6 +1,6 @@
 package com.igmo.domain;
 
-import com.igmo.exception.InvalidNicknameException;
+import com.igmo.domain.exception.InvalidNicknameException;
 
 public record Nickname(String value) {
 

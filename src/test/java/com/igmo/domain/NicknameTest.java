@@ -3,7 +3,7 @@ package com.igmo.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.igmo.exception.InvalidNicknameException;
+import com.igmo.domain.exception.InvalidNicknameException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

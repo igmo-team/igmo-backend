@@ -2,10 +2,11 @@ package com.igmo.domain;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.igmo.exception.DuplicateNicknameException;
-import com.igmo.exception.GameAlreadyStartedException;
-import com.igmo.exception.RoomFullException;
 import java.lang.reflect.Field;
+
+import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.RoomFullException;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

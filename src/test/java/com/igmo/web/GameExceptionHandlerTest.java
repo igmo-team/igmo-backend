@@ -1,5 +1,10 @@
-package com.igmo.exception;
+package com.igmo.web;
 
+import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.RoomFullException;
+import com.igmo.service.exception.RoomCodeGenerationFailedException;
+import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.web.dto.ErrorResponse;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;

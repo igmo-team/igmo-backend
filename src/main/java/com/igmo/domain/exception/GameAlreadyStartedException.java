@@ -1,4 +1,4 @@
-package com.igmo.exception;
+package com.igmo.domain.exception;
 
 public class GameAlreadyStartedException extends RuntimeException {
 
