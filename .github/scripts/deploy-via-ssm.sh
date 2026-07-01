@@ -122,11 +122,14 @@ PARAMETERS=$(jq --null-input \
   --arg command "$REMOTE_COMMAND" \
   '{commands: [$command], executionTimeout: ["600"]}')
 
+DEPLOY_COMMENT="Deploy ${CONTAINER_NAME} ${IMAGE_URI##*:}"
+DEPLOY_COMMENT="${DEPLOY_COMMENT:0:100}"
+
 COMMAND_ID=$(aws ssm send-command \
   --region "$AWS_REGION" \
   --instance-ids "$EC2_INSTANCE_ID" \
   --document-name AWS-RunShellScript \
-  --comment "Deploy ${IMAGE_URI}" \
+  --comment "$DEPLOY_COMMENT" \
   --parameters "$PARAMETERS" \
   --query 'Command.CommandId' \
   --output text)
