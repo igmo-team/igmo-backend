@@ -30,6 +30,11 @@ public class GameExceptionHandler {
         return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
     }
 
+    @ExceptionHandler(RoomCodeGenerationFailedException.class)
+    public ResponseEntity<ErrorResponse> handleRoomCodeGenerationFailed(RoomCodeGenerationFailedException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorResponse(e.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().get(0).getDefaultMessage();

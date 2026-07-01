@@ -62,4 +62,19 @@ class GameExceptionHandlerTest {
             softly.assertThat(response.getBody().message()).isEqualTo("이미 사용 중인 닉네임입니다.");
         });
     }
+
+    @Test
+    @DisplayName("RoomCodeGenerationFailedException은 503과 메시지를 반환한다.")
+    void handle_방_코드_발급_실패면_503을_반환한다() {
+        // when
+        ResponseEntity<ErrorResponse> response = handler.handleRoomCodeGenerationFailed(
+                new RoomCodeGenerationFailedException());
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+            softly.assertThat(response.getBody().message())
+                    .isEqualTo("방 코드를 발급하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        });
+    }
 }

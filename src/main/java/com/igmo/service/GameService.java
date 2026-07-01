@@ -2,6 +2,7 @@ package com.igmo.service;
 
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
+import com.igmo.exception.RoomCodeGenerationFailedException;
 import com.igmo.exception.RoomNotFoundException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 public class GameService {
 
     private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
+    private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
 
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
@@ -44,10 +46,12 @@ public class GameService {
     }
 
     private GameRoom createRoomWithUniqueCode(Player host) {
-        GameRoom room;
-        do {
-            room = GameRoom.create(roomCodeGenerator.generate(), host);
-        } while (!gameRegistry.saveIfAbsent(room));
-        return room;
+        for (int attempt = 0; attempt < MAX_ROOM_CODE_ATTEMPTS; attempt++) {
+            GameRoom room = GameRoom.create(roomCodeGenerator.generate(), host);
+            if (gameRegistry.saveIfAbsent(room)) {
+                return room;
+            }
+        }
+        throw new RoomCodeGenerationFailedException();
     }
 }

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.exception.DuplicateNicknameException;
+import com.igmo.exception.RoomCodeGenerationFailedException;
 import com.igmo.exception.RoomNotFoundException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
@@ -78,6 +79,19 @@ class GameServiceTest {
                     .containsExactly("호스트", "참가자");
         });
         verify(messagingTemplate).convertAndSend("/topic/room/ABCD", response.snapshot());
+    }
+
+    @Test
+    @DisplayName("방 코드가 최대 시도 횟수 동안 계속 중복되면 RoomCodeGenerationFailedException을 던진다.")
+    void createGame_최대_시도_횟수를_초과하면_예외를_던진다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.createGame("다음호스트"))
+                .isInstanceOf(RoomCodeGenerationFailedException.class)
+                .hasMessage("방 코드를 발급하지 못했습니다. 잠시 후 다시 시도해주세요.");
     }
 
     @Test
