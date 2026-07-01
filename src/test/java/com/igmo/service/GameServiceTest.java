@@ -3,6 +3,7 @@ package com.igmo.service;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.igmo.exception.DuplicateNicknameException;
 import com.igmo.exception.RoomNotFoundException;
@@ -12,12 +13,14 @@ import com.igmo.web.dto.JoinGameResponse;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 class GameServiceTest {
 
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
-    private final GameService gameService = new GameService(gameRegistry, roomCodeGenerator);
+    private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
+    private final GameService gameService = new GameService(gameRegistry, roomCodeGenerator, messagingTemplate);
 
     @Test
     @DisplayName("게임을 생성하면 방 코드와 호스트 playerId를 반환하고 레지스트리에 저장한다.")
@@ -74,6 +77,7 @@ class GameServiceTest {
                     .extracting(player -> player.nickname())
                     .containsExactly("호스트", "참가자");
         });
+        verify(messagingTemplate).convertAndSend("/topic/room/ABCD", response.snapshot());
     }
 
     @Test

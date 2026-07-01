@@ -1,7 +1,6 @@
 package com.igmo.web;
 
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,9 +31,6 @@ class GameControllerTest {
 
     @MockitoBean
     private GameService gameService;
-
-    @MockitoBean
-    private SimpMessagingTemplate messagingTemplate;
 
     @Test
     @DisplayName("게임 생성에 성공하면 201과 방 코드, playerId를 반환한다.")
@@ -64,8 +59,8 @@ class GameControllerTest {
     }
 
     @Test
-    @DisplayName("코드로 참여하면 200과 스냅샷을 반환하고 로비를 broadcast한다.")
-    void joinGame_성공하면_200과_broadcast를_수행한다() throws Exception {
+    @DisplayName("코드로 참여하면 200과 스냅샷을 반환한다.")
+    void joinGame_성공하면_200을_반환한다() throws Exception {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
                 List.of(new PlayerView("host-id", "host", 0),
@@ -81,8 +76,6 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.playerId").value("guest-id"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
                 .andExpect(jsonPath("$.snapshot.players.length()").value(2));
-
-        verify(messagingTemplate).convertAndSend("/topic/room/ABCD", snapshot);
     }
 
     @Test

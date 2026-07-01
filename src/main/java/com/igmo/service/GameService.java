@@ -7,17 +7,23 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class GameService {
 
+    private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
+
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public GameService(GameRegistry gameRegistry, RoomCodeGenerator roomCodeGenerator) {
+    public GameService(GameRegistry gameRegistry, RoomCodeGenerator roomCodeGenerator,
+                       SimpMessagingTemplate messagingTemplate) {
         this.gameRegistry = gameRegistry;
         this.roomCodeGenerator = roomCodeGenerator;
+        this.messagingTemplate = messagingTemplate;
     }
 
     public CreateGameResponse createGame(String nickname) {
@@ -29,8 +35,12 @@ public class GameService {
     public JoinGameResponse joinGame(String code, String nickname) {
         GameRoom room = gameRegistry.find(code)
                 .orElseThrow(RoomNotFoundException::new);
-        String playerId = room.addPlayer(new Player(nickname));
-        return new JoinGameResponse(playerId, LobbySnapshot.from(room));
+        synchronized (room) {
+            String playerId = room.addPlayer(new Player(nickname));
+            LobbySnapshot snapshot = LobbySnapshot.from(room);
+            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, snapshot);
+            return new JoinGameResponse(playerId, snapshot);
+        }
     }
 
     private GameRoom createRoomWithUniqueCode(Player host) {
