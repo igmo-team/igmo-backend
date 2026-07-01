@@ -120,32 +120,44 @@ EOF
 
 PARAMETERS=$(jq --null-input \
   --arg command "$REMOTE_COMMAND" \
-  '{commands: [$command], executionTimeout: ["600"]}')
+  '{commands: [$command], executionTimeout: ["300"]}')
+
+DEPLOY_COMMENT="Deploy ${CONTAINER_NAME} ${IMAGE_URI##*:}"
+DEPLOY_COMMENT="${DEPLOY_COMMENT:0:100}"
 
 COMMAND_ID=$(aws ssm send-command \
   --region "$AWS_REGION" \
   --instance-ids "$EC2_INSTANCE_ID" \
   --document-name AWS-RunShellScript \
-  --comment "Deploy ${IMAGE_URI}" \
+  --comment "$DEPLOY_COMMENT" \
   --parameters "$PARAMETERS" \
   --query 'Command.CommandId' \
   --output text)
 
 echo "SSM command: ${COMMAND_ID}"
 
-if ! aws ssm wait command-executed \
-  --region "$AWS_REGION" \
-  --command-id "$COMMAND_ID" \
-  --instance-id "$EC2_INSTANCE_ID"; then
-  aws ssm get-command-invocation \
+STATUS='Pending'
+for _ in $(seq 1 60); do
+  STATUS=$(aws ssm get-command-invocation \
     --region "$AWS_REGION" \
     --command-id "$COMMAND_ID" \
-    --instance-id "$EC2_INSTANCE_ID"
-  exit 1
-fi
+    --instance-id "$EC2_INSTANCE_ID" \
+    --query 'Status' \
+    --output text 2>/dev/null || echo 'Pending')
+  case "$STATUS" in
+    Success|Failed|Cancelled|TimedOut)
+      break
+      ;;
+  esac
+  sleep 5
+done
 
 aws ssm get-command-invocation \
   --region "$AWS_REGION" \
   --command-id "$COMMAND_ID" \
   --instance-id "$EC2_INSTANCE_ID" \
   --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}'
+
+if [ "$STATUS" != 'Success' ]; then
+  exit 1
+fi
