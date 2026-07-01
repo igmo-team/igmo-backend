@@ -3,7 +3,9 @@ package com.igmo.domain;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.igmo.exception.DuplicateNicknameException;
+import com.igmo.exception.GameAlreadyStartedException;
 import com.igmo.exception.RoomFullException;
+import java.lang.reflect.Field;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,5 +87,24 @@ class GameRoomTest {
         assertThatThrownBy(() -> room.addPlayer(new Player("  참가자  ")))
                 .isInstanceOf(DuplicateNicknameException.class)
                 .hasMessage("이미 사용 중인 닉네임입니다.");
+    }
+
+    @Test
+    @DisplayName("로비 단계가 아닌 방에 참가자를 추가하면 GameAlreadyStartedException을 던진다.")
+    void addPlayer_이미_시작된_게임이면_예외를_던진다() throws Exception {
+        // given
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        setPhase(room, GamePhase.GENERATING);
+
+        // when & then
+        assertThatThrownBy(() -> room.addPlayer(new Player("참가자")))
+                .isInstanceOf(GameAlreadyStartedException.class)
+                .hasMessage("이미 시작된 게임입니다.");
+    }
+
+    private void setPhase(GameRoom room, GamePhase phase) throws Exception {
+        Field field = GameRoom.class.getDeclaredField("phase");
+        field.setAccessible(true);
+        field.set(room, phase);
     }
 }
