@@ -33,11 +33,13 @@ class GameControllerTest {
     private GameService gameService;
 
     @Test
-    @DisplayName("게임 생성에 성공하면 201과 방 코드, playerId를 반환한다.")
+    @DisplayName("게임 생성에 성공하면 201과 방 코드, playerId, 초기 로비 스냅샷을 반환한다.")
     void createGame_성공하면_201을_반환한다() throws Exception {
         // given
+        LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
+                List.of(new PlayerView("host-id", "host", 0)));
         given(gameService.createGame("host"))
-                .willReturn(new CreateGameResponse("ABCD", "host-id"));
+                .willReturn(new CreateGameResponse("ABCD", "host-id", snapshot));
 
         // when & then
         mockMvc.perform(post("/games")
@@ -45,7 +47,10 @@ class GameControllerTest {
                         .content("{\"nickname\":\"host\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.roomCode").value("ABCD"))
-                .andExpect(jsonPath("$.playerId").value("host-id"));
+                .andExpect(jsonPath("$.playerId").value("host-id"))
+                .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
+                .andExpect(jsonPath("$.snapshot.hostId").value("host-id"))
+                .andExpect(jsonPath("$.snapshot.players.length()").value(1));
     }
 
     @Test

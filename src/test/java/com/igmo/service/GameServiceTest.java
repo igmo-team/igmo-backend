@@ -36,6 +36,10 @@ class GameServiceTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(response.roomCode()).isEqualTo("ABCD");
             softly.assertThat(response.playerId()).isNotBlank();
+            softly.assertThat(response.snapshot().roomCode()).isEqualTo("ABCD");
+            softly.assertThat(response.snapshot().hostId()).isEqualTo(response.playerId());
+            softly.assertThat(response.snapshot().players()).hasSize(1);
+            softly.assertThat(response.snapshot().players().get(0).nickname()).isEqualTo("호스트");
             softly.assertThat(gameRegistry.find("ABCD")).isPresent();
         });
     }

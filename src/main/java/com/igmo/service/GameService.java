@@ -31,7 +31,7 @@ public class GameService {
     public CreateGameResponse createGame(String nickname) {
         Player host = new Player(nickname);
         GameRoom room = createRoomWithUniqueCode(host);
-        return new CreateGameResponse(room.getCode(), host.getId());
+        return new CreateGameResponse(room.getCode(), host.getId(), LobbySnapshot.from(room));
     }
 
     public JoinGameResponse joinGame(String code, String nickname) {
