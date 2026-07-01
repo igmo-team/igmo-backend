@@ -2,6 +2,7 @@ HELP.md
 .env
 .env.*
 !.env.example
+deploy/nginx/certs/
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
