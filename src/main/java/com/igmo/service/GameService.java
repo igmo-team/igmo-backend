@@ -8,10 +8,12 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class GameService {
 
     private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
@@ -20,13 +22,6 @@ public class GameService {
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
-
-    public GameService(GameRegistry gameRegistry, RoomCodeGenerator roomCodeGenerator,
-                       SimpMessagingTemplate messagingTemplate) {
-        this.gameRegistry = gameRegistry;
-        this.roomCodeGenerator = roomCodeGenerator;
-        this.messagingTemplate = messagingTemplate;
-    }
 
     public CreateGameResponse createGame(String nickname) {
         Player host = new Player(nickname);
