@@ -73,7 +73,7 @@ start_container() {
     --memory 1280m \
     --env SPRING_PROFILES_ACTIVE=prod \
     --env 'JAVA_TOOL_OPTIONS=-Xms128m -Xmx768m' \
-    --publish 80:8080 \
+    --publish 127.0.0.1:8080:8080 \
     --log-opt max-size=10m \
     --log-opt max-file=3 \
     "\$1"
@@ -95,9 +95,9 @@ fi
 HEALTHY='false'
 ATTEMPT=0
 while [ "\$ATTEMPT" -lt 30 ]; do
-  HTTP_STATUS=\$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1/ || true)
+  HTTP_STATUS=\$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/actuator/health || true)
   case "\$HTTP_STATUS" in
-    2??|3??|4??)
+    200)
       HEALTHY='true'
       break
       ;;
