@@ -57,7 +57,7 @@ public class GameRoom {
         return players.size() >= MAX_PLAYERS;
     }
 
-    private boolean hasNickname(String nickname) {
+    private boolean hasNickname(Nickname nickname) {
         return players.values().stream()
                 .anyMatch(player -> player.getNickname().equals(nickname));
     }

@@ -73,4 +73,17 @@ class GameRoomTest {
                 .isInstanceOf(DuplicateNicknameException.class)
                 .hasMessage("이미 사용 중인 닉네임입니다.");
     }
+
+    @Test
+    @DisplayName("앞뒤 공백만 다른 닉네임으로 참가하면 DuplicateNicknameException을 던진다.")
+    void addPlayer_공백만_다른_닉네임은_중복으로_처리한다() {
+        // given
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        room.addPlayer(new Player("참가자"));
+
+        // when & then
+        assertThatThrownBy(() -> room.addPlayer(new Player("  참가자  ")))
+                .isInstanceOf(DuplicateNicknameException.class)
+                .hasMessage("이미 사용 중인 닉네임입니다.");
+    }
 }

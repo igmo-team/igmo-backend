@@ -7,12 +7,12 @@ import lombok.Getter;
 public class Player {
 
     private final String id;
-    private final String nickname;
+    private final Nickname nickname;
     private int score;
 
     public Player(String nickname) {
         this.id = UUID.randomUUID().toString();
-        this.nickname = nickname;
+        this.nickname = new Nickname(nickname);
         this.score = 0;
     }
 }
