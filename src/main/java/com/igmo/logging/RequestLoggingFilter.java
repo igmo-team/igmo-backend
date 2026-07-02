@@ -32,13 +32,15 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         MDC.put(REQUEST_ID_MDC_KEY, requestId);
         response.setHeader(REQUEST_ID_HEADER, requestId);
 
+        Exception caughtException = null;
         try {
             filterChain.doFilter(request, response);
         } catch (Exception exception) {
-            logError(request, response, exception);
+            caughtException = exception;
+            logError(request, exception, resolveLogStatus(response, caughtException));
             throw exception;
         } finally {
-            logAccess(request, response, startedAt);
+            logAccess(request, startedAt, resolveLogStatus(response, caughtException));
             MDC.remove(REQUEST_ID_MDC_KEY);
         }
     }
@@ -67,8 +69,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private void logAccess(
             HttpServletRequest request,
-            HttpServletResponse response,
-            long startedAt
+            long startedAt,
+            int status
     ) {
         long durationMs = (System.nanoTime() - startedAt) / 1_000_000;
 
@@ -76,23 +78,31 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                 .addKeyValue("method", request.getMethod())
                 .addKeyValue("path", request.getRequestURI())
                 .addKeyValue("normalizedPath", resolveNormalizedPath(request))
-                .addKeyValue("status", response.getStatus())
+                .addKeyValue("status", status)
                 .addKeyValue("durationMs", durationMs)
                 .log("HTTP request completed");
     }
 
     private void logError(
             HttpServletRequest request,
-            HttpServletResponse response,
-            Exception exception
+            Exception exception,
+            int status
     ) {
         log.atError()
                 .addKeyValue("method", request.getMethod())
                 .addKeyValue("path", request.getRequestURI())
                 .addKeyValue("normalizedPath", resolveNormalizedPath(request))
-                .addKeyValue("status", response.getStatus())
+                .addKeyValue("status", status)
                 .addKeyValue("exception", exception.getClass().getSimpleName())
                 .log("Unhandled exception", exception);
+    }
+
+    int resolveLogStatus(HttpServletResponse response, Exception exception) {
+        if (exception != null) {
+            return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+        }
+
+        return response.getStatus();
     }
 
     String resolveNormalizedPath(HttpServletRequest request) {

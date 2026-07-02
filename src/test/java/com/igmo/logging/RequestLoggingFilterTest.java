@@ -102,6 +102,21 @@ class RequestLoggingFilterTest {
     }
 
     @Test
+    @DisplayName("요청 처리 중 예외가 발생하면 로그 상태를 500으로 사용한다.")
+    void resolveInternalServerErrorStatusWhenRequestFails() {
+        // given
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        ServletException exception = new ServletException("요청 처리 실패");
+
+        // when
+        int status = filter.resolveLogStatus(response, exception);
+
+        // then
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(status).isEqualTo(500);
+    }
+
+    @Test
     @DisplayName("매칭된 핸들러 패턴이 있으면 정규화된 경로로 사용한다.")
     void resolveNormalizedPathFromBestMatchingPattern() {
         // given
