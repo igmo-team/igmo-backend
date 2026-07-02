@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows:
+      - CD
+    types:
+      - completed
+    branches:
+      - prod
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-prod
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release target
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Calculate next release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force origin
+
+          existing_tag="$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n 1 || true)"
+          if [[ -n "$existing_tag" ]]; then
+            {
+              echo "should_release=false"
+              echo "tag=$existing_tag"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
+          if [[ -z "$latest_tag" ]]; then
+            {
+              echo "should_release=true"
+              echo "tag=v1.0.0"
+              echo "range=HEAD"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          version="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$version"
+          range="${latest_tag}..HEAD"
+          commit_messages="$(git log --format=%B "$range")"
+
+          if grep -Eq '^feat(\(.+\))?:' <<< "$commit_messages"; then
+            minor=$((minor + 1))
+            patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          {
+            echo "should_release=true"
+            echo "tag=v${major}.${minor}.${patch}"
+            echo "range=$range"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release notes
+        if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Changes"
+            echo
+            git log --pretty=format:'- %s (%h)' "${{ steps.version.outputs.range }}"
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --target "${{ steps.target.outputs.sha }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file release-notes.md
