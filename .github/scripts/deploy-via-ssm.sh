@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 CONTAINER_NAME="igmo-backend"
+CLOUDWATCH_LOG_GROUP="/igmo/prod/app"
 
 require_value() {
   local name="$1"
@@ -36,6 +37,7 @@ set -eu
 AWS_REGION='${AWS_REGION}'
 IMAGE_URI='${IMAGE_URI}'
 CONTAINER_NAME='${CONTAINER_NAME}'
+CLOUDWATCH_LOG_GROUP='${CLOUDWATCH_LOG_GROUP}'
 REGISTRY="\${IMAGE_URI%%/*}"
 
 if ! command -v aws >/dev/null 2>&1; then
@@ -66,6 +68,7 @@ fi
 docker rm --force "\$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 start_container() {
+  IMAGE_TAG="\${1##*:}"
   docker run --detach \
     --name "\$CONTAINER_NAME" \
     --restart always \
@@ -74,8 +77,10 @@ start_container() {
     --env SPRING_PROFILES_ACTIVE=prod \
     --env 'JAVA_TOOL_OPTIONS=-Xms128m -Xmx768m' \
     --publish 127.0.0.1:8080:8080 \
-    --log-opt max-size=10m \
-    --log-opt max-file=3 \
+    --log-driver awslogs \
+    --log-opt awslogs-region="\$AWS_REGION" \
+    --log-opt awslogs-group="\$CLOUDWATCH_LOG_GROUP" \
+    --log-opt awslogs-stream="\$CONTAINER_NAME/\$IMAGE_TAG" \
     "\$1"
 }
 
@@ -96,19 +101,20 @@ HEALTHY='false'
 ATTEMPT=0
 while [ "\$ATTEMPT" -lt 30 ]; do
   HTTP_STATUS=\$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/actuator/health || true)
-  case "\$HTTP_STATUS" in
-    200)
-      HEALTHY='true'
-      break
-      ;;
-  esac
+  if [ "\$HTTP_STATUS" = '200' ]; then
+    HEALTHY='true'
+    break
+  fi
   ATTEMPT=\$((ATTEMPT + 1))
   sleep 2
 done
 
 if [ "\$HEALTHY" != 'true' ]; then
   echo 'The new container did not become healthy.' >&2
-  docker logs --tail 200 "\$CONTAINER_NAME" || true
+  aws logs tail "\$CLOUDWATCH_LOG_GROUP" \
+    --region "\$AWS_REGION" \
+    --log-stream-names "\$CONTAINER_NAME/\${IMAGE_URI##*:}" \
+    --since 10m || true
   rollback
   exit 1
 fi
