@@ -34,6 +34,10 @@ public class GameService {
         GameRoom room = gameRegistry.find(code)
                 .orElseThrow(RoomNotFoundException::new);
         synchronized (room) {
+            // 이 사이에 삭제된 경우
+            if (gameRegistry.find(code).orElse(null) != room) {
+                throw new RoomNotFoundException();
+            }
             String playerId = room.addPlayer(new Player(nickname));
             LobbySnapshot snapshot = LobbySnapshot.from(room);
             messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, snapshot);
