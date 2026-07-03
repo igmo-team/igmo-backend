@@ -1,6 +1,8 @@
 package com.igmo.web;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -9,6 +11,7 @@ import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.exception.RoomFullException;
 import com.igmo.service.GameService;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
@@ -120,5 +123,35 @@ class GameControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"host\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("방을 나가면 204를 반환한다.")
+    void leaveGame_성공하면_204를_반환한다() throws Exception {
+        // when & then
+        mockMvc.perform(delete("/games/ABCD/players/guest-id"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 방에서 나가면 404를 반환한다.")
+    void leaveGame_없는_방이면_404를_반환한다() throws Exception {
+        // given
+        willThrow(new RoomNotFoundException()).given(gameService).leaveGame("ZZZZ", "guest-id");
+
+        // when & then
+        mockMvc.perform(delete("/games/ZZZZ/players/guest-id"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어가 나가면 404를 반환한다.")
+    void leaveGame_방에_없는_플레이어면_404를_반환한다() throws Exception {
+        // given
+        willThrow(new PlayerNotFoundException()).given(gameService).leaveGame("ABCD", "unknown-id");
+
+        // when & then
+        mockMvc.perform(delete("/games/ABCD/players/unknown-id"))
+                .andExpect(status().isNotFound());
     }
 }

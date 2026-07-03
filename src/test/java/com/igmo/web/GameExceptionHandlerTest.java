@@ -3,6 +3,7 @@ package com.igmo.web;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.web.dto.ErrorResponse;
@@ -20,12 +21,25 @@ class GameExceptionHandlerTest {
     @DisplayName("RoomNotFoundException은 404와 메시지를 반환한다.")
     void handle_방을_찾을_수_없으면_404를_반환한다() {
         // when
-        ResponseEntity<ErrorResponse> response = handler.handleRoomNotFound(new RoomNotFoundException());
+        ResponseEntity<ErrorResponse> response = handler.handleNotFound(new RoomNotFoundException());
 
         // then
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
             softly.assertThat(response.getBody().message()).isEqualTo("방을 찾을 수 없습니다.");
+        });
+    }
+
+    @Test
+    @DisplayName("PlayerNotFoundException은 404와 메시지를 반환한다.")
+    void handle_플레이어를_찾을_수_없으면_404를_반환한다() {
+        // when
+        ResponseEntity<ErrorResponse> response = handler.handleNotFound(new PlayerNotFoundException());
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            softly.assertThat(response.getBody().message()).isEqualTo("방에 없는 플레이어입니다.");
         });
     }
 
