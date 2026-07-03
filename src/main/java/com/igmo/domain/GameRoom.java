@@ -3,6 +3,7 @@ package com.igmo.domain;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
@@ -16,7 +17,7 @@ public class GameRoom {
     @Getter
     private final String code;
     @Getter
-    private final String hostId;
+    private String hostId;
     @Getter
     private GamePhase phase;
     private final Map<String, Player> players = new LinkedHashMap<>();
@@ -46,8 +47,27 @@ public class GameRoom {
         return player.getId();
     }
 
+    public synchronized boolean removePlayer(String playerId) {
+        if (players.remove(playerId) == null) {
+            return false;
+        }
+        if (playerId.equals(hostId) && !players.isEmpty()) {
+            assignRandomHost();
+        }
+        return true;
+    }
+
     public synchronized List<Player> getPlayers() {
         return List.copyOf(players.values());
+    }
+
+    public synchronized boolean isEmpty() {
+        return players.isEmpty();
+    }
+
+    private void assignRandomHost() {
+        List<Player> remaining = List.copyOf(players.values());
+        hostId = remaining.get(ThreadLocalRandom.current().nextInt(remaining.size())).getId();
     }
 
     private boolean isInLobby() {
