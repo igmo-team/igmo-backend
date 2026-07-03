@@ -1,5 +1,6 @@
 package com.igmo.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,6 +15,7 @@ import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
@@ -137,7 +139,7 @@ class GameServiceTest {
         JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
 
         // when
-        gameService.leaveGame("ABCD", joined.playerId());
+        gameService.leaveGame("ABCD", joined.playerId(), joined.secret());
 
         // then
         LobbySnapshot snapshot = captureLastBroadcast(2);
@@ -157,7 +159,7 @@ class GameServiceTest {
         JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
 
         // when
-        gameService.leaveGame("ABCD", created.playerId());
+        gameService.leaveGame("ABCD", created.playerId(), created.secret());
 
         // then
         LobbySnapshot snapshot = captureLastBroadcast(2);
@@ -175,7 +177,7 @@ class GameServiceTest {
         CreateGameResponse created = gameService.createGame("호스트");
 
         // when
-        gameService.leaveGame("ABCD", created.playerId());
+        gameService.leaveGame("ABCD", created.playerId(), created.secret());
 
         // then
         SoftAssertions.assertSoftly(softly ->
@@ -187,7 +189,7 @@ class GameServiceTest {
     @DisplayName("존재하지 않는 방에서 나가면 RoomNotFoundException을 던진다.")
     void leaveGame_없는_방이면_예외를_던진다() {
         // when & then
-        assertThatThrownBy(() -> gameService.leaveGame("ZZZZ", "player-id"))
+        assertThatThrownBy(() -> gameService.leaveGame("ZZZZ", "player-id", "secret"))
                 .isInstanceOf(RoomNotFoundException.class)
                 .hasMessage("방을 찾을 수 없습니다.");
     }
@@ -200,9 +202,25 @@ class GameServiceTest {
         gameService.createGame("호스트");
 
         // when & then
-        assertThatThrownBy(() -> gameService.leaveGame("ABCD", "unknown-player-id"))
+        assertThatThrownBy(() -> gameService.leaveGame("ABCD", "unknown-player-id", "secret"))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
+    }
+
+    @Test
+    @DisplayName("secret이 일치하지 않으면 UnauthorizedPlayerException을 던지고 플레이어를 제거하지 않는다.")
+    void leaveGame_secret이_일치하지_않으면_예외를_던진다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.leaveGame("ABCD", joined.playerId(), "wrong-secret"))
+                .isInstanceOf(UnauthorizedPlayerException.class)
+                .hasMessage("본인만 퇴장할 수 있습니다.");
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(joined.playerId()), "대상 플레이어가 방에 남아 있어야 한다");
     }
 
     @Test

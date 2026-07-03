@@ -13,6 +13,7 @@ import com.igmo.domain.exception.RoomFullException;
 import com.igmo.service.GameService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
@@ -42,7 +43,7 @@ class GameControllerTest {
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
                 List.of(new PlayerView("host-id", "host", 0)));
         given(gameService.createGame("host"))
-                .willReturn(new CreateGameResponse("ABCD", "host-id", snapshot));
+                .willReturn(new CreateGameResponse("ABCD", "host-id", "host-secret", snapshot));
 
         // when & then
         mockMvc.perform(post("/games")
@@ -51,6 +52,7 @@ class GameControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.roomCode").value("ABCD"))
                 .andExpect(jsonPath("$.playerId").value("host-id"))
+                .andExpect(jsonPath("$.secret").value("host-secret"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
                 .andExpect(jsonPath("$.snapshot.hostId").value("host-id"))
                 .andExpect(jsonPath("$.snapshot.players.length()").value(1));
@@ -74,7 +76,7 @@ class GameControllerTest {
                 List.of(new PlayerView("host-id", "host", 0),
                         new PlayerView("guest-id", "guest", 0)));
         given(gameService.joinGame("ABCD", "guest"))
-                .willReturn(new JoinGameResponse("guest-id", snapshot));
+                .willReturn(new JoinGameResponse("guest-id", "guest-secret", snapshot));
 
         // when & then
         mockMvc.perform(post("/games/ABCD/players")
@@ -82,6 +84,7 @@ class GameControllerTest {
                         .content("{\"nickname\":\"guest\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.playerId").value("guest-id"))
+                .andExpect(jsonPath("$.secret").value("guest-secret"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
                 .andExpect(jsonPath("$.snapshot.players.length()").value(2));
     }
@@ -129,18 +132,41 @@ class GameControllerTest {
     @DisplayName("방을 나가면 204를 반환한다.")
     void leaveGame_성공하면_204를_반환한다() throws Exception {
         // when & then
-        mockMvc.perform(delete("/games/ABCD/players/guest-id"))
+        mockMvc.perform(delete("/games/ABCD/players/guest-id")
+                        .header("X-Player-Secret", "guest-secret"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("secret 헤더가 없으면 400을 반환한다.")
+    void leaveGame_secret_헤더가_없으면_400을_반환한다() throws Exception {
+        // when & then
+        mockMvc.perform(delete("/games/ABCD/players/guest-id"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("secret이 일치하지 않으면 403을 반환한다.")
+    void leaveGame_secret이_일치하지_않으면_403을_반환한다() throws Exception {
+        // given
+        willThrow(new UnauthorizedPlayerException())
+                .given(gameService).leaveGame("ABCD", "guest-id", "wrong-secret");
+
+        // when & then
+        mockMvc.perform(delete("/games/ABCD/players/guest-id")
+                        .header("X-Player-Secret", "wrong-secret"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("존재하지 않는 방에서 나가면 404를 반환한다.")
     void leaveGame_없는_방이면_404를_반환한다() throws Exception {
         // given
-        willThrow(new RoomNotFoundException()).given(gameService).leaveGame("ZZZZ", "guest-id");
+        willThrow(new RoomNotFoundException()).given(gameService).leaveGame("ZZZZ", "guest-id", "guest-secret");
 
         // when & then
-        mockMvc.perform(delete("/games/ZZZZ/players/guest-id"))
+        mockMvc.perform(delete("/games/ZZZZ/players/guest-id")
+                        .header("X-Player-Secret", "guest-secret"))
                 .andExpect(status().isNotFound());
     }
 
@@ -148,10 +174,11 @@ class GameControllerTest {
     @DisplayName("방에 없는 플레이어가 나가면 404를 반환한다.")
     void leaveGame_방에_없는_플레이어면_404를_반환한다() throws Exception {
         // given
-        willThrow(new PlayerNotFoundException()).given(gameService).leaveGame("ABCD", "unknown-id");
+        willThrow(new PlayerNotFoundException()).given(gameService).leaveGame("ABCD", "unknown-id", "guest-secret");
 
         // when & then
-        mockMvc.perform(delete("/games/ABCD/players/unknown-id"))
+        mockMvc.perform(delete("/games/ABCD/players/unknown-id")
+                        .header("X-Player-Secret", "guest-secret"))
                 .andExpect(status().isNotFound());
     }
 }

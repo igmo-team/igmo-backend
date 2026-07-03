@@ -6,6 +6,7 @@ import com.igmo.domain.exception.RoomFullException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.web.dto.ErrorResponse;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
@@ -47,12 +48,25 @@ class GameExceptionHandlerTest {
     @DisplayName("RoomFullException은 403과 메시지를 반환한다.")
     void handle_방이_가득_차면_403을_반환한다() {
         // when
-        ResponseEntity<ErrorResponse> response = handler.handleRoomFull(new RoomFullException());
+        ResponseEntity<ErrorResponse> response = handler.handleForbidden(new RoomFullException());
 
         // then
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
             softly.assertThat(response.getBody().message()).isEqualTo("방 정원이 가득 찼습니다.");
+        });
+    }
+
+    @Test
+    @DisplayName("UnauthorizedPlayerException은 403과 메시지를 반환한다.")
+    void handle_본인이_아니면_403을_반환한다() {
+        // when
+        ResponseEntity<ErrorResponse> response = handler.handleForbidden(new UnauthorizedPlayerException());
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            softly.assertThat(response.getBody().message()).isEqualTo("본인만 퇴장할 수 있습니다.");
         });
     }
 

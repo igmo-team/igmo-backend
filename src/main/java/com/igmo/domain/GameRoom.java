@@ -65,6 +65,15 @@ public class GameRoom {
         return players.isEmpty();
     }
 
+    public synchronized boolean hasPlayer(String playerId) {
+        return players.containsKey(playerId);
+    }
+
+    public synchronized boolean isSecretValid(String playerId, String secret) {
+        Player player = players.get(playerId);
+        return player != null && player.getSecret().equals(secret);
+    }
+
     private void assignRandomHost() {
         List<Player> remaining = List.copyOf(players.values());
         hostId = remaining.get(ThreadLocalRandom.current().nextInt(remaining.size())).getId();
