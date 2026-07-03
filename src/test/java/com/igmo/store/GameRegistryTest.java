@@ -55,4 +55,19 @@ class GameRegistryTest {
         // when & then
         assertThat(registry.find("ZZZZ")).isEmpty();
     }
+
+    @Test
+    @DisplayName("방을 삭제하면 더 이상 조회되지 않는다.")
+    void remove_방을_삭제하면_조회되지_않는다() {
+        // given
+        GameRegistry registry = new GameRegistry();
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        registry.saveIfAbsent(room);
+
+        // when
+        registry.remove("ABCD");
+
+        // then
+        assertThat(registry.find("ABCD")).isEmpty();
+    }
 }
