@@ -86,7 +86,7 @@
                 "service",
                 "env"
               ],
-              "label_matcher": "^igmo-app$;^igmo$;^prod$",
+              "label_matcher": "^igmo-app;igmo;prod$",
               "dimensions": [
                 [
                   "service",
