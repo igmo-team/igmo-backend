@@ -1,5 +1,7 @@
 package com.igmo.domain;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.lang.reflect.Field;
@@ -178,6 +180,52 @@ class GameRoomTest {
             softly.assertThat(room.getPlayers()).containsExactly(host);
             softly.assertThat(room.getHostId()).isEqualTo(host.getId());
         });
+    }
+
+    @Test
+    @DisplayName("참가자의 준비 상태를 변경하면 해당 참가자에게 반영된다.")
+    void changePlayerReady_준비_상태를_변경하면_반영된다() {
+        // given
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        Player guest = new Player("참가자");
+        room.addPlayer(guest);
+
+        // when
+        room.changePlayerReady(guest.getId(), true);
+
+        // then
+        Player found = room.getPlayers().stream()
+                .filter(player -> player.getId().equals(guest.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(found.isReady()).isTrue();
+    }
+
+    @Test
+    @DisplayName("로비 단계가 아니면 준비 상태를 변경할 때 GameAlreadyStartedException을 던진다.")
+    void changePlayerReady_이미_시작된_게임이면_예외를_던진다() throws Exception {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        setPhase(room, GamePhase.GENERATING);
+
+        // when & then
+        assertThatThrownBy(() -> room.changePlayerReady(host.getId(), true))
+                .isInstanceOf(GameAlreadyStartedException.class)
+                .hasMessage("이미 시작된 게임입니다.");
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어의 준비 상태 변경은 예외 없이 무시한다.")
+    void changePlayerReady_방에_없는_플레이어면_무시한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+
+        // when & then
+        assertThatCode(() -> room.changePlayerReady("unknown-player-id", true))
+                .doesNotThrowAnyException();
+        assertThat(host.isReady()).isFalse();
     }
 
     private void setPhase(GameRoom room, GamePhase phase) throws Exception {

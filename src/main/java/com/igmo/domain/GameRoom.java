@@ -74,6 +74,17 @@ public class GameRoom {
         return player != null && player.getSecret().equals(secret);
     }
 
+    public synchronized void changePlayerReady(String playerId, boolean ready) {
+        if (!isInLobby()) {
+            throw new GameAlreadyStartedException();
+        }
+        Player player = players.get(playerId);
+        if (player == null) {
+            return;
+        }
+        player.changeReady(ready);
+    }
+
     private void assignRandomHost() {
         List<Player> remaining = List.copyOf(players.values());
         hostId = remaining.get(ThreadLocalRandom.current().nextInt(remaining.size())).getId();
