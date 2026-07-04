@@ -58,6 +58,33 @@ class GameMessageControllerTest {
         verifyNoInteractions(gameService);
     }
 
+    @Test
+    @DisplayName("세션의 playerId로 게임 시작을 서비스에 위임한다.")
+    void startGame_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.startGame("ABCD", headerAccessor);
+
+        // then
+        verify(gameService).startGame("ABCD", "player-1");
+    }
+
+    @Test
+    @DisplayName("세션에 playerId가 없으면 게임 시작 서비스를 호출하지 않는다.")
+    void startGame_세션에_playerId가_없으면_서비스를_호출하지_않는다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when
+        controller.startGame("ABCD", headerAccessor);
+
+        // then
+        verifyNoInteractions(gameService);
+    }
+
     private SimpMessageHeaderAccessor headerAccessorWithPlayerId(String playerId) {
         Map<String, Object> sessionAttributes = new HashMap<>();
         sessionAttributes.put(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE, playerId);
