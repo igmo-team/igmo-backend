@@ -18,4 +18,8 @@ public class GameRegistry {
     public Optional<GameRoom> find(String code) {
         return Optional.ofNullable(rooms.get(code));
     }
+
+    public void remove(String code) {
+        rooms.remove(code);
+    }
 }

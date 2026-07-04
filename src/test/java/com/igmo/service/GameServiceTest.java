@@ -1,19 +1,29 @@
 package com.igmo.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
+import com.igmo.web.dto.LobbySnapshot;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 class GameServiceTest {
@@ -118,5 +128,146 @@ class GameServiceTest {
         assertThatThrownBy(() -> gameService.joinGame("ABCD", "호스트"))
                 .isInstanceOf(DuplicateNicknameException.class)
                 .hasMessage("이미 사용 중인 닉네임입니다.");
+    }
+
+    @Test
+    @DisplayName("참가자가 방을 나가면 남은 인원이 담긴 스냅샷을 브로드캐스트한다.")
+    void leaveGame_참가자가_나가면_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+
+        // when
+        gameService.leaveGame("ABCD", joined.playerId(), joined.secret());
+
+        // then
+        LobbySnapshot snapshot = captureLastBroadcast(2);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.players()).hasSize(1);
+            softly.assertThat(snapshot.players().get(0).id()).isEqualTo(created.playerId());
+            softly.assertThat(snapshot.hostId()).isEqualTo(created.playerId());
+        });
+    }
+
+    @Test
+    @DisplayName("방장이 나가면 남은 참가자가 새 방장으로 지정된 스냅샷을 브로드캐스트한다.")
+    void leaveGame_방장이_나가면_새_방장이_담긴_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+
+        // when
+        gameService.leaveGame("ABCD", created.playerId(), created.secret());
+
+        // then
+        LobbySnapshot snapshot = captureLastBroadcast(2);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.players()).hasSize(1);
+            softly.assertThat(snapshot.hostId()).isEqualTo(joined.playerId());
+        });
+    }
+
+    @Test
+    @DisplayName("마지막 참가자가 나가면 방을 삭제하고 브로드캐스트하지 않는다.")
+    void leaveGame_마지막_참가자가_나가면_방을_삭제하고_브로드캐스트하지_않는다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+
+        // when
+        gameService.leaveGame("ABCD", created.playerId(), created.secret());
+
+        // then
+        SoftAssertions.assertSoftly(softly ->
+                softly.assertThat(gameRegistry.find("ABCD")).isEmpty());
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 방에서 나가면 RoomNotFoundException을 던진다.")
+    void leaveGame_없는_방이면_예외를_던진다() {
+        // when & then
+        assertThatThrownBy(() -> gameService.leaveGame("ZZZZ", "player-id", "secret"))
+                .isInstanceOf(RoomNotFoundException.class)
+                .hasMessage("방을 찾을 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어가 나가면 PlayerNotFoundException을 던진다.")
+    void leaveGame_방에_없는_플레이어면_예외를_던진다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.leaveGame("ABCD", "unknown-player-id", "secret"))
+                .isInstanceOf(PlayerNotFoundException.class)
+                .hasMessage("방에 없는 플레이어입니다.");
+    }
+
+    @Test
+    @DisplayName("secret이 일치하지 않으면 UnauthorizedPlayerException을 던지고 플레이어를 제거하지 않는다.")
+    void leaveGame_secret이_일치하지_않으면_예외를_던진다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.leaveGame("ABCD", joined.playerId(), "wrong-secret"))
+                .isInstanceOf(UnauthorizedPlayerException.class)
+                .hasMessage("본인만 퇴장할 수 있습니다.");
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(joined.playerId()), "대상 플레이어가 방에 남아 있어야 한다");
+    }
+
+    @Test
+    @DisplayName("연결이 끊긴 참가자를 방에서 제거하고 스냅샷을 브로드캐스트한다.")
+    void handleDisconnect_연결이_끊긴_참가자를_제거하고_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+
+        // when
+        gameService.handleDisconnect("ABCD", joined.playerId());
+
+        // then
+        LobbySnapshot snapshot = captureLastBroadcast(2);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.players()).hasSize(1);
+            softly.assertThat(snapshot.players().get(0).id()).isEqualTo(created.playerId());
+        });
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 방의 연결 끊김은 예외 없이 무시한다.")
+    void handleDisconnect_없는_방이면_무시한다() {
+        // when & then
+        assertThatCode(() -> gameService.handleDisconnect("ZZZZ", "player-id"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어의 연결 끊김은 예외 없이 무시하고 브로드캐스트하지 않는다.")
+    void handleDisconnect_방에_없는_플레이어면_무시한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+
+        // when
+        gameService.handleDisconnect("ABCD", "unknown-player-id");
+
+        // then
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
+    }
+
+    private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {
+        ArgumentCaptor<LobbySnapshot> captor = ArgumentCaptor.forClass(LobbySnapshot.class);
+        verify(messagingTemplate, times(expectedBroadcastCount))
+                .convertAndSend(eq("/topic/room/ABCD"), captor.capture());
+        return captor.getValue();
     }
 }

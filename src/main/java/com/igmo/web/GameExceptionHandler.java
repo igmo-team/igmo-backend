@@ -4,8 +4,10 @@ import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.InvalidNicknameException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.web.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,13 +18,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GameExceptionHandler {
 
-    @ExceptionHandler(RoomNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleRoomNotFound(RoomNotFoundException e) {
+    @ExceptionHandler({RoomNotFoundException.class, PlayerNotFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
     }
 
-    @ExceptionHandler(RoomFullException.class)
-    public ResponseEntity<ErrorResponse> handleRoomFull(RoomFullException e) {
+    @ExceptionHandler({RoomFullException.class, UnauthorizedPlayerException.class})
+    public ResponseEntity<ErrorResponse> handleForbidden(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
     }
 

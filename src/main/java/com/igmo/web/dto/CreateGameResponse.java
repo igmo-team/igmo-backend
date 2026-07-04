@@ -1,4 +1,4 @@
 package com.igmo.web.dto;
 
-public record CreateGameResponse(String roomCode, String playerId, LobbySnapshot snapshot) {
+public record CreateGameResponse(String roomCode, String playerId, String secret, LobbySnapshot snapshot) {
 }
