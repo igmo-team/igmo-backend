@@ -20,16 +20,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/games")
 @RequiredArgsConstructor
-public class GameController {
+public class GameController implements GameApiSpecification {
 
     private final GameService gameService;
 
+    @Override
     @PostMapping
     public ResponseEntity<CreateGameResponse> createGame(@Valid @RequestBody CreateGameRequest request) {
         CreateGameResponse response = gameService.createGame(request.nickname());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @Override
     @PostMapping("/{code}/players")
     public ResponseEntity<JoinGameResponse> joinGame(
             @PathVariable String code,
@@ -38,6 +40,7 @@ public class GameController {
         return ResponseEntity.ok(response);
     }
 
+    @Override
     @DeleteMapping("/{code}/players/{playerId}")
     public ResponseEntity<Void> leaveGame(
             @PathVariable String code,
