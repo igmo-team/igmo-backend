@@ -11,11 +11,17 @@ public class Player {
     private final String secret;
     private final Nickname nickname;
     private int score;
+    private boolean ready;
 
     public Player(String nickname) {
         this.id = UUID.randomUUID().toString();
         this.secret = UUID.randomUUID().toString();
         this.nickname = new Nickname(nickname);
         this.score = 0;
+        this.ready = false;
+    }
+
+    public void changeReady(boolean ready) {
+        this.ready = ready;
     }
 }
