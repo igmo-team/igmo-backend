@@ -11,7 +11,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.igmo.domain.GamePhase;
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.NotHostException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -304,6 +306,49 @@ class GameServiceTest {
         assertThatThrownBy(() -> gameService.changeReady("ABCD", "unknown-player-id", true))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
+    }
+
+    @Test
+    @DisplayName("방장이 시작하면 GENERATING 단계로 진행한 스냅샷을 브로드캐스트한다.")
+    void startGame_방장이_시작하면_다음_단계_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+
+        // when
+        gameService.startGame("ABCD", created.playerId());
+
+        // then
+        LobbySnapshot snapshot = captureLastBroadcast(5);
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.GENERATING);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 방을 시작하면 RoomNotFoundException을 던진다.")
+    void startGame_없는_방이면_예외를_던진다() {
+        // when & then
+        assertThatThrownBy(() -> gameService.startGame("ZZZZ", "player-id"))
+                .isInstanceOf(RoomNotFoundException.class)
+                .hasMessage("방을 찾을 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("방장이 아닌 참가자가 시작하면 도메인의 NotHostException을 전파한다.")
+    void startGame_방장이_아니면_예외를_전파한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        gameService.joinGame("ABCD", "참가자2");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.startGame("ABCD", guest1.playerId()))
+                .isInstanceOf(NotHostException.class)
+                .hasMessage("방장만 게임을 시작할 수 있습니다.");
     }
 
     private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {

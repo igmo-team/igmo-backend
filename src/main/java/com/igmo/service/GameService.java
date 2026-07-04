@@ -78,6 +78,18 @@ public class GameService {
         }
     }
 
+    public void startGame(String code, String playerId) {
+        GameRoom room = gameRegistry.find(code)
+                .orElseThrow(RoomNotFoundException::new);
+        synchronized (room) {
+            if (isDetached(code, room)) {
+                throw new RoomNotFoundException();
+            }
+            room.start(playerId);
+            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+        }
+    }
+
     public void handleDisconnect(String code, String playerId) {
         gameRegistry.find(code)
                 .ifPresent(room -> removePlayerAndBroadcast(room, playerId));
