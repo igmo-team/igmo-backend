@@ -41,7 +41,7 @@ class GameControllerTest {
     void createGame_성공하면_201을_반환한다() throws Exception {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
-                List.of(new PlayerView("host-id", "host", 0)));
+                List.of(new PlayerView("host-id", "host", 0, false)));
         given(gameService.createGame("host"))
                 .willReturn(new CreateGameResponse("ABCD", "host-id", "host-secret", snapshot));
 
@@ -73,8 +73,8 @@ class GameControllerTest {
     void joinGame_성공하면_200을_반환한다() throws Exception {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
-                List.of(new PlayerView("host-id", "host", 0),
-                        new PlayerView("guest-id", "guest", 0)));
+                List.of(new PlayerView("host-id", "host", 0, false),
+                        new PlayerView("guest-id", "guest", 0, false)));
         given(gameService.joinGame("ABCD", "guest"))
                 .willReturn(new JoinGameResponse("guest-id", "guest-secret", snapshot));
 

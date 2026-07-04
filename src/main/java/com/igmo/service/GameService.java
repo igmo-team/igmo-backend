@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class GameService {
 
-    private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
+    private static final String LOBBY_TOPIC_PREFIX = "/topic/rooms/";
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
 
     private final GameRegistry gameRegistry;
@@ -35,8 +35,7 @@ public class GameService {
         GameRoom room = gameRegistry.find(code)
                 .orElseThrow(RoomNotFoundException::new);
         synchronized (room) {
-            // 이 사이에 삭제된 경우
-            if (gameRegistry.find(code).orElse(null) != room) {
+            if (isDetached(code, room)) {
                 throw new RoomNotFoundException();
             }
             Player player = new Player(nickname);
@@ -51,6 +50,9 @@ public class GameService {
         GameRoom room = gameRegistry.find(code)
                 .orElseThrow(RoomNotFoundException::new);
         synchronized (room) {
+            if (isDetached(code, room)) {
+                throw new RoomNotFoundException();
+            }
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
@@ -61,6 +63,21 @@ public class GameService {
         }
     }
 
+    public void changeReady(String code, String playerId, boolean ready) {
+        GameRoom room = gameRegistry.find(code)
+                .orElseThrow(RoomNotFoundException::new);
+        synchronized (room) {
+            if (isDetached(code, room)) {
+                throw new RoomNotFoundException();
+            }
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            room.changePlayerReady(playerId, ready);
+            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+        }
+    }
+
     public void handleDisconnect(String code, String playerId) {
         gameRegistry.find(code)
                 .ifPresent(room -> removePlayerAndBroadcast(room, playerId));
@@ -68,6 +85,10 @@ public class GameService {
 
     private void removePlayerAndBroadcast(GameRoom room, String playerId) {
         synchronized (room) {
+            // 방 획득과 락 진입 사이에 방이 삭제·교체되었으면 낡은 객체이므로 조용히 무시한다.
+            if (isDetached(room.getCode(), room)) {
+                return;
+            }
             if (!room.removePlayer(playerId)) {
                 return;
             }
@@ -77,6 +98,11 @@ public class GameService {
             }
             messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + room.getCode(), LobbySnapshot.from(room));
         }
+    }
+
+    // 방 획득과 락 진입 사이에 방이 삭제되고 같은 코드로 새 방이 생성되면 낡은 room 객체가 된다.
+    private boolean isDetached(String code, GameRoom room) {
+        return gameRegistry.find(code).orElse(null) != room;
     }
 
     private GameRoom createRoomWithUniqueCode(Player host) {
