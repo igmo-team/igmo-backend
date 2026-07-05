@@ -2,9 +2,12 @@ package com.igmo.config;
 
 import com.igmo.web.PlayerSessionInterceptor;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -22,6 +25,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             "https://www.igmo.co.kr"
     };
 
+    // 서버 송신 10초 / 클라이언트 수신 기대 10초. nginx 유휴 타임아웃보다 짧아야 한다(#43).
+    private static final long[] HEARTBEAT_MILLIS = {10_000, 10_000};
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
@@ -30,12 +36,22 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");
+        registry.enableSimpleBroker("/topic")
+                .setHeartbeatValue(HEARTBEAT_MILLIS)
+                .setTaskScheduler(webSocketHeartbeatScheduler());
         registry.setApplicationDestinationPrefixes("/app");
     }
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(playerSessionInterceptor);
+    }
+
+    @Bean
+    public TaskScheduler webSocketHeartbeatScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("ws-heartbeat-");
+        return scheduler;
     }
 }
