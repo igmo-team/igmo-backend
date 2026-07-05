@@ -8,7 +8,7 @@
 
 | 파일 | 설명 |
 |---|---|
-| `igmo.conf` | 운영 HTTPS 설정. HTTP(80)→HTTPS 301, `api.igmo.co.kr` TLS 종단, `127.0.0.1:8080` 프록시, `/actuator/*` 외부 차단(404) |
+| `igmo.conf` | 운영 HTTPS 설정. HTTP(80)→HTTPS 301, `api.igmo.co.kr` TLS 종단, `127.0.0.1:8080` 프록시, `/actuator/*` 외부 차단(404), API 문서 Basic Auth 보호 |
 | `igmo.bootstrap.conf` | 인증서 발급 전 임시 HTTP 설정. ACME challenge 경로 + 프록시만. EC2 재구축·도메인 변경으로 인증서를 새로 받을 때 사용 |
 | `apply.sh` | 위 설정을 EC2에 반영하는 헬퍼 스크립트 |
 
@@ -34,6 +34,30 @@ EC2 적용 위치: `/etc/nginx/sites-available/igmo`
    ```
 
 **필요 도구:** `aws` CLI(로그인 상태), `base64`. 자격증명이 만료되면 `aws login`으로 재인증한다.
+
+## API 문서 Basic Auth
+
+운영 설정은 API 문서 경로만 Basic Auth로 보호한다.
+
+- `/docs.html`
+- `/api-spec/*`
+
+nginx는 EC2 내부의 `/etc/nginx/.htpasswd` 파일로 인증 정보를 확인한다. 이 파일은 Git에
+커밋하지 않고 EC2에서 직접 생성한다.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y apache2-utils
+sudo htpasswd -c /etc/nginx/.htpasswd igmo-docs
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+사용자를 추가할 때는 기존 파일을 덮어쓰지 않도록 `-c`를 빼고 실행한다.
+
+```bash
+sudo htpasswd /etc/nginx/.htpasswd another-user
+```
 
 ### 주의
 
