@@ -16,7 +16,8 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 class GameMessageControllerTest {
 
     private final GameService gameService = mock(GameService.class);
-    private final GameMessageController controller = new GameMessageController(gameService);
+    private final GameMessageController controller =
+            new GameMessageController(gameService, new PlayerSessionResolver());
 
     @Test
     @DisplayName("세션의 playerId로 준비 상태 변경을 서비스에 위임한다.")
