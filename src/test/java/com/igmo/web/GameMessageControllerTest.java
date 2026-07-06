@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.igmo.service.GameService;
+import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
 import java.util.HashMap;
@@ -71,6 +72,33 @@ class GameMessageControllerTest {
 
         // then
         verify(gameService).startGame("ABCD", "player-1");
+    }
+
+    @Test
+    @DisplayName("세션의 playerId로 프롬프트 제출을 서비스에 위임한다.")
+    void submitPrompt_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.submitPrompt("ABCD", new PromptRequest("프롬프트"), headerAccessor);
+
+        // then
+        verify(gameService).submitPrompt("ABCD", "player-1", "프롬프트");
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void submitPrompt_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.submitPrompt("ABCD", new PromptRequest("프롬프트"), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameService);
     }
 
     @Test

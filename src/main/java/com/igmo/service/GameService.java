@@ -10,15 +10,16 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.PromptEntriesSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
@@ -96,6 +97,16 @@ public class GameService {
         });
     }
 
+    public void submitPrompt(String code, String playerId, String prompt) {
+        withLockedRoom(code, room -> {
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            room.submitPrompt(playerId, prompt, Instant.now());
+            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, PromptEntriesSnapshot.from(room));
+        });
+    }
+
     public void handleDisconnect(String code, String playerId) {
         ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
                 () -> runScheduledRemoval(code, playerId),
@@ -136,6 +147,13 @@ public class GameService {
         messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + room.getCode(), LobbySnapshot.from(room));
     }
 
+    private void withLockedRoom(String code, Consumer<GameRoom> operation) {
+        withLockedRoom(code, room -> {
+            operation.accept(room);
+            return null;
+        });
+    }
+
     private <T> T withLockedRoom(String code, Function<GameRoom, T> operation) {
         GameRoom room = gameRegistry.find(code)
                 .orElseThrow(RoomNotFoundException::new);
@@ -145,13 +163,6 @@ public class GameService {
             }
             return operation.apply(room);
         }
-    }
-
-    private void withLockedRoom(String code, Consumer<GameRoom> operation) {
-        withLockedRoom(code, room -> {
-            operation.accept(room);
-            return null;
-        });
     }
 
     private boolean isDetached(String code, GameRoom room) {
