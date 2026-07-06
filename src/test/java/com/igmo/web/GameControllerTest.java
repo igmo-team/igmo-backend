@@ -1,14 +1,24 @@
 package com.igmo.web;
 
+import static com.epages.restdocs.apispec.MockMvcRestDocumentationWrapper.document;
+import static com.epages.restdocs.apispec.ResourceDocumentation.resource;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.restdocs.headers.HeaderDocumentation.headerWithName;
+import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.delete;
+import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.post;
+import static org.springframework.restdocs.payload.JsonFieldType.ARRAY;
+import static org.springframework.restdocs.payload.JsonFieldType.NUMBER;
+import static org.springframework.restdocs.payload.JsonFieldType.OBJECT;
+import static org.springframework.restdocs.payload.JsonFieldType.STRING;
+import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
+import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.igmo.domain.exception.DuplicateNicknameException;
+import com.epages.restdocs.apispec.ResourceSnippetParameters;
 import com.igmo.domain.GamePhase;
+import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.RoomFullException;
 import com.igmo.service.GameService;
 import com.igmo.service.exception.PlayerNotFoundException;
@@ -22,12 +32,15 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.restdocs.AutoConfigureRestDocs;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.restdocs.payload.FieldDescriptor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(GameController.class)
+@AutoConfigureRestDocs
 class GameControllerTest {
 
     @Autowired
@@ -55,7 +68,15 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.secret").value("host-secret"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
                 .andExpect(jsonPath("$.snapshot.hostId").value("host-id"))
-                .andExpect(jsonPath("$.snapshot.players.length()").value(1));
+                .andExpect(jsonPath("$.snapshot.players.length()").value(1))
+                .andDo(document("create-game",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 생성")
+                                .description("호스트 닉네임으로 새 게임 방을 생성합니다.")
+                                .requestFields(nicknameField("호스트 닉네임. 앞뒤 공백은 제거되며 2~10자만 허용됩니다."))
+                                .responseFields(createGameResponseFields())
+                                .build())));
     }
 
     @Test
@@ -65,7 +86,16 @@ class GameControllerTest {
         mockMvc.perform(post("/games")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("닉네임을 입력해주세요."))
+                .andDo(document("create-game-invalid-nickname",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 생성")
+                                .description("호스트 닉네임으로 새 게임 방을 생성합니다.")
+                                .requestFields(nicknameField("호스트 닉네임. 앞뒤 공백은 제거되며 2~10자만 허용됩니다."))
+                                .responseFields(errorResponseFields())
+                                .build())));
     }
 
     @Test
@@ -79,14 +109,23 @@ class GameControllerTest {
                 .willReturn(new JoinGameResponse("guest-id", "guest-secret", snapshot));
 
         // when & then
-        mockMvc.perform(post("/games/ABCD/players")
+        mockMvc.perform(post("/games/{code}/players", "ABCD")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"guest\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.playerId").value("guest-id"))
                 .andExpect(jsonPath("$.secret").value("guest-secret"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
-                .andExpect(jsonPath("$.snapshot.players.length()").value(2));
+                .andExpect(jsonPath("$.snapshot.players.length()").value(2))
+                .andDo(document("join-game",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 참여")
+                                .description("기존 게임 방에 새 플레이어로 참여합니다.")
+                                .pathParameters(parameterWithName("code").description("참여할 방 코드"))
+                                .requestFields(nicknameField("참여자 닉네임. 앞뒤 공백은 제거되며 2~10자만 허용됩니다."))
+                                .responseFields(joinGameResponseFields())
+                                .build())));
     }
 
     @Test
@@ -96,10 +135,20 @@ class GameControllerTest {
         given(gameService.joinGame("ZZZZ", "guest")).willThrow(new RoomNotFoundException());
 
         // when & then
-        mockMvc.perform(post("/games/ZZZZ/players")
+        mockMvc.perform(post("/games/{code}/players", "ZZZZ")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"guest\"}"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("방을 찾을 수 없습니다."))
+                .andDo(document("join-game-room-not-found",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 참여")
+                                .description("기존 게임 방에 새 플레이어로 참여합니다.")
+                                .pathParameters(parameterWithName("code").description("참여할 방 코드"))
+                                .requestFields(nicknameField("참여자 닉네임. 앞뒤 공백은 제거되며 2~10자만 허용됩니다."))
+                                .responseFields(errorResponseFields())
+                                .build())));
     }
 
     @Test
@@ -109,10 +158,20 @@ class GameControllerTest {
         given(gameService.joinGame("ABCD", "guest")).willThrow(new RoomFullException());
 
         // when & then
-        mockMvc.perform(post("/games/ABCD/players")
+        mockMvc.perform(post("/games/{code}/players", "ABCD")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"guest\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("방 정원이 가득 찼습니다."))
+                .andDo(document("join-game-room-full",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 참여")
+                                .description("기존 게임 방에 새 플레이어로 참여합니다.")
+                                .pathParameters(parameterWithName("code").description("참여할 방 코드"))
+                                .requestFields(nicknameField("참여자 닉네임. 앞뒤 공백은 제거되며 2~10자만 허용됩니다."))
+                                .responseFields(errorResponseFields())
+                                .build())));
     }
 
     @Test
@@ -122,27 +181,58 @@ class GameControllerTest {
         given(gameService.joinGame("ABCD", "host")).willThrow(new DuplicateNicknameException());
 
         // when & then
-        mockMvc.perform(post("/games/ABCD/players")
+        mockMvc.perform(post("/games/{code}/players", "ABCD")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"host\"}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("이미 사용 중인 닉네임입니다."))
+                .andDo(document("join-game-duplicate-nickname",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 참여")
+                                .description("기존 게임 방에 새 플레이어로 참여합니다.")
+                                .pathParameters(parameterWithName("code").description("참여할 방 코드"))
+                                .requestFields(nicknameField("참여자 닉네임. 앞뒤 공백은 제거되며 2~10자만 허용됩니다."))
+                                .responseFields(errorResponseFields())
+                                .build())));
     }
 
     @Test
     @DisplayName("방을 나가면 204를 반환한다.")
     void leaveGame_성공하면_204를_반환한다() throws Exception {
         // when & then
-        mockMvc.perform(delete("/games/ABCD/players/guest-id")
+        mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "guest-id")
                         .header("X-Player-Secret", "guest-secret"))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isNoContent())
+                .andDo(document("leave-game",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 퇴장")
+                                .description("플레이어 secret을 검증한 뒤 방에서 퇴장합니다.")
+                                .pathParameters(
+                                        parameterWithName("code").description("방 코드"),
+                                        parameterWithName("playerId").description("퇴장할 플레이어 ID")
+                                )
+                                .requestHeaders(headerWithName("X-Player-Secret").description("플레이어 인증 secret"))
+                                .build())));
     }
 
     @Test
     @DisplayName("secret 헤더가 없으면 400을 반환한다.")
     void leaveGame_secret_헤더가_없으면_400을_반환한다() throws Exception {
         // when & then
-        mockMvc.perform(delete("/games/ABCD/players/guest-id"))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "guest-id"))
+                .andExpect(status().isBadRequest())
+                .andDo(document("leave-game-missing-secret",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 퇴장")
+                                .description("플레이어 secret을 검증한 뒤 방에서 퇴장합니다.")
+                                .pathParameters(
+                                        parameterWithName("code").description("방 코드"),
+                                        parameterWithName("playerId").description("퇴장할 플레이어 ID")
+                                )
+                                .build())));
     }
 
     @Test
@@ -153,9 +243,22 @@ class GameControllerTest {
                 .given(gameService).leaveGame("ABCD", "guest-id", "wrong-secret");
 
         // when & then
-        mockMvc.perform(delete("/games/ABCD/players/guest-id")
+        mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "guest-id")
                         .header("X-Player-Secret", "wrong-secret"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("본인만 퇴장할 수 있습니다."))
+                .andDo(document("leave-game-unauthorized",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 퇴장")
+                                .description("플레이어 secret을 검증한 뒤 방에서 퇴장합니다.")
+                                .pathParameters(
+                                        parameterWithName("code").description("방 코드"),
+                                        parameterWithName("playerId").description("퇴장할 플레이어 ID")
+                                )
+                                .requestHeaders(headerWithName("X-Player-Secret").description("플레이어 인증 secret"))
+                                .responseFields(errorResponseFields())
+                                .build())));
     }
 
     @Test
@@ -165,9 +268,22 @@ class GameControllerTest {
         willThrow(new RoomNotFoundException()).given(gameService).leaveGame("ZZZZ", "guest-id", "guest-secret");
 
         // when & then
-        mockMvc.perform(delete("/games/ZZZZ/players/guest-id")
+        mockMvc.perform(delete("/games/{code}/players/{playerId}", "ZZZZ", "guest-id")
                         .header("X-Player-Secret", "guest-secret"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("방을 찾을 수 없습니다."))
+                .andDo(document("leave-game-room-not-found",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 퇴장")
+                                .description("플레이어 secret을 검증한 뒤 방에서 퇴장합니다.")
+                                .pathParameters(
+                                        parameterWithName("code").description("방 코드"),
+                                        parameterWithName("playerId").description("퇴장할 플레이어 ID")
+                                )
+                                .requestHeaders(headerWithName("X-Player-Secret").description("플레이어 인증 secret"))
+                                .responseFields(errorResponseFields())
+                                .build())));
     }
 
     @Test
@@ -177,8 +293,62 @@ class GameControllerTest {
         willThrow(new PlayerNotFoundException()).given(gameService).leaveGame("ABCD", "unknown-id", "guest-secret");
 
         // when & then
-        mockMvc.perform(delete("/games/ABCD/players/unknown-id")
+        mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "unknown-id")
                         .header("X-Player-Secret", "guest-secret"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("방에 없는 플레이어입니다."))
+                .andDo(document("leave-game-player-not-found",
+                        resource(ResourceSnippetParameters.builder()
+                                .tag("Games")
+                                .summary("게임 방 퇴장")
+                                .description("플레이어 secret을 검증한 뒤 방에서 퇴장합니다.")
+                                .pathParameters(
+                                        parameterWithName("code").description("방 코드"),
+                                        parameterWithName("playerId").description("퇴장할 플레이어 ID")
+                                )
+                                .requestHeaders(headerWithName("X-Player-Secret").description("플레이어 인증 secret"))
+                                .responseFields(errorResponseFields())
+                                .build())));
+    }
+
+    private static FieldDescriptor nicknameField(String description) {
+        return fieldWithPath("nickname").type(STRING).description(description);
+    }
+
+    private static FieldDescriptor[] errorResponseFields() {
+        return new FieldDescriptor[]{
+                fieldWithPath("message").type(STRING).description("에러 메시지")
+        };
+    }
+
+    private static FieldDescriptor[] createGameResponseFields() {
+        return new FieldDescriptor[]{
+                fieldWithPath("roomCode").type(STRING).description("생성된 방 코드"),
+                fieldWithPath("playerId").type(STRING).description("호스트 플레이어 ID"),
+                fieldWithPath("secret").type(STRING).description("호스트 플레이어 인증 secret"),
+                fieldWithPath("snapshot").type(OBJECT).description("생성 직후 로비 상태"),
+                fieldWithPath("snapshot.roomCode").type(STRING).description("방 코드"),
+                fieldWithPath("snapshot.phase").type(STRING).description("게임 진행 단계"),
+                fieldWithPath("snapshot.hostId").type(STRING).description("현재 호스트 플레이어 ID"),
+                fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
+                fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
+                fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
+                fieldWithPath("snapshot.players[].score").type(NUMBER).description("현재 점수")
+        };
+    }
+
+    private static FieldDescriptor[] joinGameResponseFields() {
+        return new FieldDescriptor[]{
+                fieldWithPath("playerId").type(STRING).description("참여한 플레이어 ID"),
+                fieldWithPath("secret").type(STRING).description("참여한 플레이어 인증 secret"),
+                fieldWithPath("snapshot").type(OBJECT).description("참여 직후 로비 상태"),
+                fieldWithPath("snapshot.roomCode").type(STRING).description("방 코드"),
+                fieldWithPath("snapshot.phase").type(STRING).description("게임 진행 단계"),
+                fieldWithPath("snapshot.hostId").type(STRING).description("현재 호스트 플레이어 ID"),
+                fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
+                fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
+                fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
+                fieldWithPath("snapshot.players[].score").type(NUMBER).description("현재 점수")
+        };
     }
 }
