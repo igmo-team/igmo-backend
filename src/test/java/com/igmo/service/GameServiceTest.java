@@ -3,6 +3,7 @@ package com.igmo.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -467,6 +468,14 @@ class GameServiceTest {
             softly.assertThat(entry.getSubmittedAt()).isNotNull();
             softly.assertThat(snapshot.roomCode()).isEqualTo("ABCD");
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PROMPTING);
+            softly.assertThat(snapshot.promptEntries()).hasSize(3);
+            softly.assertThat(snapshot.promptEntries())
+                    .extracting(promptEntry -> promptEntry.player().id(), PromptEntryView::status)
+                    .containsExactly(
+                            tuple(created.playerId(), PromptStatus.WAITING),
+                            tuple(guest1.playerId(), PromptStatus.SUBMITTED),
+                            tuple(guest2.playerId(), PromptStatus.WAITING)
+                    );
             softly.assertThat(promptEntryView.player().id()).isEqualTo(guest1.playerId());
             softly.assertThat(promptEntryView.player().nickname()).isEqualTo("참가자1");
             softly.assertThat(promptEntryView.status()).isEqualTo(PromptStatus.SUBMITTED);
