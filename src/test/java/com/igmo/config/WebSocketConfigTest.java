@@ -41,6 +41,13 @@ class WebSocketConfigTest {
     }
 
     @Test
+    @DisplayName("STOMP 브로커는 공용 topic과 사용자별 queue destination을 처리한다.")
+    void 브로커가_topic과_queue_destination을_처리한다() {
+        assertThat(simpleBrokerMessageHandler.getDestinationPrefixes())
+                .containsExactlyInAnyOrder("/topic", "/queue");
+    }
+
+    @Test
     @DisplayName("브로커에 서버 송신 10초, 클라이언트 수신 기대 10초의 heartbeat와 TaskScheduler가 설정된다.")
     void 브로커에_heartbeat와_TaskScheduler가_설정된다() {
         SoftAssertions.assertSoftly(softly -> {

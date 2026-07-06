@@ -7,12 +7,16 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.InsufficientPlayersException;
+import com.igmo.domain.exception.NotHostException;
+import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.RoomFullException;
 import lombok.Getter;
 
 public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
+    private static final int MIN_PLAYERS_TO_START = 3;
 
     @Getter
     private final String code;
@@ -72,6 +76,39 @@ public class GameRoom {
     public synchronized boolean isSecretValid(String playerId, String secret) {
         Player player = players.get(playerId);
         return player != null && player.getSecret().equals(secret);
+    }
+
+    public synchronized void changePlayerReady(String playerId, boolean ready) {
+        if (!isInLobby()) {
+            throw new GameAlreadyStartedException();
+        }
+        Player player = players.get(playerId);
+        if (player == null) {
+            return;
+        }
+        player.changeReady(ready);
+    }
+
+    public synchronized void start(String requesterId) {
+        if (!isInLobby()) {
+            throw new GameAlreadyStartedException();
+        }
+        if (!requesterId.equals(hostId)) {
+            throw new NotHostException();
+        }
+        if (players.size() < MIN_PLAYERS_TO_START) {
+            throw new InsufficientPlayersException();
+        }
+        if (!allOthersReady()) {
+            throw new PlayersNotReadyException();
+        }
+        phase = GamePhase.GENERATING;
+    }
+
+    private boolean allOthersReady() {
+        return players.values().stream()
+                .filter(player -> !player.getId().equals(hostId))
+                .allMatch(Player::isReady);
     }
 
     private void assignRandomHost() {
