@@ -25,15 +25,15 @@ class GameServicePropertyTest {
     @Autowired
     private GameService gameService;
 
-    @MockitoBean(name = "webSocketHeartbeatScheduler")
-    private TaskScheduler webSocketHeartbeatScheduler;
+    @MockitoBean(name = "disconnectGraceScheduler")
+    private TaskScheduler disconnectGraceScheduler;
 
     @Test
     @DisplayName("연결 끊김 유예 시간은 igmo.game.disconnect-grace 프로퍼티 값을 사용한다.")
     void handleDisconnect_프로퍼티의_유예_시간을_사용한다() {
         // given
         ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
-        given(webSocketHeartbeatScheduler.schedule(any(Runnable.class), any(Instant.class)))
+        given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
         CreateGameResponse created = gameService.createGame("호스트");
         Instant before = Instant.now();
@@ -44,7 +44,7 @@ class GameServicePropertyTest {
         // then
         Instant after = Instant.now();
         ArgumentCaptor<Instant> scheduledAt = ArgumentCaptor.forClass(Instant.class);
-        verify(webSocketHeartbeatScheduler).schedule(any(Runnable.class), scheduledAt.capture());
+        verify(disconnectGraceScheduler).schedule(any(Runnable.class), scheduledAt.capture());
         assertThat(scheduledAt.getValue())
                 .isBetween(before.plusSeconds(17), after.plusSeconds(17));
     }

@@ -15,14 +15,13 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class GameService {
 
     private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
@@ -31,12 +30,22 @@ public class GameService {
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
-    private final TaskScheduler webSocketHeartbeatScheduler;
+    private final TaskScheduler disconnectGraceScheduler;
 
     @Value("${igmo.game.disconnect-grace}")
     private Duration disconnectGrace;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
+
+    public GameService(GameRegistry gameRegistry,
+                       RoomCodeGenerator roomCodeGenerator,
+                       SimpMessagingTemplate messagingTemplate,
+                       @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler) {
+        this.gameRegistry = gameRegistry;
+        this.roomCodeGenerator = roomCodeGenerator;
+        this.messagingTemplate = messagingTemplate;
+        this.disconnectGraceScheduler = disconnectGraceScheduler;
+    }
 
     public CreateGameResponse createGame(String nickname) {
         Player host = new Player(nickname);
@@ -76,7 +85,7 @@ public class GameService {
     }
 
     public void handleDisconnect(String code, String playerId) {
-        ScheduledFuture<?> future = webSocketHeartbeatScheduler.schedule(
+        ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
                 () -> runScheduledRemoval(code, playerId),
                 Instant.now().plus(disconnectGrace));
         ScheduledFuture<?> previous = pendingRemovals.put(removalKey(code, playerId), future);

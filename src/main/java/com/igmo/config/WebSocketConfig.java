@@ -54,4 +54,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         scheduler.setThreadNamePrefix("ws-heartbeat-");
         return scheduler;
     }
+
+    @Bean
+    public TaskScheduler disconnectGraceScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("disconnect-grace-");
+        return scheduler;
+    }
 }

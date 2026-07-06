@@ -32,15 +32,15 @@ class GameServiceConcurrencyTest {
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
-    private final TaskScheduler webSocketHeartbeatScheduler = mock(TaskScheduler.class);
+    private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final GameService gameService =
-            new GameService(gameRegistry, roomCodeGenerator, messagingTemplate, webSocketHeartbeatScheduler);
+            new GameService(gameRegistry, roomCodeGenerator, messagingTemplate, disconnectGraceScheduler);
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
-        given(webSocketHeartbeatScheduler.schedule(any(Runnable.class), any(Instant.class)))
+        given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }
 
@@ -127,7 +127,7 @@ class GameServiceConcurrencyTest {
 
     private Runnable captureScheduledRemoval() {
         ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
-        verify(webSocketHeartbeatScheduler).schedule(captor.capture(), any(Instant.class));
+        verify(disconnectGraceScheduler).schedule(captor.capture(), any(Instant.class));
         return captor.getValue();
     }
 
