@@ -28,7 +28,7 @@ import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
-import com.igmo.web.dto.PromptEntriesSnapshot;
+import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
@@ -458,7 +458,7 @@ class GameServiceTest {
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        PromptEntriesSnapshot snapshot = capturePromptEntriesBroadcast();
+        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
         PromptEntryView promptEntryView = findPromptEntryView(snapshot, guest1.playerId());
 
         SoftAssertions.assertSoftly(softly -> {
@@ -583,14 +583,14 @@ class GameServiceTest {
         return (LobbySnapshot) message.payload();
     }
 
-    private PromptEntriesSnapshot capturePromptEntriesBroadcast() {
+    private PromptSubmissionSnapshot capturePromptSubmissionBroadcast() {
         ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
         verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
         RoomMessage message = captor.getAllValues().stream()
-                .filter(value -> value.type() == RoomMessageType.PROMPT_ENTRIES_SNAPSHOT)
+                .filter(value -> value.type() == RoomMessageType.PROMPT_SUBMISSION_SNAPSHOT)
                 .findFirst()
                 .orElseThrow();
-        return (PromptEntriesSnapshot) message.payload();
+        return (PromptSubmissionSnapshot) message.payload();
     }
 
     private PromptEntry findPromptEntry(String code, String playerId) {
@@ -602,7 +602,7 @@ class GameServiceTest {
                 .orElseThrow();
     }
 
-    private PromptEntryView findPromptEntryView(PromptEntriesSnapshot snapshot, String playerId) {
+    private PromptEntryView findPromptEntryView(PromptSubmissionSnapshot snapshot, String playerId) {
         return snapshot.promptEntries().stream()
                 .filter(entry -> entry.player().id().equals(playerId))
                 .findFirst()

@@ -9,13 +9,13 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public record PromptEntriesSnapshot(
+public record PromptSubmissionSnapshot(
         String roomCode,
         GamePhase phase,
         List<PromptEntryView> promptEntries
 ) {
 
-    public static PromptEntriesSnapshot from(GameRoom room) {
+    public static PromptSubmissionSnapshot from(GameRoom room) {
         Map<String, Player> playersById = room.getPlayers().stream()
                 .collect(Collectors.toMap(Player::getId, Function.identity()));
 
@@ -23,7 +23,7 @@ public record PromptEntriesSnapshot(
                 .map(entry -> toView(entry, playersById))
                 .toList();
 
-        return new PromptEntriesSnapshot(room.getCode(), room.getPhase(), promptEntries);
+        return new PromptSubmissionSnapshot(room.getCode(), room.getPhase(), promptEntries);
     }
 
     private static PromptEntryView toView(PromptEntry entry, Map<String, Player> playersById) {

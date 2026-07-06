@@ -10,7 +10,7 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
-import com.igmo.web.dto.PromptEntriesSnapshot;
+import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import java.time.Duration;
 import java.time.Instant;
@@ -104,7 +104,7 @@ public class GameService {
                 throw new PlayerNotFoundException();
             }
             room.submitPrompt(playerId, prompt, Instant.now());
-            broadcastPromptEntriesSnapshot(code, PromptEntriesSnapshot.from(room));
+            broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(room));
         });
     }
 
@@ -152,8 +152,8 @@ public class GameService {
         messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.lobbySnapshot(snapshot));
     }
 
-    private void broadcastPromptEntriesSnapshot(String code, PromptEntriesSnapshot snapshot) {
-        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.promptEntriesSnapshot(snapshot));
+    private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
+        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
     }
 
     private void withLockedRoom(String code, Consumer<GameRoom> operation) {
