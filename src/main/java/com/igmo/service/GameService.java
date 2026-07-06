@@ -97,7 +97,6 @@ public class GameService {
 
     private void removePlayerAndBroadcast(GameRoom room, String playerId) {
         synchronized (room) {
-            // 방 획득과 락 진입 사이에 방이 삭제·교체되었으면 낡은 객체이므로 조용히 무시한다.
             if (isDetached(room.getCode(), room)) {
                 return;
             }
@@ -112,7 +111,6 @@ public class GameService {
         }
     }
 
-    // 방 획득과 락 진입 사이에 방이 삭제되고 같은 코드로 새 방이 생성되면 낡은 room 객체가 된다.
     private boolean isDetached(String code, GameRoom room) {
         return gameRegistry.find(code).orElse(null) != room;
     }
