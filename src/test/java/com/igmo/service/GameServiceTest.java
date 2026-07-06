@@ -237,6 +237,34 @@ class GameServiceTest {
     }
 
     @Test
+    @DisplayName("삭제 예약 중 명시적으로 퇴장하면 즉시 제거하고 예약을 취소한다.")
+    void leaveGame_삭제_예약을_취소하고_즉시_퇴장시킨다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+        gameService.handleDisconnect("ABCD", joined.playerId());
+        Runnable removal = captureScheduledRemoval();
+
+        // when
+        gameService.leaveGame("ABCD", joined.playerId(), joined.secret());
+        boolean removedImmediately = gameRegistry.find("ABCD")
+                .map(room -> !room.hasPlayer(joined.playerId()))
+                .orElse(false);
+        removal.run();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(removedImmediately).isTrue();
+            softly.assertThat(gameRegistry.find("ABCD")).get()
+                    .matches(room -> !room.hasPlayer(joined.playerId()), "참가자가 제거된 상태여야 한다");
+        });
+        verify(scheduledRemoval).cancel(false);
+        verify(messagingTemplate, times(2))
+                .convertAndSend(eq("/topic/room/ABCD"), any(LobbySnapshot.class));
+    }
+
+    @Test
     @DisplayName("연결이 끊겨도 유예 시간 동안은 참가자를 제거하지 않고 삭제를 예약한다.")
     void handleDisconnect_직후에는_참가자를_제거하지_않고_삭제를_예약한다() {
         // given

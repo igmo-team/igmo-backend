@@ -69,6 +69,7 @@ public class GameService {
             if (!room.isSecretValid(playerId, secret)) {
                 throw new UnauthorizedPlayerException();
             }
+            cancelPendingRemoval(code, playerId);
             removePlayerAndBroadcast(room, playerId);
         }
     }
