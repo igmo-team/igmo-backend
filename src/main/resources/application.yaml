@@ -2,6 +2,10 @@ spring:
   application:
     name: igmo
 
+igmo:
+  game:
+    disconnect-grace: 3s
+
 management:
   endpoints:
     web:

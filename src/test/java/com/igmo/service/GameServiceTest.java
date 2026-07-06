@@ -20,18 +20,34 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.SoftAssertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class GameServiceTest {
 
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
-    private final GameService gameService = new GameService(gameRegistry, roomCodeGenerator, messagingTemplate);
+    private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
+    private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
+    private final GameService gameService =
+            new GameService(gameRegistry, roomCodeGenerator, messagingTemplate, disconnectGraceScheduler);
+
+    @BeforeEach
+    void 스케줄러가_예약_future를_반환하도록_설정한다() {
+        ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
+        given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
+                .willAnswer(invocation -> scheduledRemoval);
+    }
 
     @Test
     @DisplayName("게임을 생성하면 방 코드와 호스트 playerId를 반환하고 레지스트리에 저장한다.")
@@ -224,15 +240,61 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("연결이 끊긴 참가자를 방에서 제거하고 스냅샷을 브로드캐스트한다.")
-    void handleDisconnect_연결이_끊긴_참가자를_제거하고_브로드캐스트한다() {
+    @DisplayName("삭제 예약 중 명시적으로 퇴장하면 즉시 제거하고 예약을 취소한다.")
+    void leaveGame_삭제_예약을_취소하고_즉시_퇴장시킨다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        CreateGameResponse created = gameService.createGame("호스트");
+        gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+        gameService.handleDisconnect("ABCD", joined.playerId());
+        Runnable removal = captureScheduledRemoval();
+
+        // when
+        gameService.leaveGame("ABCD", joined.playerId(), joined.secret());
+        boolean removedImmediately = gameRegistry.find("ABCD")
+                .map(room -> !room.hasPlayer(joined.playerId()))
+                .orElse(false);
+        removal.run();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(removedImmediately).isTrue();
+            softly.assertThat(gameRegistry.find("ABCD")).get()
+                    .matches(room -> !room.hasPlayer(joined.playerId()), "참가자가 제거된 상태여야 한다");
+        });
+        verify(scheduledRemoval).cancel(false);
+        verify(messagingTemplate, times(2))
+                .convertAndSend(eq("/topic/room/ABCD"), any(LobbySnapshot.class));
+    }
+
+    @Test
+    @DisplayName("연결이 끊겨도 유예 시간 동안은 참가자를 제거하지 않고 삭제를 예약한다.")
+    void handleDisconnect_직후에는_참가자를_제거하지_않고_삭제를_예약한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
         JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
 
         // when
         gameService.handleDisconnect("ABCD", joined.playerId());
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(joined.playerId()), "참가자가 방에 남아 있어야 한다");
+        verify(disconnectGraceScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("유예 시간이 지나면 예약된 작업이 참가자를 제거하고 스냅샷을 브로드캐스트한다.")
+    void handleDisconnect_유예가_지나면_참가자를_제거하고_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
+        gameService.handleDisconnect("ABCD", joined.playerId());
+
+        // when
+        captureScheduledRemoval().run();
 
         // then
         LobbySnapshot snapshot = captureLastBroadcast(2);
@@ -243,25 +305,91 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 방의 연결 끊김은 예외 없이 무시한다.")
-    void handleDisconnect_없는_방이면_무시한다() {
-        // when & then
-        assertThatCode(() -> gameService.handleDisconnect("ZZZZ", "player-id"))
-                .doesNotThrowAnyException();
+    @DisplayName("유예 시간이 지나 방이 비면 방을 삭제하고 브로드캐스트하지 않는다.")
+    void handleDisconnect_유예가_지나_방이_비면_방을_삭제한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        gameService.handleDisconnect("ABCD", created.playerId());
+
+        // when
+        captureScheduledRemoval().run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
     }
 
     @Test
-    @DisplayName("방에 없는 플레이어의 연결 끊김은 예외 없이 무시하고 브로드캐스트하지 않는다.")
+    @DisplayName("존재하지 않는 방의 연결 끊김은 예약 작업이 실행돼도 예외 없이 무시한다.")
+    void handleDisconnect_없는_방이면_무시한다() {
+        // when & then
+        assertThatCode(() -> {
+            gameService.handleDisconnect("ZZZZ", "player-id");
+            captureScheduledRemoval().run();
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어의 연결 끊김은 예약 작업이 실행돼도 무시하고 브로드캐스트하지 않는다.")
     void handleDisconnect_방에_없는_플레이어면_무시한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         gameService.createGame("호스트");
+        gameService.handleDisconnect("ABCD", "unknown-player-id");
 
         // when
-        gameService.handleDisconnect("ABCD", "unknown-player-id");
+        captureScheduledRemoval().run();
 
         // then
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("연결 끊김 후 삭제 예약을 취소하면 예약된 future를 취소한다.")
+    void cancelPendingRemoval_예약된_future를_취소한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        gameService.handleDisconnect("ABCD", created.playerId());
+
+        // when
+        gameService.cancelPendingRemoval("ABCD", created.playerId());
+
+        // then
+        verify(scheduledRemoval).cancel(false);
+    }
+
+    @Test
+    @DisplayName("삭제 예약을 취소하면 이미 시작된 예약 작업이 실행돼도 참가자를 제거하지 않는다.")
+    void cancelPendingRemoval_취소된_예약_작업은_참가자를_제거하지_않는다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        gameService.handleDisconnect("ABCD", created.playerId());
+        Runnable removal = captureScheduledRemoval();
+        gameService.cancelPendingRemoval("ABCD", created.playerId());
+
+        // when
+        removal.run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(created.playerId()), "참가자가 방에 남아 있어야 한다");
+    }
+
+    @Test
+    @DisplayName("삭제 예약이 없어도 취소 요청을 예외 없이 무시한다.")
+    void cancelPendingRemoval_예약이_없으면_무시한다() {
+        // when & then
+        assertThatCode(() -> gameService.cancelPendingRemoval("ABCD", "player-id"))
+                .doesNotThrowAnyException();
+    }
+
+    private Runnable captureScheduledRemoval() {
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(disconnectGraceScheduler).schedule(captor.capture(), any(Instant.class));
+        return captor.getValue();
     }
 
     private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {

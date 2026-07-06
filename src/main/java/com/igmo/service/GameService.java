@@ -10,12 +10,18 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
-import lombok.RequiredArgsConstructor;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class GameService {
 
     private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
@@ -24,6 +30,22 @@ public class GameService {
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
+    private final TaskScheduler disconnectGraceScheduler;
+
+    @Value("${igmo.game.disconnect-grace}")
+    private Duration disconnectGrace;
+
+    private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
+
+    public GameService(GameRegistry gameRegistry,
+                       RoomCodeGenerator roomCodeGenerator,
+                       SimpMessagingTemplate messagingTemplate,
+                       @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler) {
+        this.gameRegistry = gameRegistry;
+        this.roomCodeGenerator = roomCodeGenerator;
+        this.messagingTemplate = messagingTemplate;
+        this.disconnectGraceScheduler = disconnectGraceScheduler;
+    }
 
     public CreateGameResponse createGame(String nickname) {
         Player host = new Player(nickname);
@@ -57,13 +79,38 @@ public class GameService {
             if (!room.isSecretValid(playerId, secret)) {
                 throw new UnauthorizedPlayerException();
             }
+            cancelPendingRemoval(code, playerId);
             removePlayerAndBroadcast(room, playerId);
         }
     }
 
     public void handleDisconnect(String code, String playerId) {
-        gameRegistry.find(code)
-                .ifPresent(room -> removePlayerAndBroadcast(room, playerId));
+        ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
+                () -> runScheduledRemoval(code, playerId),
+                Instant.now().plus(disconnectGrace));
+        ScheduledFuture<?> previous = pendingRemovals.put(removalKey(code, playerId), future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    public void cancelPendingRemoval(String code, String playerId) {
+        ScheduledFuture<?> future = pendingRemovals.remove(removalKey(code, playerId));
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void runScheduledRemoval(String code, String playerId) {
+        // 취소 측이 먼저 키를 지웠으면 경합에서 진 것이므로 제거하지 않는다.
+        if (pendingRemovals.remove(removalKey(code, playerId)) == null) {
+            return;
+        }
+        gameRegistry.find(code).ifPresent(room -> removePlayerAndBroadcast(room, playerId));
+    }
+
+    private static String removalKey(String code, String playerId) {
+        return code + "::" + playerId;
     }
 
     private void removePlayerAndBroadcast(GameRoom room, String playerId) {
