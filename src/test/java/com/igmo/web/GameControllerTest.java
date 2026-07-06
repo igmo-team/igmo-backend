@@ -8,6 +8,7 @@ import static org.springframework.restdocs.headers.HeaderDocumentation.headerWit
 import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.delete;
 import static org.springframework.restdocs.mockmvc.RestDocumentationRequestBuilders.post;
 import static org.springframework.restdocs.payload.JsonFieldType.ARRAY;
+import static org.springframework.restdocs.payload.JsonFieldType.BOOLEAN;
 import static org.springframework.restdocs.payload.JsonFieldType.NUMBER;
 import static org.springframework.restdocs.payload.JsonFieldType.OBJECT;
 import static org.springframework.restdocs.payload.JsonFieldType.STRING;
@@ -333,7 +334,8 @@ class GameControllerTest {
                 fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
                 fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
                 fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
-                fieldWithPath("snapshot.players[].score").type(NUMBER).description("현재 점수")
+                fieldWithPath("snapshot.players[].score").type(NUMBER).description("현재 점수"),
+                fieldWithPath("snapshot.players[].ready").type(BOOLEAN).description("준비 완료 여부")
         };
     }
 
@@ -348,7 +350,8 @@ class GameControllerTest {
                 fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
                 fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
                 fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
-                fieldWithPath("snapshot.players[].score").type(NUMBER).description("현재 점수")
+                fieldWithPath("snapshot.players[].score").type(NUMBER).description("현재 점수"),
+                fieldWithPath("snapshot.players[].ready").type(BOOLEAN).description("준비 완료 여부")
         };
     }
 }
