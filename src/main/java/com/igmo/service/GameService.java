@@ -83,6 +83,13 @@ public class GameService {
         }
     }
 
+    public void cancelPendingRemoval(String code, String playerId) {
+        ScheduledFuture<?> future = pendingRemovals.remove(removalKey(code, playerId));
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
     private void runScheduledRemoval(String code, String playerId) {
         // 취소 측이 먼저 키를 지웠으면 경합에서 진 것이므로 제거하지 않는다.
         if (pendingRemovals.remove(removalKey(code, playerId)) == null) {

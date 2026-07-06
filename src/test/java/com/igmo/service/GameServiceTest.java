@@ -314,6 +314,47 @@ class GameServiceTest {
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
     }
 
+    @Test
+    @DisplayName("연결 끊김 후 삭제 예약을 취소하면 예약된 future를 취소한다.")
+    void cancelPendingRemoval_예약된_future를_취소한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        gameService.handleDisconnect("ABCD", created.playerId());
+
+        // when
+        gameService.cancelPendingRemoval("ABCD", created.playerId());
+
+        // then
+        verify(scheduledRemoval).cancel(false);
+    }
+
+    @Test
+    @DisplayName("삭제 예약을 취소하면 이미 시작된 예약 작업이 실행돼도 참가자를 제거하지 않는다.")
+    void cancelPendingRemoval_취소된_예약_작업은_참가자를_제거하지_않는다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        gameService.handleDisconnect("ABCD", created.playerId());
+        Runnable removal = captureScheduledRemoval();
+        gameService.cancelPendingRemoval("ABCD", created.playerId());
+
+        // when
+        removal.run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(created.playerId()), "참가자가 방에 남아 있어야 한다");
+    }
+
+    @Test
+    @DisplayName("삭제 예약이 없어도 취소 요청을 예외 없이 무시한다.")
+    void cancelPendingRemoval_예약이_없으면_무시한다() {
+        // when & then
+        assertThatCode(() -> gameService.cancelPendingRemoval("ABCD", "player-id"))
+                .doesNotThrowAnyException();
+    }
+
     private Runnable captureScheduledRemoval() {
         ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
         verify(webSocketHeartbeatScheduler).schedule(captor.capture(), any(Instant.class));
