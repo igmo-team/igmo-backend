@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class GameService {
 
-    private static final String LOBBY_TOPIC_PREFIX = "/topic/rooms/";
+    private static final String ROOM_TOPIC_PREFIX = "/topic/rooms/";
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
 
     private final GameRegistry gameRegistry;
@@ -149,11 +149,11 @@ public class GameService {
     }
 
     private void broadcastLobbySnapshot(String code, LobbySnapshot snapshot) {
-        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.lobbySnapshot(snapshot));
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.lobbySnapshot(snapshot));
     }
 
     private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
-        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
     }
 
     private void withLockedRoom(String code, Consumer<GameRoom> operation) {
