@@ -10,8 +10,14 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -20,10 +26,16 @@ public class GameService {
 
     private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
+    // 순간적인 끊김(새로고침, 네트워크 전환)에 방이 사라지지 않도록 두는 재접속 유예 시간
+    private static final Duration DISCONNECT_GRACE = Duration.ofSeconds(3);
 
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
+    // 빈 이름과 필드명을 맞춰 주입한다. (messageBrokerTaskScheduler와의 타입 모호성 회피)
+    private final TaskScheduler webSocketHeartbeatScheduler;
+
+    private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
 
     public CreateGameResponse createGame(String nickname) {
         Player host = new Player(nickname);
@@ -62,8 +74,25 @@ public class GameService {
     }
 
     public void handleDisconnect(String code, String playerId) {
-        gameRegistry.find(code)
-                .ifPresent(room -> removePlayerAndBroadcast(room, playerId));
+        ScheduledFuture<?> future = webSocketHeartbeatScheduler.schedule(
+                () -> runScheduledRemoval(code, playerId),
+                Instant.now().plus(DISCONNECT_GRACE));
+        ScheduledFuture<?> previous = pendingRemovals.put(removalKey(code, playerId), future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    private void runScheduledRemoval(String code, String playerId) {
+        // 취소 측이 먼저 키를 지웠으면 경합에서 진 것이므로 제거하지 않는다.
+        if (pendingRemovals.remove(removalKey(code, playerId)) == null) {
+            return;
+        }
+        gameRegistry.find(code).ifPresent(room -> removePlayerAndBroadcast(room, playerId));
+    }
+
+    private static String removalKey(String code, String playerId) {
+        return code + "::" + playerId;
     }
 
     private void removePlayerAndBroadcast(GameRoom room, String playerId) {
