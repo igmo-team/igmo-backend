@@ -100,7 +100,7 @@ class GameRoomTest {
     void addPlayer_이미_시작된_게임이면_예외를_던진다() throws Exception {
         // given
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
-        setPhase(room, GamePhase.GENERATING);
+        setPhase(room, GamePhase.PROMPTING);
 
         // when & then
         assertThatThrownBy(() -> room.addPlayer(new Player("참가자")))
@@ -210,7 +210,7 @@ class GameRoomTest {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
-        setPhase(room, GamePhase.GENERATING);
+        setPhase(room, GamePhase.PROMPTING);
 
         // when & then
         assertThatThrownBy(() -> room.changePlayerReady(host.getId(), true))
@@ -232,7 +232,7 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("방장이 시작하면 방장 외 모든 참가자가 준비되고 3명 이상일 때 GENERATING 단계로 진행한다.")
+    @DisplayName("방장이 시작하면 방장 외 모든 참가자가 준비되고 3명 이상일 때 PROMPTING 단계로 진행한다.")
     void start_방장이_조건을_충족하면_다음_단계로_진행한다() {
         // given
         Player host = new Player("호스트");
@@ -248,7 +248,7 @@ class GameRoomTest {
         room.start(host.getId());
 
         // then
-        assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+        assertThat(room.getPhase()).isEqualTo(GamePhase.PROMPTING);
     }
 
     @Test
@@ -312,7 +312,7 @@ class GameRoomTest {
         GameRoom room = GameRoom.create("ABCD", host);
         room.addPlayer(new Player("참가자1"));
         room.addPlayer(new Player("참가자2"));
-        setPhase(room, GamePhase.GENERATING);
+        setPhase(room, GamePhase.PROMPTING);
 
         // when & then
         assertThatThrownBy(() -> room.start(host.getId()))
