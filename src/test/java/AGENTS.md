@@ -31,3 +31,9 @@ SoftAssertions.assertSoftly(softly -> {
     softly.assertThat(response.age()).isEqualTo(20);
 });
 ```
+
+## API 문서화
+
+- API 테스트를 작성할 때는 REST Docs 문서화를 위한 스니핏도 함께 작성한다.
+- 문서화 대상은 API 테스트이며, 성공 케이스와 예외 케이스를 모두 포함한다.
+- API 요청/응답의 path parameter, header, request body, response body는 테스트에서 검증한 실제 계약을 기준으로 문서화한다.
