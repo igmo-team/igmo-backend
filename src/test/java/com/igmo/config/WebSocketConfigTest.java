@@ -3,6 +3,7 @@ package com.igmo.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.igmo.web.PlayerSessionInterceptor;
+import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,5 +45,15 @@ class WebSocketConfigTest {
     void 브로커가_topic과_queue_destination을_처리한다() {
         assertThat(simpleBrokerMessageHandler.getDestinationPrefixes())
                 .containsExactlyInAnyOrder("/topic", "/queue");
+    }
+
+    @Test
+    @DisplayName("브로커에 서버 송신 10초, 클라이언트 수신 기대 10초의 heartbeat와 TaskScheduler가 설정된다.")
+    void 브로커에_heartbeat와_TaskScheduler가_설정된다() {
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(simpleBrokerMessageHandler.getHeartbeatValue())
+                    .containsExactly(10000L, 10000L);
+            softly.assertThat(simpleBrokerMessageHandler.getTaskScheduler()).isNotNull();
+        });
     }
 }
