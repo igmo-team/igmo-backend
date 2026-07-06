@@ -9,6 +9,8 @@ import com.igmo.service.GameService;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +22,7 @@ class GameMessageControllerTest {
     private final GameService gameService = mock(GameService.class);
     private final GameMessageController controller =
             new GameMessageController(gameService, new PlayerSessionResolver());
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
     @Test
     @DisplayName("세션의 playerId로 준비 상태 변경을 서비스에 위임한다.")
@@ -102,6 +105,20 @@ class GameMessageControllerTest {
     }
 
     @Test
+    @DisplayName("프롬프트 제출 요청의 prompt가 null이면 검증에 실패한다.")
+    void submitPrompt_prompt가_null이면_검증에_실패한다() {
+        // when & then
+        assertPromptInvalid(new PromptRequest(null));
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 요청의 prompt가 공백이면 검증에 실패한다.")
+    void submitPrompt_prompt가_공백이면_검증에_실패한다() {
+        // when & then
+        assertPromptInvalid(new PromptRequest("   "));
+    }
+
+    @Test
     @DisplayName("게임 시작 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
     void startGame_세션에_playerId가_없으면_예외를_던진다() {
         // given
@@ -121,5 +138,11 @@ class GameMessageControllerTest {
         SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
         headerAccessor.setSessionAttributes(sessionAttributes);
         return headerAccessor;
+    }
+
+    private void assertPromptInvalid(PromptRequest request) {
+        org.assertj.core.api.Assertions.assertThat(validator.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("프롬프트를 입력해주세요.");
     }
 }
