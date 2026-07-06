@@ -10,6 +10,8 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -32,27 +34,17 @@ public class GameService {
     }
 
     public JoinGameResponse joinGame(String code, String nickname) {
-        GameRoom room = gameRegistry.find(code)
-                .orElseThrow(RoomNotFoundException::new);
-        synchronized (room) {
-            if (isDetached(code, room)) {
-                throw new RoomNotFoundException();
-            }
+        return withLockedRoom(code, room -> {
             Player player = new Player(nickname);
             room.addPlayer(player);
             LobbySnapshot snapshot = LobbySnapshot.from(room);
             messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, snapshot);
             return new JoinGameResponse(player.getId(), player.getSecret(), snapshot);
-        }
+        });
     }
 
     public void leaveGame(String code, String playerId, String secret) {
-        GameRoom room = gameRegistry.find(code)
-                .orElseThrow(RoomNotFoundException::new);
-        synchronized (room) {
-            if (isDetached(code, room)) {
-                throw new RoomNotFoundException();
-            }
+        withLockedRoom(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
@@ -60,54 +52,69 @@ public class GameService {
                 throw new UnauthorizedPlayerException();
             }
             removePlayerAndBroadcast(room, playerId);
-        }
+        });
     }
 
     public void changeReady(String code, String playerId, boolean ready) {
-        GameRoom room = gameRegistry.find(code)
-                .orElseThrow(RoomNotFoundException::new);
-        synchronized (room) {
-            if (isDetached(code, room)) {
-                throw new RoomNotFoundException();
-            }
+        withLockedRoom(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             room.changePlayerReady(playerId, ready);
             messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
-        }
+        });
     }
 
     public void startGame(String code, String playerId) {
+        withLockedRoom(code, room -> {
+            room.start(playerId);
+            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+        });
+    }
+
+    public void handleDisconnect(String code, String playerId) {
+        withLockedRoomIfPresent(code, room -> removePlayerAndBroadcast(room, playerId));
+    }
+
+    private void removePlayerAndBroadcast(GameRoom room, String playerId) {
+        if (!room.removePlayer(playerId)) {
+            return;
+        }
+        if (room.isEmpty()) {
+            gameRegistry.remove(room.getCode());
+            return;
+        }
+        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + room.getCode(), LobbySnapshot.from(room));
+    }
+
+    private <T> T withLockedRoom(String code, Function<GameRoom, T> operation) {
         GameRoom room = gameRegistry.find(code)
                 .orElseThrow(RoomNotFoundException::new);
         synchronized (room) {
             if (isDetached(code, room)) {
                 throw new RoomNotFoundException();
             }
-            room.start(playerId);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+            return operation.apply(room);
         }
     }
 
-    public void handleDisconnect(String code, String playerId) {
-        gameRegistry.find(code)
-                .ifPresent(room -> removePlayerAndBroadcast(room, playerId));
+    private void withLockedRoom(String code, Consumer<GameRoom> operation) {
+        withLockedRoom(code, room -> {
+            operation.accept(room);
+            return null;
+        });
     }
 
-    private void removePlayerAndBroadcast(GameRoom room, String playerId) {
+    private void withLockedRoomIfPresent(String code, Consumer<GameRoom> operation) {
+        GameRoom room = gameRegistry.find(code).orElse(null);
+        if (room == null) {
+            return;
+        }
         synchronized (room) {
-            if (isDetached(room.getCode(), room)) {
+            if (isDetached(code, room)) {
                 return;
             }
-            if (!room.removePlayer(playerId)) {
-                return;
-            }
-            if (room.isEmpty()) {
-                gameRegistry.remove(room.getCode());
-                return;
-            }
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + room.getCode(), LobbySnapshot.from(room));
+            operation.accept(room);
         }
     }
 
