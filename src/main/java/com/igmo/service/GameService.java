@@ -67,6 +67,7 @@ public class GameService {
 
     public void startGame(String code, String playerId) {
         withLockedRoom(code, room -> {
+            room.changePlayerReady(playerId, true);
             room.start(playerId);
             messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
         });
