@@ -20,6 +20,7 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.SoftAssertions;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class GameServiceTest {
 
@@ -42,6 +44,7 @@ class GameServiceTest {
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
+        ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         given(webSocketHeartbeatScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }

@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
@@ -26,14 +27,14 @@ public class GameService {
 
     private static final String LOBBY_TOPIC_PREFIX = "/topic/room/";
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
-    // 순간적인 끊김(새로고침, 네트워크 전환)에 방이 사라지지 않도록 두는 재접속 유예 시간
-    private static final Duration DISCONNECT_GRACE = Duration.ofSeconds(3);
 
     private final GameRegistry gameRegistry;
     private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
-    // 빈 이름과 필드명을 맞춰 주입한다. (messageBrokerTaskScheduler와의 타입 모호성 회피)
     private final TaskScheduler webSocketHeartbeatScheduler;
+
+    @Value("${igmo.game.disconnect-grace}")
+    private Duration disconnectGrace;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
 
@@ -77,7 +78,7 @@ public class GameService {
     public void handleDisconnect(String code, String playerId) {
         ScheduledFuture<?> future = webSocketHeartbeatScheduler.schedule(
                 () -> runScheduledRemoval(code, playerId),
-                Instant.now().plus(DISCONNECT_GRACE));
+                Instant.now().plus(disconnectGrace));
         ScheduledFuture<?> previous = pendingRemovals.put(removalKey(code, playerId), future);
         if (previous != null) {
             previous.cancel(false);

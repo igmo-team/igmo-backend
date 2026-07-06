@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import com.igmo.domain.GameRoom;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.JoinGameResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class GameServiceConcurrencyTest {
 
@@ -37,6 +39,7 @@ class GameServiceConcurrencyTest {
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
+        ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         given(webSocketHeartbeatScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }
