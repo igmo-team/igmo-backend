@@ -1,16 +1,18 @@
 package com.igmo.domain;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
-
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import lombok.Getter;
 
 public class GameRoom {
@@ -25,6 +27,7 @@ public class GameRoom {
     @Getter
     private GamePhase phase;
     private final Map<String, Player> players = new LinkedHashMap<>();
+    private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
 
     private GameRoom(String code, Player host) {
         this.code = code;
@@ -55,6 +58,7 @@ public class GameRoom {
         if (players.remove(playerId) == null) {
             return false;
         }
+        promptEntriesByPlayerId.remove(playerId);
         if (playerId.equals(hostId) && !players.isEmpty()) {
             assignRandomHost();
         }
@@ -63,6 +67,10 @@ public class GameRoom {
 
     public synchronized List<Player> getPlayers() {
         return List.copyOf(players.values());
+    }
+
+    public synchronized List<PromptEntry> getPromptEntries() {
+        return List.copyOf(promptEntriesByPlayerId.values());
     }
 
     public synchronized boolean isEmpty() {
@@ -103,6 +111,21 @@ public class GameRoom {
             throw new PlayersNotReadyException();
         }
         phase = GamePhase.PROMPTING;
+        initializePromptEntries();
+    }
+
+    public synchronized void submitPrompt(String playerId, String prompt, Instant submittedAt) {
+        if (!isPrompting()) {
+            throw new PromptSubmissionNotAllowedException();
+        }
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null) {
+            return;
+        }
+        if (entry.isSubmitted()) {
+            throw new DuplicatePromptSubmissionException();
+        }
+        entry.submit(prompt, submittedAt);
     }
 
     private boolean allOthersReady() {
@@ -118,6 +141,16 @@ public class GameRoom {
 
     private boolean isInLobby() {
         return phase == GamePhase.LOBBY;
+    }
+
+    private boolean isPrompting() {
+        return phase == GamePhase.PROMPTING;
+    }
+
+    private void initializePromptEntries() {
+        promptEntriesByPlayerId.clear();
+        players.keySet().forEach(playerId ->
+                promptEntriesByPlayerId.put(playerId, PromptEntry.waiting(playerId)));
     }
 
     private boolean isFull() {

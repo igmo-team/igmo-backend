@@ -4,14 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.lang.reflect.Field;
-
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import java.lang.reflect.Field;
+import java.time.Instant;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -252,6 +254,93 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("방장이 시작하면 플레이어별 프롬프트 입력 상태를 대기 상태로 만든다.")
+    void start_조건을_충족하면_플레이어별_프롬프트_입력_상태를_초기화한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+
+        // when
+        room.start(host.getId());
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPromptEntries())
+                    .extracting(PromptEntry::getPlayerId)
+                    .containsExactly(host.getId(), guest1.getId(), guest2.getId());
+            softly.assertThat(room.getPromptEntries())
+                    .extracting(PromptEntry::getStatus)
+                    .containsOnly(PromptStatus.WAITING);
+        });
+    }
+
+    @Test
+    @DisplayName("PROMPTING 단계에서 프롬프트를 제출하면 입력 상태를 저장한다.")
+    void submitPrompt_PROMPTING_단계이면_프롬프트를_저장한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId());
+        Instant submittedAt = Instant.parse("2026-07-06T10:00:00Z");
+
+        // when
+        room.submitPrompt(guest1.getId(), "고양이가 피아노를 치는 장면", submittedAt);
+
+        // then
+        PromptEntry entry = findPromptEntry(room, guest1.getId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getPrompt()).isEqualTo("고양이가 피아노를 치는 장면");
+            softly.assertThat(entry.getSubmittedAt()).isEqualTo(submittedAt);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptStatus.SUBMITTED);
+        });
+    }
+
+    @Test
+    @DisplayName("PROMPTING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
+    void submitPrompt_PROMPTING_단계가_아니면_예외를_던진다() {
+        // given
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+
+        // when & then
+        assertThatThrownBy(() -> room.submitPrompt("player-id", "프롬프트", Instant.now()))
+                .isInstanceOf(PromptSubmissionNotAllowedException.class)
+                .hasMessage("프롬프트를 제출할 수 있는 단계가 아닙니다.");
+    }
+
+    @Test
+    @DisplayName("이미 제출한 플레이어가 다시 제출하면 DuplicatePromptSubmissionException을 던진다.")
+    void submitPrompt_이미_제출한_플레이어이면_예외를_던진다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId());
+        room.submitPrompt(guest1.getId(), "첫 번째 프롬프트", Instant.now());
+
+        // when & then
+        assertThatThrownBy(() -> room.submitPrompt(guest1.getId(), "두 번째 프롬프트", Instant.now()))
+                .isInstanceOf(DuplicatePromptSubmissionException.class)
+                .hasMessage("이미 프롬프트를 제출했습니다.");
+    }
+
+    @Test
     @DisplayName("방장이 아닌 참가자가 시작하면 NotHostException을 던진다.")
     void start_방장이_아니면_예외를_던진다() {
         // given
@@ -324,5 +413,12 @@ class GameRoomTest {
         Field field = GameRoom.class.getDeclaredField("phase");
         field.setAccessible(true);
         field.set(room, phase);
+    }
+
+    private PromptEntry findPromptEntry(GameRoom room, String playerId) {
+        return room.getPromptEntries().stream()
+                .filter(entry -> entry.getPlayerId().equals(playerId))
+                .findFirst()
+                .orElseThrow();
     }
 }
