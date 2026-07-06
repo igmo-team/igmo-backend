@@ -11,6 +11,7 @@ import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptEntriesSnapshot;
+import com.igmo.web.dto.RoomMessage;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -61,7 +62,7 @@ public class GameService {
             Player player = new Player(nickname);
             room.addPlayer(player);
             LobbySnapshot snapshot = LobbySnapshot.from(room);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, snapshot);
+            broadcastLobbySnapshot(code, snapshot);
             return new JoinGameResponse(player.getId(), player.getSecret(), snapshot);
         });
     }
@@ -85,7 +86,7 @@ public class GameService {
                 throw new PlayerNotFoundException();
             }
             room.changePlayerReady(playerId, ready);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+            broadcastLobbySnapshot(code, LobbySnapshot.from(room));
         });
     }
 
@@ -93,7 +94,7 @@ public class GameService {
         withLockedRoom(code, room -> {
             room.changePlayerReady(playerId, true);
             room.start(playerId);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+            broadcastLobbySnapshot(code, LobbySnapshot.from(room));
         });
     }
 
@@ -103,7 +104,7 @@ public class GameService {
                 throw new PlayerNotFoundException();
             }
             room.submitPrompt(playerId, prompt, Instant.now());
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, PromptEntriesSnapshot.from(room));
+            broadcastPromptEntriesSnapshot(code, PromptEntriesSnapshot.from(room));
         });
     }
 
@@ -144,7 +145,15 @@ public class GameService {
             gameRegistry.remove(room.getCode());
             return;
         }
-        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + room.getCode(), LobbySnapshot.from(room));
+        broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
+    }
+
+    private void broadcastLobbySnapshot(String code, LobbySnapshot snapshot) {
+        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.lobbySnapshot(snapshot));
+    }
+
+    private void broadcastPromptEntriesSnapshot(String code, PromptEntriesSnapshot snapshot) {
+        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, RoomMessage.promptEntriesSnapshot(snapshot));
     }
 
     private void withLockedRoom(String code, Consumer<GameRoom> operation) {

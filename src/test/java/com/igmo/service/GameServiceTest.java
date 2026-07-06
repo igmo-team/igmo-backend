@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -29,6 +30,8 @@ import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
 import com.igmo.web.dto.PromptEntriesSnapshot;
 import com.igmo.web.dto.PromptEntryView;
+import com.igmo.web.dto.RoomMessage;
+import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ScheduledFuture;
@@ -117,7 +120,7 @@ class GameServiceTest {
                     .extracting(player -> player.nickname())
                     .containsExactly("호스트", "참가자");
         });
-        verify(messagingTemplate).convertAndSend("/topic/rooms/ABCD", response.snapshot());
+        verify(messagingTemplate).convertAndSend("/topic/rooms/ABCD", RoomMessage.lobbySnapshot(response.snapshot()));
     }
 
     @Test
@@ -273,7 +276,7 @@ class GameServiceTest {
         });
         verify(scheduledRemoval).cancel(false);
         verify(messagingTemplate, times(2))
-                .convertAndSend(eq("/topic/rooms/ABCD"), any(LobbySnapshot.class));
+                .convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
     }
 
     @Test
@@ -572,16 +575,22 @@ class GameServiceTest {
     }
 
     private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {
-        ArgumentCaptor<LobbySnapshot> captor = ArgumentCaptor.forClass(LobbySnapshot.class);
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
         verify(messagingTemplate, times(expectedBroadcastCount))
                 .convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
-        return captor.getValue();
+        RoomMessage message = captor.getValue();
+        assertThat(message.type()).isEqualTo(RoomMessageType.LOBBY_SNAPSHOT);
+        return (LobbySnapshot) message.payload();
     }
 
     private PromptEntriesSnapshot capturePromptEntriesBroadcast() {
-        ArgumentCaptor<PromptEntriesSnapshot> captor = ArgumentCaptor.forClass(PromptEntriesSnapshot.class);
-        verify(messagingTemplate).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
-        return captor.getValue();
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.PROMPT_ENTRIES_SNAPSHOT)
+                .findFirst()
+                .orElseThrow();
+        return (PromptEntriesSnapshot) message.payload();
     }
 
     private PromptEntry findPromptEntry(String code, String playerId) {
