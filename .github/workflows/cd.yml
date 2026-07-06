@@ -26,6 +26,7 @@ jobs:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      OPENAPI_SERVER_URL: ${{ vars.OPENAPI_SERVER_URL }}
       DEPLOY_SHA: ${{ github.sha }}
 
     steps:
@@ -36,6 +37,7 @@ jobs:
           : "${AWS_ROLE_ARN:?Set AWS_ROLE_ARN in the production environment}"
           : "${ECR_REPOSITORY:?Set ECR_REPOSITORY in the production environment}"
           : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
+          : "${OPENAPI_SERVER_URL:?Set OPENAPI_SERVER_URL in the production environment}"
 
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -66,6 +68,8 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.DEPLOY_SHA }}
+          build-args: |
+            OPENAPI_SERVER_URL=${{ env.OPENAPI_SERVER_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

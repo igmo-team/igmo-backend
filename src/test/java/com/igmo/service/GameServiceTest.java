@@ -11,7 +11,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.igmo.domain.GamePhase;
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.NotHostException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -20,6 +22,7 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.PlayerView;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -92,7 +95,7 @@ class GameServiceTest {
                     .extracting(player -> player.nickname())
                     .containsExactly("호스트", "참가자");
         });
-        verify(messagingTemplate).convertAndSend("/topic/room/ABCD", response.snapshot());
+        verify(messagingTemplate).convertAndSend("/topic/rooms/ABCD", response.snapshot());
     }
 
     @Test
@@ -182,7 +185,7 @@ class GameServiceTest {
         // then
         SoftAssertions.assertSoftly(softly ->
                 softly.assertThat(gameRegistry.find("ABCD")).isEmpty());
-        verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
     }
 
     @Test
@@ -261,13 +264,97 @@ class GameServiceTest {
         gameService.handleDisconnect("ABCD", "unknown-player-id");
 
         // then
-        verify(messagingTemplate, never()).convertAndSend(eq("/topic/room/ABCD"), any(Object.class));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("준비 상태를 변경하면 갱신된 스냅샷을 브로드캐스트한다.")
+    void changeReady_준비_상태를_변경하면_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+
+        // when
+        gameService.changeReady("ABCD", created.playerId(), true);
+
+        // then
+        LobbySnapshot snapshot = captureLastBroadcast(1);
+        PlayerView host = snapshot.players().get(0);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(host.id()).isEqualTo(created.playerId());
+            softly.assertThat(host.ready()).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 방에서 준비 상태를 변경하면 RoomNotFoundException을 던진다.")
+    void changeReady_없는_방이면_예외를_던진다() {
+        // when & then
+        assertThatThrownBy(() -> gameService.changeReady("ZZZZ", "player-id", true))
+                .isInstanceOf(RoomNotFoundException.class)
+                .hasMessage("방을 찾을 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어의 준비 상태를 변경하면 PlayerNotFoundException을 던진다.")
+    void changeReady_방에_없는_플레이어면_예외를_던진다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.changeReady("ABCD", "unknown-player-id", true))
+                .isInstanceOf(PlayerNotFoundException.class)
+                .hasMessage("방에 없는 플레이어입니다.");
+    }
+
+    @Test
+    @DisplayName("방장이 시작하면 GENERATING 단계로 진행한 스냅샷을 브로드캐스트한다.")
+    void startGame_방장이_시작하면_다음_단계_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+
+        // when
+        gameService.startGame("ABCD", created.playerId());
+
+        // then
+        LobbySnapshot snapshot = captureLastBroadcast(5);
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.GENERATING);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 방을 시작하면 RoomNotFoundException을 던진다.")
+    void startGame_없는_방이면_예외를_던진다() {
+        // when & then
+        assertThatThrownBy(() -> gameService.startGame("ZZZZ", "player-id"))
+                .isInstanceOf(RoomNotFoundException.class)
+                .hasMessage("방을 찾을 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("방장이 아닌 참가자가 시작하면 도메인의 NotHostException을 전파한다.")
+    void startGame_방장이_아니면_예외를_전파한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        gameService.joinGame("ABCD", "참가자2");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.startGame("ABCD", guest1.playerId()))
+                .isInstanceOf(NotHostException.class)
+                .hasMessage("방장만 게임을 시작할 수 있습니다.");
     }
 
     private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {
         ArgumentCaptor<LobbySnapshot> captor = ArgumentCaptor.forClass(LobbySnapshot.class);
         verify(messagingTemplate, times(expectedBroadcastCount))
-                .convertAndSend(eq("/topic/room/ABCD"), captor.capture());
+                .convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
         return captor.getValue();
     }
 }
