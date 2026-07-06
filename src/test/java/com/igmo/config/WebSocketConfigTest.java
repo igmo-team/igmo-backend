@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
 import org.springframework.messaging.support.AbstractMessageChannel;
 
 @SpringBootTest
@@ -22,6 +23,9 @@ class WebSocketConfigTest {
     @Qualifier("clientInboundChannel")
     private AbstractMessageChannel clientInboundChannel;
 
+    @Autowired
+    private SimpleBrokerMessageHandler simpleBrokerMessageHandler;
+
     @Test
     @DisplayName("STOMP 브로커 설정으로 SimpMessagingTemplate 빈이 등록된다.")
     void simpMessagingTemplate_빈이_등록된다() {
@@ -33,5 +37,12 @@ class WebSocketConfigTest {
     void clientInboundChannel에_PlayerSessionInterceptor가_등록된다() {
         assertThat(clientInboundChannel.getInterceptors())
                 .anyMatch(interceptor -> interceptor instanceof PlayerSessionInterceptor);
+    }
+
+    @Test
+    @DisplayName("STOMP 브로커는 공용 topic과 사용자별 queue destination을 처리한다.")
+    void 브로커가_topic과_queue_destination을_처리한다() {
+        assertThat(simpleBrokerMessageHandler.getDestinationPrefixes())
+                .containsExactlyInAnyOrder("/topic", "/queue");
     }
 }

@@ -1,14 +1,15 @@
 package com.igmo.web;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import com.igmo.service.GameService;
 import com.igmo.web.dto.ReadyRequest;
+import com.igmo.web.exception.PlayerSessionNotFoundException;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -33,29 +34,29 @@ class GameMessageControllerTest {
     }
 
     @Test
-    @DisplayName("세션에 playerId가 없으면 서비스를 호출하지 않는다.")
-    void changeReady_세션에_playerId가_없으면_서비스를_호출하지_않는다() {
+    @DisplayName("준비 상태 변경 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void changeReady_세션에_playerId가_없으면_예외를_던진다() {
         // given
         SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
         headerAccessor.setSessionAttributes(new HashMap<>());
 
-        // when
-        controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor);
-
-        // then
+        // when & then
+        assertThatThrownBy(() -> controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
         verifyNoInteractions(gameService);
     }
 
     @Test
-    @DisplayName("세션 attributes 자체가 없으면 서비스를 호출하지 않는다.")
-    void changeReady_세션_attributes가_없으면_서비스를_호출하지_않는다() {
+    @DisplayName("준비 상태 변경 시 세션 attributes 자체가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void changeReady_세션_attributes가_없으면_예외를_던진다() {
         // given
         SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
 
-        // when
-        controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor);
-
-        // then
+        // when & then
+        assertThatThrownBy(() -> controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
         verifyNoInteractions(gameService);
     }
 
@@ -73,16 +74,16 @@ class GameMessageControllerTest {
     }
 
     @Test
-    @DisplayName("세션에 playerId가 없으면 게임 시작 서비스를 호출하지 않는다.")
-    void startGame_세션에_playerId가_없으면_서비스를_호출하지_않는다() {
+    @DisplayName("게임 시작 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void startGame_세션에_playerId가_없으면_예외를_던진다() {
         // given
         SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
         headerAccessor.setSessionAttributes(new HashMap<>());
 
-        // when
-        controller.startGame("ABCD", headerAccessor);
-
-        // then
+        // when & then
+        assertThatThrownBy(() -> controller.startGame("ABCD", headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
         verifyNoInteractions(gameService);
     }
 
