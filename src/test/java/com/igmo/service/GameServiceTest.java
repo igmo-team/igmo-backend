@@ -36,6 +36,7 @@ import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -426,10 +427,15 @@ class GameServiceTest {
         gameService.startGame("ABCD", created.playerId());
 
         // then
-        LobbySnapshot lobbySnapshot = captureLastLobbyBroadcast();
-        PromptSubmissionSnapshot promptSnapshot = capturePromptSubmissionBroadcast();
+        List<RoomMessage> messages = captureRoomBroadcasts(5);
+        RoomMessage lastMessage = messages.getLast();
+        PromptSubmissionSnapshot promptSnapshot = (PromptSubmissionSnapshot) lastMessage.payload();
+
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(lobbySnapshot.phase()).isEqualTo(GamePhase.PROMPTING);
+            softly.assertThat(lastMessage.type()).isEqualTo(RoomMessageType.PROMPT_SUBMISSION_SNAPSHOT);
+            softly.assertThat(messages)
+                    .filteredOn(message -> message.type() == RoomMessageType.LOBBY_SNAPSHOT)
+                    .hasSize(4);
             softly.assertThat(promptSnapshot.phase()).isEqualTo(GamePhase.PROMPTING);
             softly.assertThat(promptSnapshot.promptStartedAt()).isNotNull();
             softly.assertThat(promptSnapshot.promptDeadline()).isEqualTo(promptSnapshot.promptStartedAt().plusSeconds(30));
@@ -673,6 +679,13 @@ class GameServiceTest {
                 .reduce((previous, current) -> current)
                 .orElseThrow();
         return (LobbySnapshot) message.payload();
+    }
+
+    private List<RoomMessage> captureRoomBroadcasts(int expectedBroadcastCount) {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, times(expectedBroadcastCount))
+                .convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        return captor.getAllValues();
     }
 
     private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {

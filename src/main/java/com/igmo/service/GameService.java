@@ -101,7 +101,6 @@ public class GameService {
             room.changePlayerReady(playerId, true);
             room.start(playerId, Instant.now(), promptDuration);
             schedulePromptExpiration(room.getCode(), room.getPromptDeadline());
-            broadcastLobbySnapshot(code, LobbySnapshot.from(room));
             return PromptSubmissionSnapshot.from(room);
         });
         broadcastPromptSubmissionSnapshot(code, promptSnapshot);
