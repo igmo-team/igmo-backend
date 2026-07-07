@@ -33,13 +33,21 @@ class GameServiceConcurrencyTest {
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
+    private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final GameService gameService =
-            new GameService(gameRegistry, roomCodeGenerator, messagingTemplate, disconnectGraceScheduler);
+            new GameService(
+                    gameRegistry,
+                    roomCodeGenerator,
+                    messagingTemplate,
+                    disconnectGraceScheduler,
+                    promptDeadlineScheduler
+            );
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
+        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }

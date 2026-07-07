@@ -5,6 +5,7 @@ spring:
 igmo:
   game:
     disconnect-grace: 3s
+    prompt-duration: 30s
 
 management:
   endpoints:
