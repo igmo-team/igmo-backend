@@ -5,6 +5,7 @@ import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -27,6 +28,7 @@ public class GameMessageExceptionHandler {
             PlayerNotFoundException.class,
             GameAlreadyStartedException.class,
             PromptSubmissionNotAllowedException.class,
+            PromptSubmissionExpiredException.class,
             DuplicatePromptSubmissionException.class,
             InsufficientPlayersException.class,
             NotHostException.class,
