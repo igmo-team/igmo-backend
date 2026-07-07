@@ -19,6 +19,7 @@ import com.igmo.domain.PromptStatus;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
+import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
@@ -29,8 +30,8 @@ import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
-import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.PromptEntryView;
+import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
@@ -51,15 +52,26 @@ class GameServiceTest {
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
+    private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
+    private final ScheduledFuture<?> scheduledPromptExpiration = mock(ScheduledFuture.class);
     private final GameService gameService =
-            new GameService(gameRegistry, roomCodeGenerator, messagingTemplate, disconnectGraceScheduler);
+            new GameService(
+                    gameRegistry,
+                    roomCodeGenerator,
+                    messagingTemplate,
+                    disconnectGraceScheduler,
+                    promptDeadlineScheduler
+            );
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
+        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
+        given(promptDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
+                .willAnswer(invocation -> scheduledPromptExpiration);
     }
 
     @Test
@@ -414,8 +426,22 @@ class GameServiceTest {
         gameService.startGame("ABCD", created.playerId());
 
         // then
-        LobbySnapshot snapshot = captureLastBroadcast(5);
-        assertThat(snapshot.phase()).isEqualTo(GamePhase.PROMPTING);
+        LobbySnapshot lobbySnapshot = captureLastLobbyBroadcast();
+        PromptSubmissionSnapshot promptSnapshot = capturePromptSubmissionBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(lobbySnapshot.phase()).isEqualTo(GamePhase.PROMPTING);
+            softly.assertThat(promptSnapshot.phase()).isEqualTo(GamePhase.PROMPTING);
+            softly.assertThat(promptSnapshot.promptStartedAt()).isNotNull();
+            softly.assertThat(promptSnapshot.promptDeadline()).isEqualTo(promptSnapshot.promptStartedAt().plusSeconds(30));
+            softly.assertThat(promptSnapshot.promptEntries())
+                    .extracting(promptEntry -> promptEntry.player().id(), PromptEntryView::status)
+                    .containsExactly(
+                            tuple(created.playerId(), PromptStatus.WAITING),
+                            tuple(guest1.playerId(), PromptStatus.WAITING),
+                            tuple(guest2.playerId(), PromptStatus.WAITING)
+                    );
+        });
+        verify(promptDeadlineScheduler).schedule(any(Runnable.class), eq(promptSnapshot.promptDeadline()));
     }
 
     @Test
@@ -468,6 +494,8 @@ class GameServiceTest {
             softly.assertThat(entry.getSubmittedAt()).isNotNull();
             softly.assertThat(snapshot.roomCode()).isEqualTo("ABCD");
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PROMPTING);
+            softly.assertThat(snapshot.promptStartedAt()).isNotNull();
+            softly.assertThat(snapshot.promptDeadline()).isEqualTo(snapshot.promptStartedAt().plusSeconds(30));
             softly.assertThat(snapshot.promptEntries()).hasSize(3);
             softly.assertThat(snapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(), PromptEntryView::status)
@@ -537,6 +565,54 @@ class GameServiceTest {
     }
 
     @Test
+    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 만료 상태로 바꾸고 스냅샷을 브로드캐스트한다.")
+    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_만료한다() {
+        // given
+        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        Runnable promptExpiration = captureScheduledPromptExpiration();
+
+        // when
+        promptExpiration.run();
+
+        // then
+        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
+        SoftAssertions.assertSoftly(softly ->
+                softly.assertThat(snapshot.promptEntries())
+                        .extracting(promptEntry -> promptEntry.player().id(), PromptEntryView::status)
+                        .containsExactly(
+                                tuple(created.playerId(), PromptStatus.EXPIRED),
+                                tuple(guest1.playerId(), PromptStatus.EXPIRED),
+                                tuple(guest2.playerId(), PromptStatus.EXPIRED)
+                        ));
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 이후 제출하면 PromptSubmissionExpiredException을 전파한다.")
+    void submitPrompt_마감_이후이면_예외를_전파한다() {
+        // given
+        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+
+        // when & then
+        assertThatThrownBy(() -> gameService.submitPrompt("ABCD", guest1.playerId(), "늦은 프롬프트"))
+                .isInstanceOf(PromptSubmissionExpiredException.class)
+                .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
+    }
+
+    @Test
     @DisplayName("연결 끊김 후 삭제 예약을 취소하면 예약된 future를 취소한다.")
     void cancelPendingRemoval_예약된_future를_취소한다() {
         // given
@@ -583,6 +659,22 @@ class GameServiceTest {
         return captor.getValue();
     }
 
+    private Runnable captureScheduledPromptExpiration() {
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(promptDeadlineScheduler).schedule(captor.capture(), any(Instant.class));
+        return captor.getValue();
+    }
+
+    private LobbySnapshot captureLastLobbyBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.LOBBY_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (LobbySnapshot) message.payload();
+    }
+
     private LobbySnapshot captureLastBroadcast(int expectedBroadcastCount) {
         ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
         verify(messagingTemplate, times(expectedBroadcastCount))
@@ -597,7 +689,7 @@ class GameServiceTest {
         verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
         RoomMessage message = captor.getAllValues().stream()
                 .filter(value -> value.type() == RoomMessageType.PROMPT_SUBMISSION_SNAPSHOT)
-                .findFirst()
+                .reduce((previous, current) -> current)
                 .orElseThrow();
         return (PromptSubmissionSnapshot) message.payload();
     }

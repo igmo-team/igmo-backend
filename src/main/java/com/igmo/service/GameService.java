@@ -35,20 +35,26 @@ public class GameService {
     private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
     private final TaskScheduler disconnectGraceScheduler;
+    private final TaskScheduler promptDeadlineScheduler;
 
     @Value("${igmo.game.disconnect-grace}")
     private Duration disconnectGrace;
+    @Value("${igmo.game.prompt-duration}")
+    private Duration promptDuration;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
                        RoomCodeGenerator roomCodeGenerator,
                        SimpMessagingTemplate messagingTemplate,
-                       @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler) {
+                       @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
+                       @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler) {
         this.gameRegistry = gameRegistry;
         this.roomCodeGenerator = roomCodeGenerator;
         this.messagingTemplate = messagingTemplate;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
+        this.promptDeadlineScheduler = promptDeadlineScheduler;
     }
 
     public CreateGameResponse createGame(String nickname) {
@@ -91,21 +97,28 @@ public class GameService {
     }
 
     public void startGame(String code, String playerId) {
-        withLockedRoom(code, room -> {
+        PromptSubmissionSnapshot promptSnapshot = withLockedRoom(code, room -> {
             room.changePlayerReady(playerId, true);
-            room.start(playerId);
+            room.start(playerId, Instant.now(), promptDuration);
+            schedulePromptExpiration(room.getCode(), room.getPromptDeadline());
             broadcastLobbySnapshot(code, LobbySnapshot.from(room));
+            return PromptSubmissionSnapshot.from(room);
         });
+        broadcastPromptSubmissionSnapshot(code, promptSnapshot);
     }
 
     public void submitPrompt(String code, String playerId, String prompt) {
-        withLockedRoom(code, room -> {
+        PromptSubmissionSnapshot snapshot = withLockedRoom(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             room.submitPrompt(playerId, prompt, Instant.now());
-            broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(room));
+            if (!room.hasWaitingPrompt()) {
+                cancelPromptExpiration(code);
+            }
+            return PromptSubmissionSnapshot.from(room);
         });
+        broadcastPromptSubmissionSnapshot(code, snapshot);
     }
 
     public void handleDisconnect(String code, String playerId) {
@@ -133,6 +146,36 @@ public class GameService {
         gameRegistry.find(code).ifPresent(room -> removePlayerAndBroadcast(room, playerId));
     }
 
+    private void schedulePromptExpiration(String code, Instant deadline) {
+        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
+                () -> runPromptExpiration(code, deadline),
+                deadline);
+        ScheduledFuture<?> previous = pendingPromptExpirations.put(code, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    private void runPromptExpiration(String code, Instant deadline) {
+        if (pendingPromptExpirations.remove(code) == null) {
+            return;
+        }
+        gameRegistry.find(code).ifPresent(room -> withLockedRoom(code, lockedRoom -> {
+            if (lockedRoom.getPromptDeadline() == null || !lockedRoom.getPromptDeadline().equals(deadline)) {
+                return;
+            }
+            lockedRoom.expireWaitingPrompts(Instant.now());
+            broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(lockedRoom));
+        }));
+    }
+
+    private void cancelPromptExpiration(String code) {
+        ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
     private static String removalKey(String code, String playerId) {
         return code + "::" + playerId;
     }
@@ -142,6 +185,7 @@ public class GameService {
             return;
         }
         if (room.isEmpty()) {
+            cancelPromptExpiration(room.getCode());
             gameRegistry.remove(room.getCode());
             return;
         }
