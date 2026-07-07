@@ -159,13 +159,15 @@ public class GameService {
         if (pendingPromptExpirations.remove(code) == null) {
             return;
         }
-        gameRegistry.find(code).ifPresent(room -> withLockedRoom(code, lockedRoom -> {
-            if (lockedRoom.isPromptExpirationStale(deadline)) {
-                return;
-            }
-            lockedRoom.expireWaitingPrompts(Instant.now());
-            broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(lockedRoom));
-        }));
+        gameRegistry.find(code)
+                .map(room -> withLockedRoom(code, lockedRoom -> {
+                    if (lockedRoom.isPromptExpirationStale(deadline)) {
+                        return null;
+                    }
+                    lockedRoom.expireWaitingPrompts(Instant.now());
+                    return PromptSubmissionSnapshot.from(lockedRoom);
+                }))
+                .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
     }
 
     private void cancelPromptExpiration(String code) {
