@@ -152,6 +152,10 @@ public class GameRoom {
                 .anyMatch(entry -> entry.getStatus() == PromptStatus.WAITING);
     }
 
+    public synchronized boolean isPromptExpirationStale(Instant deadline) {
+        return promptDeadline == null || !promptDeadline.equals(deadline);
+    }
+
     private boolean allOthersReady() {
         return players.values().stream()
                 .filter(player -> !player.getId().equals(hostId))

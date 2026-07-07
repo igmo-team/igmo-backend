@@ -403,6 +403,42 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("예약된 마감 시각이 현재 방의 마감 시각과 다르면 오래된 만료 작업으로 판단한다.")
+    void isPromptExpirationStale_마감_시각이_다르면_true를_반환한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // when & then
+        assertThat(room.isPromptExpirationStale(PROMPT_STARTED_AT.plusSeconds(29))).isTrue();
+    }
+
+    @Test
+    @DisplayName("예약된 마감 시각이 현재 방의 마감 시각과 같으면 유효한 만료 작업으로 판단한다.")
+    void isPromptExpirationStale_마감_시각이_같으면_false를_반환한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // when & then
+        assertThat(room.isPromptExpirationStale(PROMPT_STARTED_AT.plus(PROMPT_DURATION))).isFalse();
+    }
+
+    @Test
     @DisplayName("마감 시각 전에는 대기 중인 프롬프트를 만료하지 않는다.")
     void expireWaitingPrompts_마감_전이면_만료하지_않는다() {
         // given
