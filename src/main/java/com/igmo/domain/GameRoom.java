@@ -6,8 +6,10 @@ import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +28,10 @@ public class GameRoom {
     private String hostId;
     @Getter
     private GamePhase phase;
+    @Getter
+    private Instant promptStartedAt;
+    @Getter
+    private Instant promptDeadline;
     private final Map<String, Player> players = new LinkedHashMap<>();
     private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
 
@@ -97,7 +103,7 @@ public class GameRoom {
         player.changeReady(ready);
     }
 
-    public synchronized void start(String requesterId) {
+    public synchronized void start(String requesterId, Instant startedAt, Duration promptDuration) {
         if (!isInLobby()) {
             throw new GameAlreadyStartedException();
         }
@@ -111,6 +117,8 @@ public class GameRoom {
             throw new PlayersNotReadyException();
         }
         phase = GamePhase.PROMPTING;
+        promptStartedAt = startedAt;
+        promptDeadline = startedAt.plus(promptDuration);
         initializePromptEntries();
     }
 
@@ -125,7 +133,23 @@ public class GameRoom {
         if (entry.isSubmitted()) {
             throw new DuplicatePromptSubmissionException();
         }
+        if (isPromptExpired(submittedAt)) {
+            entry.expire();
+            throw new PromptSubmissionExpiredException();
+        }
         entry.submit(prompt, submittedAt);
+    }
+
+    public synchronized void expireWaitingPrompts(Instant now) {
+        if (!isPrompting() || !isPromptExpired(now)) {
+            return;
+        }
+        promptEntriesByPlayerId.values().forEach(PromptEntry::expire);
+    }
+
+    public synchronized boolean hasWaitingPrompt() {
+        return promptEntriesByPlayerId.values().stream()
+                .anyMatch(entry -> entry.getStatus() == PromptStatus.WAITING);
     }
 
     private boolean allOthersReady() {
@@ -145,6 +169,10 @@ public class GameRoom {
 
     private boolean isPrompting() {
         return phase == GamePhase.PROMPTING;
+    }
+
+    private boolean isPromptExpired(Instant now) {
+        return promptDeadline != null && now.isAfter(promptDeadline);
     }
 
     private void initializePromptEntries() {
