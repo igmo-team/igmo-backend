@@ -32,4 +32,14 @@ public class PromptEntry {
     public boolean isSubmitted() {
         return status == PromptStatus.SUBMITTED;
     }
+
+    public void expire() {
+        if (isWaiting()) {
+            this.status = PromptStatus.EXPIRED;
+        }
+    }
+
+    private boolean isWaiting() {
+        return status == PromptStatus.WAITING;
+    }
 }

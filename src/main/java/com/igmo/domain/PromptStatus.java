@@ -2,5 +2,6 @@ package com.igmo.domain;
 
 public enum PromptStatus {
     WAITING,
-    SUBMITTED
+    SUBMITTED,
+    EXPIRED
 }
