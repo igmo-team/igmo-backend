@@ -160,7 +160,7 @@ public class GameService {
             return;
         }
         gameRegistry.find(code).ifPresent(room -> withLockedRoom(code, lockedRoom -> {
-            if (lockedRoom.getPromptDeadline() == null || !lockedRoom.getPromptDeadline().equals(deadline)) {
+            if (lockedRoom.isPromptExpirationStale(deadline)) {
                 return;
             }
             lockedRoom.expireWaitingPrompts(Instant.now());
