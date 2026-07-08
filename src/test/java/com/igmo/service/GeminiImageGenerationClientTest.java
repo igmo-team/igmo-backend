@@ -64,7 +64,7 @@ class GeminiImageGenerationClientTest {
     @DisplayName("공식 output_image 필드가 없으면 예외를 던진다.")
     void generate_throwsExceptionWithoutOfficialOutputImage() throws Exception {
         // given
-        server = startServer(new AtomicReference<>(), "{\"outputImage\":{\"data\":\"aW1hZ2U=\"}}");
+        server = startServer(new AtomicReference<>(), 200, "{\"outputImage\":{\"data\":\"aW1hZ2U=\"}}");
         GeminiImageGenerationClient client = new GeminiImageGenerationClient(
                 objectMapper,
                 HttpClient.newHttpClient(),
@@ -77,22 +77,42 @@ class GeminiImageGenerationClientTest {
         // when & then
         assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Image generation failed.")
-                .cause()
-                .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Image generation response does not contain output image data.");
     }
 
-    private HttpServer startServer(AtomicReference<String> requestBody) throws IOException {
-        return startServer(requestBody, "{\"output_image\":{\"data\":\"aW1hZ2U=\"}}");
+    @Test
+    @DisplayName("이미지 생성 API 실패 시 응답 본문을 예외 메시지에 포함한다.")
+    void generate_includesResponseBodyWhenApiFails() throws Exception {
+        // given
+        String responseBody = "{\"error\":{\"message\":\"unsupported image_size\"}}";
+        server = startServer(new AtomicReference<>(), 400, responseBody);
+        GeminiImageGenerationClient client = new GeminiImageGenerationClient(
+                objectMapper,
+                HttpClient.newHttpClient(),
+                URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
+                "api-key",
+                "gemini-3.1-flash-image",
+                "2K"
+        );
+
+        // when & then
+        assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Image generation failed. status=400")
+                .hasMessageContaining(responseBody);
     }
 
-    private HttpServer startServer(AtomicReference<String> requestBody, String responseBody) throws IOException {
+    private HttpServer startServer(AtomicReference<String> requestBody) throws IOException {
+        return startServer(requestBody, 200, "{\"output_image\":{\"data\":\"aW1hZ2U=\"}}");
+    }
+
+    private HttpServer startServer(AtomicReference<String> requestBody, int statusCode, String responseBody)
+            throws IOException {
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(0), 0);
         httpServer.createContext("/v1beta/interactions", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] response = responseBody.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, response.length);
+            exchange.sendResponseHeaders(statusCode, response.length);
             try (OutputStream outputStream = exchange.getResponseBody()) {
                 outputStream.write(response);
             }

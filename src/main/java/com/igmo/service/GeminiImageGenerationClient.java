@@ -18,6 +18,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
 
     private static final URI IMAGE_GENERATION_URI = URI.create("https://generativelanguage.googleapis.com/v1beta/interactions");
     private static final String DATA_URL_PREFIX = "data:image/png;base64,";
+    private static final int MAX_ERROR_BODY_LENGTH = 2_000;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -74,12 +75,17 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("Image generation failed with status " + response.statusCode());
+                throw new IllegalStateException(
+                        "Image generation failed. status=%d, body=%s".formatted(
+                                response.statusCode(),
+                                formatErrorBody(response.body())));
             }
             return DATA_URL_PREFIX + extractImageBase64(response.body());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Image generation interrupted.", exception);
+        } catch (IllegalStateException exception) {
+            throw exception;
         } catch (Exception exception) {
             throw new IllegalStateException("Image generation failed.", exception);
         }
@@ -92,5 +98,15 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
             throw new IllegalStateException("Image generation response does not contain output image data.");
         }
         return imageBase64.asText();
+    }
+
+    private String formatErrorBody(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            return "<empty>";
+        }
+        if (responseBody.length() <= MAX_ERROR_BODY_LENGTH) {
+            return responseBody;
+        }
+        return responseBody.substring(0, MAX_ERROR_BODY_LENGTH) + "...<truncated>";
     }
 }
