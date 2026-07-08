@@ -139,6 +139,22 @@ public class GameRoom {
         entry.submit(prompt, submittedAt);
     }
 
+    public synchronized void completeImageGeneration(String playerId, String imageUrl) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null || !entry.isSubmitted()) {
+            return;
+        }
+        entry.completeImageGeneration(imageUrl);
+    }
+
+    public synchronized void failImageGeneration(String playerId) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null || !entry.isSubmitted()) {
+            return;
+        }
+        entry.failImageGeneration();
+    }
+
     public synchronized void completePromptSubmission(Instant now) {
         if (!isPrompting()) {
             return;

@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -36,6 +37,8 @@ public class GameService {
     private final SimpMessagingTemplate messagingTemplate;
     private final TaskScheduler disconnectGraceScheduler;
     private final TaskScheduler promptDeadlineScheduler;
+    private final ImageGenerationClient imageGenerationClient;
+    private final Executor imageGenerationExecutor;
 
     @Value("${igmo.game.disconnect-grace}")
     private Duration disconnectGrace;
@@ -49,12 +52,16 @@ public class GameService {
                        RoomCodeGenerator roomCodeGenerator,
                        SimpMessagingTemplate messagingTemplate,
                        @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
-                       @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler) {
+                       @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler,
+                       ImageGenerationClient imageGenerationClient,
+                       @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor) {
         this.gameRegistry = gameRegistry;
         this.roomCodeGenerator = roomCodeGenerator;
         this.messagingTemplate = messagingTemplate;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
         this.promptDeadlineScheduler = promptDeadlineScheduler;
+        this.imageGenerationClient = imageGenerationClient;
+        this.imageGenerationExecutor = imageGenerationExecutor;
     }
 
     public CreateGameResponse createGame(String nickname) {
@@ -120,6 +127,7 @@ public class GameService {
             return PromptSubmissionSnapshot.from(room);
         });
         broadcastPromptSubmissionSnapshot(code, snapshot);
+        startImageGeneration(code, playerId, prompt);
     }
 
     public void handleDisconnect(String code, String playerId) {
@@ -176,6 +184,31 @@ public class GameService {
         ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
+        }
+    }
+
+    private void startImageGeneration(String code, String playerId, String prompt) {
+        imageGenerationExecutor.execute(() -> runImageGeneration(code, playerId, prompt));
+    }
+
+    private void runImageGeneration(String code, String playerId, String prompt) {
+        try {
+            String imageUrl = imageGenerationClient.generate(prompt.trim());
+            updateImageGenerationResult(code, room -> room.completeImageGeneration(playerId, imageUrl));
+        } catch (Exception exception) {
+            updateImageGenerationResult(code, room -> room.failImageGeneration(playerId));
+        }
+    }
+
+    private void updateImageGenerationResult(String code, Consumer<GameRoom> operation) {
+        try {
+            gameRegistry.find(code)
+                    .map(room -> withLockedRoom(code, lockedRoom -> {
+                        operation.accept(lockedRoom);
+                        return PromptSubmissionSnapshot.from(lockedRoom);
+                    }))
+                    .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
+        } catch (RoomNotFoundException ignored) {
         }
     }
 

@@ -37,6 +37,7 @@ import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +55,9 @@ class GameServiceTest {
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
     private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
+    private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
+    private Runnable imageGenerationTask;
+    private final Executor imageGenerationExecutor = command -> imageGenerationTask = command;
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final ScheduledFuture<?> scheduledPromptExpiration = mock(ScheduledFuture.class);
     private final GameService gameService =
@@ -62,11 +66,14 @@ class GameServiceTest {
                     roomCodeGenerator,
                     messagingTemplate,
                     disconnectGraceScheduler,
-                    promptDeadlineScheduler
+                    promptDeadlineScheduler,
+                    imageGenerationClient,
+                    imageGenerationExecutor
             );
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
+        imageGenerationTask = null;
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
@@ -516,7 +523,70 @@ class GameServiceTest {
             softly.assertThat(promptEntryView.player().nickname()).isEqualTo("참가자1");
             softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.GENERATING);
             softly.assertThat(promptEntryView.imageUrl()).isNull();
+            softly.assertThat(imageGenerationTask).isNotNull();
         });
+    }
+
+    @Test
+    @DisplayName("이미지 생성이 성공하면 이미지 URL을 저장하고 READY 스냅샷을 브로드캐스트한다.")
+    void imageGeneration_성공하면_READY_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
+                .willReturn("https://cdn.example.com/prompt-1.png");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+
+        // when
+        runImageGenerationTask();
+
+        // then
+        PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
+        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
+        PromptEntryView promptEntryView = findPromptEntryView(snapshot, guest1.playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
+            softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(promptEntryView.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
+        });
+        verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
+    }
+
+    @Test
+    @DisplayName("이미지 생성이 실패하면 FAILED 스냅샷을 브로드캐스트한다.")
+    void imageGeneration_실패하면_FAILED_스냅샷을_브로드캐스트한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
+                .willThrow(new IllegalStateException("외부 AI 실패"));
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+
+        // when
+        runImageGenerationTask();
+
+        // then
+        PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
+        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
+        PromptEntryView promptEntryView = findPromptEntryView(snapshot, guest1.playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.FAILED);
+            softly.assertThat(entry.getImageUrl()).isNull();
+            softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.FAILED);
+            softly.assertThat(promptEntryView.imageUrl()).isNull();
+        });
+        verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
     }
 
     @Test
@@ -702,6 +772,11 @@ class GameServiceTest {
         ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
         verify(disconnectGraceScheduler).schedule(captor.capture(), any(Instant.class));
         return captor.getValue();
+    }
+
+    private void runImageGenerationTask() {
+        assertThat(imageGenerationTask).isNotNull();
+        imageGenerationTask.run();
     }
 
     private Runnable captureScheduledPromptExpiration() {
