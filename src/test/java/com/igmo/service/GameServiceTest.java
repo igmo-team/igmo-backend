@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -27,6 +28,7 @@ import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
+import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
@@ -527,8 +529,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("이미지 생성이 성공하면 이미지 URL을 저장하고 READY 스냅샷을 브로드캐스트한다.")
-    void imageGeneration_성공하면_READY_스냅샷을_브로드캐스트한다() {
+    @DisplayName("이미지 생성이 성공하면 이미지 URL을 저장하고 주인에게만 결과를 보낸다.")
+    void imageGeneration_성공하면_이미지_주인에게만_결과를_보낸다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
@@ -540,26 +542,28 @@ class GameServiceTest {
         gameService.changeReady("ABCD", guest2.playerId(), true);
         gameService.startGame("ABCD", created.playerId());
         gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        clearInvocations(messagingTemplate);
 
         // when
         runImageGenerationTask();
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        PromptEntryView promptEntryView = findPromptEntryView(snapshot, guest1.playerId());
+        ImageGenerationResult result = captureImageGenerationResult(guest1.playerId());
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
-            softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(promptEntryView.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
+            softly.assertThat(result.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
     }
 
     @Test
-    @DisplayName("이미지 생성이 실패하면 FAILED 스냅샷을 브로드캐스트한다.")
-    void imageGeneration_실패하면_FAILED_스냅샷을_브로드캐스트한다() {
+    @DisplayName("이미지 생성이 실패하면 주인에게만 실패 결과를 보낸다.")
+    void imageGeneration_실패하면_이미지_주인에게만_실패_결과를_보낸다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
@@ -571,21 +575,23 @@ class GameServiceTest {
         gameService.changeReady("ABCD", guest2.playerId(), true);
         gameService.startGame("ABCD", created.playerId());
         gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        clearInvocations(messagingTemplate);
 
         // when
         runImageGenerationTask();
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        PromptEntryView promptEntryView = findPromptEntryView(snapshot, guest1.playerId());
+        ImageGenerationResult result = captureImageGenerationResult(guest1.playerId());
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(entry.getImageUrl()).isNull();
-            softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.FAILED);
-            softly.assertThat(promptEntryView.imageUrl()).isNull();
+            softly.assertThat(result.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
+            softly.assertThat(result.imageUrl()).isNull();
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
     }
 
     @Test
@@ -818,6 +824,12 @@ class GameServiceTest {
                 .reduce((previous, current) -> current)
                 .orElseThrow();
         return (PromptSubmissionSnapshot) message.payload();
+    }
+
+    private ImageGenerationResult captureImageGenerationResult(String playerId) {
+        ArgumentCaptor<ImageGenerationResult> captor = ArgumentCaptor.forClass(ImageGenerationResult.class);
+        verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/image-generation"), captor.capture());
+        return captor.getValue();
     }
 
     private PromptEntry findPromptEntry(String code, String playerId) {
