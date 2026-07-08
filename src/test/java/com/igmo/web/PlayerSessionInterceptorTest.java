@@ -16,6 +16,7 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
 
 class PlayerSessionInterceptorTest {
@@ -25,8 +26,8 @@ class PlayerSessionInterceptorTest {
     private final MessageChannel channel = mock(MessageChannel.class);
 
     @Test
-    @DisplayName("secret이 유효한 CONNECT 프레임의 roomCode와 playerId 헤더를 세션 attributes에 저장한다.")
-    void preSend_CONNECT_헤더를_세션에_저장한다() {
+    @DisplayName("secret이 유효한 CONNECT 프레임의 roomCode와 playerId를 세션과 Principal에 저장한다.")
+    void preSend_CONNECT_헤더를_세션과_Principal에_저장한다() {
         // given
         Map<String, Object> sessionAttributes = new HashMap<>();
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
@@ -39,12 +40,14 @@ class PlayerSessionInterceptorTest {
         given(gameRegistry.find("ABCD")).willReturn(Optional.of(room));
 
         // when
-        interceptor.preSend(toMessage(accessor), channel);
+        Message<?> message = interceptor.preSend(toMessage(accessor), channel);
 
         // then
+        StompHeaderAccessor resultAccessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
         assertThat(sessionAttributes)
                 .containsEntry("roomCode", "ABCD")
                 .containsEntry("playerId", "player-1");
+        assertThat(resultAccessor.getUser().getName()).isEqualTo("player-1");
     }
 
     @Test
