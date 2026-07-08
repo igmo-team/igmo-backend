@@ -555,6 +555,7 @@ class GameServiceTest {
             softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
             softly.assertThat(result.roomCode()).isEqualTo("ABCD");
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
@@ -588,6 +589,7 @@ class GameServiceTest {
             softly.assertThat(entry.getImageUrl()).isNull();
             softly.assertThat(result.roomCode()).isEqualTo("ABCD");
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
+            softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isNull();
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");

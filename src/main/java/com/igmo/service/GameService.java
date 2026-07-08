@@ -197,18 +197,19 @@ public class GameService {
     }
 
     private void runImageGeneration(String code, String playerId, String prompt) {
+        String submittedPrompt = prompt.trim();
         try {
-            String imageUrl = imageGenerationClient.generate(prompt.trim());
+            String imageUrl = imageGenerationClient.generate(submittedPrompt);
             updateImageGenerationResult(code,
                     playerId,
                     room -> room.completeImageGeneration(playerId, imageUrl),
-                    new ImageGenerationResult(code, PromptEntryStatus.READY, imageUrl));
+                    new ImageGenerationResult(code, PromptEntryStatus.READY, submittedPrompt, imageUrl));
         } catch (Exception exception) {
             updateImageGenerationResult(
                     code,
                     playerId,
                     room -> room.failImageGeneration(playerId),
-                    new ImageGenerationResult(code, PromptEntryStatus.FAILED, null));
+                    new ImageGenerationResult(code, PromptEntryStatus.FAILED, submittedPrompt, null));
         }
     }
 

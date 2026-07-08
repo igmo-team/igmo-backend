@@ -5,6 +5,7 @@ import com.igmo.domain.PromptEntryStatus;
 public record ImageGenerationResult(
         String roomCode,
         PromptEntryStatus status,
+        String prompt,
         String imageUrl
 ) {
 }
