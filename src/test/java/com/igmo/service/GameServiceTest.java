@@ -448,11 +448,11 @@ class GameServiceTest {
             softly.assertThat(promptSnapshot.promptDeadline()).isEqualTo(promptSnapshot.promptStartedAt().plusSeconds(30));
             softly.assertThat(promptSnapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::status)
+                            PromptEntryView::submitted)
                     .containsExactly(
-                            tuple(created.playerId(), PromptEntryStatus.WAITING),
-                            tuple(guest1.playerId(), PromptEntryStatus.WAITING),
-                            tuple(guest2.playerId(), PromptEntryStatus.WAITING)
+                            tuple(created.playerId(), false),
+                            tuple(guest1.playerId(), false),
+                            tuple(guest2.playerId(), false)
                     );
         });
         verify(promptDeadlineScheduler).schedule(any(Runnable.class), eq(promptSnapshot.promptDeadline()));
@@ -513,16 +513,15 @@ class GameServiceTest {
             softly.assertThat(snapshot.promptEntries()).hasSize(3);
             softly.assertThat(snapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::status)
+                            PromptEntryView::submitted)
                     .containsExactly(
-                            tuple(created.playerId(), PromptEntryStatus.WAITING),
-                            tuple(guest1.playerId(), PromptEntryStatus.GENERATING),
-                            tuple(guest2.playerId(), PromptEntryStatus.WAITING)
+                            tuple(created.playerId(), false),
+                            tuple(guest1.playerId(), true),
+                            tuple(guest2.playerId(), false)
                     );
             softly.assertThat(promptEntryView.player().id()).isEqualTo(guest1.playerId());
             softly.assertThat(promptEntryView.player().nickname()).isEqualTo("참가자1");
-            softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.GENERATING);
-            softly.assertThat(promptEntryView.imageUrl()).isNull();
+            softly.assertThat(promptEntryView.submitted()).isTrue();
             softly.assertThat(imageGenerationTask).isNotNull();
         });
     }
@@ -666,11 +665,11 @@ class GameServiceTest {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
             softly.assertThat(snapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::status)
+                            PromptEntryView::submitted)
                     .containsExactly(
-                            tuple(created.playerId(), PromptEntryStatus.GENERATING),
-                            tuple(guest1.playerId(), PromptEntryStatus.GENERATING),
-                            tuple(guest2.playerId(), PromptEntryStatus.GENERATING)
+                            tuple(created.playerId(), true),
+                            tuple(guest1.playerId(), true),
+                            tuple(guest2.playerId(), true)
                     );
         });
         verify(scheduledPromptExpiration).cancel(false);
@@ -699,11 +698,11 @@ class GameServiceTest {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
                 softly.assertThat(snapshot.promptEntries())
                         .extracting(promptEntry -> promptEntry.player().id(),
-                                PromptEntryView::status)
+                                PromptEntryView::submitted)
                         .containsExactly(
-                                tuple(created.playerId(), PromptEntryStatus.WAITING),
-                                tuple(guest1.playerId(), PromptEntryStatus.WAITING),
-                                tuple(guest2.playerId(), PromptEntryStatus.WAITING)
+                                tuple(created.playerId(), false),
+                                tuple(guest1.playerId(), false),
+                                tuple(guest2.playerId(), false)
                         );
         });
     }
