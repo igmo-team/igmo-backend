@@ -13,6 +13,7 @@ public class PromptEntry {
     private Instant submittedAt;
     private PromptStatus status;
     private ImageStatus imageStatus;
+    private String imageUrl;
 
     private PromptEntry(String playerId) {
         this.promptId = UUID.randomUUID().toString();
@@ -34,6 +35,16 @@ public class PromptEntry {
 
     public boolean isSubmitted() {
         return status == PromptStatus.SUBMITTED;
+    }
+
+    public void completeImageGeneration(String imageUrl) {
+        this.imageUrl = imageUrl;
+        this.imageStatus = ImageStatus.READY;
+    }
+
+    public void failImageGeneration() {
+        this.imageUrl = null;
+        this.imageStatus = ImageStatus.FAILED;
     }
 
     public void expire() {

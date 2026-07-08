@@ -520,6 +520,7 @@ class GameServiceTest {
             softly.assertThat(promptEntryView.player().nickname()).isEqualTo("참가자1");
             softly.assertThat(promptEntryView.promptStatus()).isEqualTo(PromptStatus.SUBMITTED);
             softly.assertThat(promptEntryView.imageStatus()).isEqualTo(ImageStatus.GENERATING);
+            softly.assertThat(promptEntryView.imageUrl()).isNull();
         });
     }
 

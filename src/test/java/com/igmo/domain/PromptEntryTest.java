@@ -16,7 +16,10 @@ class PromptEntryTest {
         PromptEntry entry = PromptEntry.waiting("player-id");
 
         // then
-        assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.NONE);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.NONE);
+            softly.assertThat(entry.getImageUrl()).isNull();
+        });
     }
 
     @Test
@@ -29,7 +32,44 @@ class PromptEntryTest {
         entry.submit("프롬프트", Instant.parse("2026-07-08T10:00:00Z"));
 
         // then
-        assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.GENERATING);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.GENERATING);
+            softly.assertThat(entry.getImageUrl()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("이미지 생성이 완료되면 이미지 URL을 저장하고 READY 상태로 바꾼다.")
+    void completeImageGeneration_이미지_URL을_저장하고_READY로_바꾼다() {
+        // given
+        PromptEntry entry = PromptEntry.waiting("player-id");
+        entry.submit("고양이가 피아노를 치는 장면", Instant.parse("2026-07-06T10:00:00Z"));
+
+        // when
+        entry.completeImageGeneration("https://cdn.example.com/images/prompt-1.png");
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.READY);
+            softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/images/prompt-1.png");
+        });
+    }
+
+    @Test
+    @DisplayName("이미지 생성이 실패하면 이미지 URL 없이 FAILED 상태로 바꾼다.")
+    void failImageGeneration_이미지_URL_없이_FAILED로_바꾼다() {
+        // given
+        PromptEntry entry = PromptEntry.waiting("player-id");
+        entry.submit("고양이가 피아노를 치는 장면", Instant.parse("2026-07-06T10:00:00Z"));
+
+        // when
+        entry.failImageGeneration();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.FAILED);
+            softly.assertThat(entry.getImageUrl()).isNull();
+        });
     }
 
     @Test

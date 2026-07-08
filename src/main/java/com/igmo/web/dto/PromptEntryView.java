@@ -6,6 +6,7 @@ import com.igmo.domain.PromptStatus;
 public record PromptEntryView(
         PlayerView player,
         PromptStatus promptStatus,
-        ImageStatus imageStatus
+        ImageStatus imageStatus,
+        String imageUrl
 ) {
 }
