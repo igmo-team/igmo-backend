@@ -134,7 +134,6 @@ public class GameRoom {
             throw new DuplicatePromptSubmissionException();
         }
         if (isPromptExpired(submittedAt)) {
-            entry.expire();
             throw new PromptSubmissionExpiredException();
         }
         entry.submit(prompt, submittedAt);
@@ -145,7 +144,8 @@ public class GameRoom {
             return;
         }
         if (isPromptExpired(now)) {
-            expireWaitingPrompts();
+            phase = GamePhase.IMAGE_PREVIEW;
+            return;
         }
         if (!hasWaitingPrompt()) {
             phase = GamePhase.IMAGE_PREVIEW;
@@ -182,10 +182,6 @@ public class GameRoom {
 
     private boolean isPromptExpired(Instant now) {
         return promptDeadline != null && now.isAfter(promptDeadline);
-    }
-
-    private void expireWaitingPrompts() {
-        promptEntriesByPlayerId.values().forEach(PromptEntry::expire);
     }
 
     private void initializePromptEntries() {

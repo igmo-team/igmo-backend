@@ -14,9 +14,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.GamePhase;
-import com.igmo.domain.ImageStatus;
 import com.igmo.domain.PromptEntry;
-import com.igmo.domain.PromptStatus;
+import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
@@ -442,12 +441,11 @@ class GameServiceTest {
             softly.assertThat(promptSnapshot.promptDeadline()).isEqualTo(promptSnapshot.promptStartedAt().plusSeconds(30));
             softly.assertThat(promptSnapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::promptStatus,
-                            PromptEntryView::imageStatus)
+                            PromptEntryView::status)
                     .containsExactly(
-                            tuple(created.playerId(), PromptStatus.WAITING, ImageStatus.NONE),
-                            tuple(guest1.playerId(), PromptStatus.WAITING, ImageStatus.NONE),
-                            tuple(guest2.playerId(), PromptStatus.WAITING, ImageStatus.NONE)
+                            tuple(created.playerId(), PromptEntryStatus.WAITING),
+                            tuple(guest1.playerId(), PromptEntryStatus.WAITING),
+                            tuple(guest2.playerId(), PromptEntryStatus.WAITING)
                     );
         });
         verify(promptDeadlineScheduler).schedule(any(Runnable.class), eq(promptSnapshot.promptDeadline()));
@@ -499,8 +497,7 @@ class GameServiceTest {
 
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getPrompt()).isEqualTo("고양이가 피아노를 치는 장면");
-            softly.assertThat(entry.getStatus()).isEqualTo(PromptStatus.SUBMITTED);
-            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.GENERATING);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
             softly.assertThat(entry.getSubmittedAt()).isNotNull();
             softly.assertThat(snapshot.roomCode()).isEqualTo("ABCD");
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PROMPTING);
@@ -509,17 +506,15 @@ class GameServiceTest {
             softly.assertThat(snapshot.promptEntries()).hasSize(3);
             softly.assertThat(snapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::promptStatus,
-                            PromptEntryView::imageStatus)
+                            PromptEntryView::status)
                     .containsExactly(
-                            tuple(created.playerId(), PromptStatus.WAITING, ImageStatus.NONE),
-                            tuple(guest1.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING),
-                            tuple(guest2.playerId(), PromptStatus.WAITING, ImageStatus.NONE)
+                            tuple(created.playerId(), PromptEntryStatus.WAITING),
+                            tuple(guest1.playerId(), PromptEntryStatus.GENERATING),
+                            tuple(guest2.playerId(), PromptEntryStatus.WAITING)
                     );
             softly.assertThat(promptEntryView.player().id()).isEqualTo(guest1.playerId());
             softly.assertThat(promptEntryView.player().nickname()).isEqualTo("참가자1");
-            softly.assertThat(promptEntryView.promptStatus()).isEqualTo(PromptStatus.SUBMITTED);
-            softly.assertThat(promptEntryView.imageStatus()).isEqualTo(ImageStatus.GENERATING);
+            softly.assertThat(promptEntryView.status()).isEqualTo(PromptEntryStatus.GENERATING);
             softly.assertThat(promptEntryView.imageUrl()).isNull();
         });
     }
@@ -601,20 +596,19 @@ class GameServiceTest {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
             softly.assertThat(snapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::promptStatus,
-                            PromptEntryView::imageStatus)
+                            PromptEntryView::status)
                     .containsExactly(
-                            tuple(created.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING),
-                            tuple(guest1.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING),
-                            tuple(guest2.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING)
+                            tuple(created.playerId(), PromptEntryStatus.GENERATING),
+                            tuple(guest1.playerId(), PromptEntryStatus.GENERATING),
+                            tuple(guest2.playerId(), PromptEntryStatus.GENERATING)
                     );
         });
         verify(scheduledPromptExpiration).cancel(false);
     }
 
     @Test
-    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 만료하고 IMAGE_PREVIEW 스냅샷을 브로드캐스트한다.")
-    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_만료하고_IMAGE_PREVIEW로_전환한다() {
+    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 유지하고 IMAGE_PREVIEW 스냅샷을 브로드캐스트한다.")
+    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_유지하고_IMAGE_PREVIEW로_전환한다() {
         // given
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
         given(roomCodeGenerator.generate()).willReturn("ABCD");
@@ -635,12 +629,11 @@ class GameServiceTest {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
                 softly.assertThat(snapshot.promptEntries())
                         .extracting(promptEntry -> promptEntry.player().id(),
-                                PromptEntryView::promptStatus,
-                                PromptEntryView::imageStatus)
+                                PromptEntryView::status)
                         .containsExactly(
-                                tuple(created.playerId(), PromptStatus.EXPIRED, ImageStatus.NONE),
-                                tuple(guest1.playerId(), PromptStatus.EXPIRED, ImageStatus.NONE),
-                                tuple(guest2.playerId(), PromptStatus.EXPIRED, ImageStatus.NONE)
+                                tuple(created.playerId(), PromptEntryStatus.WAITING),
+                                tuple(guest1.playerId(), PromptEntryStatus.WAITING),
+                                tuple(guest2.playerId(), PromptEntryStatus.WAITING)
                         );
         });
     }

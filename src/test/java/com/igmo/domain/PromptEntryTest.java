@@ -1,7 +1,5 @@
 package com.igmo.domain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.time.Instant;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
@@ -10,14 +8,14 @@ import org.junit.jupiter.api.Test;
 class PromptEntryTest {
 
     @Test
-    @DisplayName("대기 상태의 프롬프트는 이미지 상태가 없음으로 시작한다.")
-    void waiting_이미지_상태는_NONE이다() {
+    @DisplayName("대기 상태의 프롬프트는 WAITING 상태로 시작한다.")
+    void waiting_상태는_WAITING이다() {
         // given & when
         PromptEntry entry = PromptEntry.waiting("player-id");
 
         // then
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.NONE);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.WAITING);
             softly.assertThat(entry.getImageUrl()).isNull();
         });
     }
@@ -33,7 +31,7 @@ class PromptEntryTest {
 
         // then
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.GENERATING);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
             softly.assertThat(entry.getImageUrl()).isNull();
         });
     }
@@ -50,7 +48,7 @@ class PromptEntryTest {
 
         // then
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.READY);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/images/prompt-1.png");
         });
     }
@@ -67,40 +65,8 @@ class PromptEntryTest {
 
         // then
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(entry.getImageStatus()).isEqualTo(ImageStatus.FAILED);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(entry.getImageUrl()).isNull();
-        });
-    }
-
-    @Test
-    @DisplayName("프롬프트의 상태가 대기 상태면 만료 상태로 바꾼다.")
-    void expireWaitingPrompt() {
-        // given
-        PromptEntry entry = PromptEntry.waiting("player-id");
-
-        // when
-        entry.expire();
-
-        // then
-        assertThat(entry.getStatus()).isEqualTo(PromptStatus.EXPIRED);
-    }
-
-    @Test
-    @DisplayName("제출 상태의 프롬프트는 만료 상태로 변경하지 않는다.")
-    void expireSubmittedPrompt() {
-        // given
-        PromptEntry entry = PromptEntry.waiting("player-id");
-        Instant submittedAt = Instant.parse("2026-07-08T10:00:00Z");
-        entry.submit("프롬프트", submittedAt);
-
-        // when
-        entry.expire();
-
-        // then
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(entry.getStatus()).isEqualTo(PromptStatus.SUBMITTED);
-            softly.assertThat(entry.getPrompt()).isEqualTo("프롬프트");
-            softly.assertThat(entry.getSubmittedAt()).isEqualTo(submittedAt);
         });
     }
 }

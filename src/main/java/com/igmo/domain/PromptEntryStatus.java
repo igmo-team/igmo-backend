@@ -1,7 +1,7 @@
 package com.igmo.domain;
 
-public enum ImageStatus {
-    NONE,
+public enum PromptEntryStatus {
+    WAITING,
     GENERATING,
     READY,
     FAILED
