@@ -12,11 +12,13 @@ public class PromptEntry {
     private String prompt;
     private Instant submittedAt;
     private PromptStatus status;
+    private ImageStatus imageStatus;
 
     private PromptEntry(String playerId) {
         this.promptId = UUID.randomUUID().toString();
         this.playerId = playerId;
         this.status = PromptStatus.WAITING;
+        this.imageStatus = ImageStatus.NONE;
     }
 
     public static PromptEntry waiting(String playerId) {
@@ -27,6 +29,7 @@ public class PromptEntry {
         this.prompt = prompt;
         this.submittedAt = submittedAt;
         this.status = PromptStatus.SUBMITTED;
+        this.imageStatus = ImageStatus.GENERATING;
     }
 
     public boolean isSubmitted() {
