@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -63,7 +64,9 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                     .POST(HttpRequest.BodyPublishers.ofString(
                             objectMapper.writeValueAsString(Map.of(
                                     "model", model,
-                                    "input", prompt,
+                                    "input", List.of(Map.of(
+                                            "type", "text",
+                                            "text", prompt)),
                                     "response_format", Map.of(
                                             "type", "image",
                                             "mime_type", "image/png",

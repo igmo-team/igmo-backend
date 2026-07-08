@@ -29,8 +29,8 @@ class GeminiImageGenerationClientTest {
     }
 
     @Test
-    @DisplayName("이미지 생성 요청에 설정된 해상도를 포함한다.")
-    void generate_includesConfiguredImageSize() throws Exception {
+    @DisplayName("이미지 생성 요청을 Gemini Interactions REST 형식으로 보낸다.")
+    void generate_sendsInteractionsRestRequest() throws Exception {
         // given
         AtomicReference<String> requestBody = new AtomicReference<>();
         server = startServer(requestBody);
@@ -48,8 +48,14 @@ class GeminiImageGenerationClientTest {
 
         // then
         JsonNode body = objectMapper.readTree(requestBody.get());
-        assertThat(body.path("response_format").path("image_size").asText()).isEqualTo("2K");
+        JsonNode input = body.path("input");
+        assertThat(body.path("model").asText()).isEqualTo("gemini-3.1-flash-image");
+        assertThat(input).hasSize(1);
+        assertThat(input.get(0).path("type").asText()).isEqualTo("text");
+        assertThat(input.get(0).path("text").asText()).isEqualTo("동굴 벽화 스타일의 바나나");
+        assertThat(body.path("response_format").path("type").asText()).isEqualTo("image");
         assertThat(body.path("response_format").path("mime_type").asText()).isEqualTo("image/png");
+        assertThat(body.path("response_format").path("image_size").asText()).isEqualTo("2K");
         assertThat(imageUrl).isEqualTo("data:image/png;base64,aW1hZ2U=");
     }
 
