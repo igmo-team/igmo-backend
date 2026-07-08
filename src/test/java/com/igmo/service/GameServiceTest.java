@@ -578,8 +578,42 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 만료 상태로 바꾸고 스냅샷을 브로드캐스트한다.")
-    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_만료한다() {
+    @DisplayName("모든 플레이어가 프롬프트를 제출하면 IMAGE_PREVIEW 단계로 전환하고 마감 작업을 취소한다.")
+    void submitPrompt_모든_플레이어가_제출하면_IMAGE_PREVIEW로_전환하고_마감_작업을_취소한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+
+        // when
+        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+
+        // then
+        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
+            softly.assertThat(snapshot.promptEntries())
+                    .extracting(promptEntry -> promptEntry.player().id(),
+                            PromptEntryView::promptStatus,
+                            PromptEntryView::imageStatus)
+                    .containsExactly(
+                            tuple(created.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING),
+                            tuple(guest1.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING),
+                            tuple(guest2.playerId(), PromptStatus.SUBMITTED, ImageStatus.GENERATING)
+                    );
+        });
+        verify(scheduledPromptExpiration).cancel(false);
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 만료하고 IMAGE_PREVIEW 스냅샷을 브로드캐스트한다.")
+    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_만료하고_IMAGE_PREVIEW로_전환한다() {
         // given
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
         given(roomCodeGenerator.generate()).willReturn("ABCD");
@@ -596,7 +630,8 @@ class GameServiceTest {
 
         // then
         PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        SoftAssertions.assertSoftly(softly ->
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
                 softly.assertThat(snapshot.promptEntries())
                         .extracting(promptEntry -> promptEntry.player().id(),
                                 PromptEntryView::promptStatus,
@@ -605,7 +640,8 @@ class GameServiceTest {
                                 tuple(created.playerId(), PromptStatus.EXPIRED, ImageStatus.NONE),
                                 tuple(guest1.playerId(), PromptStatus.EXPIRED, ImageStatus.NONE),
                                 tuple(guest2.playerId(), PromptStatus.EXPIRED, ImageStatus.NONE)
-                        ));
+                        );
+        });
     }
 
     @Test

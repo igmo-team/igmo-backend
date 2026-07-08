@@ -140,16 +140,21 @@ public class GameRoom {
         entry.submit(prompt, submittedAt);
     }
 
-    public synchronized void expireWaitingPrompts(Instant now) {
-        if (!isPrompting() || !isPromptExpired(now)) {
+    public synchronized void completePromptSubmission(Instant now) {
+        if (!isPrompting()) {
             return;
         }
-        promptEntriesByPlayerId.values().forEach(PromptEntry::expire);
+        if (isPromptExpired(now)) {
+            expireWaitingPrompts();
+        }
+        if (!hasWaitingPrompt()) {
+            phase = GamePhase.IMAGE_PREVIEW;
+        }
     }
 
     public synchronized boolean hasWaitingPrompt() {
         return promptEntriesByPlayerId.values().stream()
-                .anyMatch(entry -> entry.getStatus() == PromptStatus.WAITING);
+                .anyMatch(PromptEntry::isWaiting);
     }
 
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
@@ -177,6 +182,10 @@ public class GameRoom {
 
     private boolean isPromptExpired(Instant now) {
         return promptDeadline != null && now.isAfter(promptDeadline);
+    }
+
+    private void expireWaitingPrompts() {
+        promptEntriesByPlayerId.values().forEach(PromptEntry::expire);
     }
 
     private void initializePromptEntries() {

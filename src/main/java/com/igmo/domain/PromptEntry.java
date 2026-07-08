@@ -42,7 +42,7 @@ public class PromptEntry {
         }
     }
 
-    private boolean isWaiting() {
+    public boolean isWaiting() {
         return status == PromptStatus.WAITING;
     }
 }

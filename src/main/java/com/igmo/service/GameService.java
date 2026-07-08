@@ -111,9 +111,11 @@ public class GameService {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
-            room.submitPrompt(playerId, prompt, Instant.now());
+            Instant submittedAt = Instant.now();
+            room.submitPrompt(playerId, prompt, submittedAt);
             if (!room.hasWaitingPrompt()) {
                 cancelPromptExpiration(code);
+                room.completePromptSubmission(submittedAt);
             }
             return PromptSubmissionSnapshot.from(room);
         });
@@ -164,7 +166,7 @@ public class GameService {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.expireWaitingPrompts(Instant.now());
+                    lockedRoom.completePromptSubmission(Instant.now());
                     return PromptSubmissionSnapshot.from(lockedRoom);
                 }))
                 .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
