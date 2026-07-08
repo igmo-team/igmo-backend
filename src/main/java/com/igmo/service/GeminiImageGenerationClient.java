@@ -88,9 +88,6 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
     private String extractImageBase64(String responseBody) throws java.io.IOException {
         JsonNode response = objectMapper.readTree(responseBody);
         JsonNode imageBase64 = response.path("output_image").path("data");
-        if (imageBase64.isMissingNode()) {
-            imageBase64 = response.path("outputImage").path("data");
-        }
         if (!imageBase64.isTextual()) {
             throw new IllegalStateException("Image generation response does not contain output image data.");
         }

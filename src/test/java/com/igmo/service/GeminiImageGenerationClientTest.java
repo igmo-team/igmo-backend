@@ -1,6 +1,7 @@
 package com.igmo.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -59,11 +60,38 @@ class GeminiImageGenerationClientTest {
         assertThat(imageUrl).isEqualTo("data:image/png;base64,aW1hZ2U=");
     }
 
+    @Test
+    @DisplayName("공식 output_image 필드가 없으면 예외를 던진다.")
+    void generate_throwsExceptionWithoutOfficialOutputImage() throws Exception {
+        // given
+        server = startServer(new AtomicReference<>(), "{\"outputImage\":{\"data\":\"aW1hZ2U=\"}}");
+        GeminiImageGenerationClient client = new GeminiImageGenerationClient(
+                objectMapper,
+                HttpClient.newHttpClient(),
+                URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
+                "api-key",
+                "gemini-3.1-flash-image",
+                "2K"
+        );
+
+        // when & then
+        assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image generation failed.")
+                .cause()
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image generation response does not contain output image data.");
+    }
+
     private HttpServer startServer(AtomicReference<String> requestBody) throws IOException {
+        return startServer(requestBody, "{\"output_image\":{\"data\":\"aW1hZ2U=\"}}");
+    }
+
+    private HttpServer startServer(AtomicReference<String> requestBody, String responseBody) throws IOException {
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(0), 0);
         httpServer.createContext("/v1beta/interactions", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            byte[] response = "{\"output_image\":{\"data\":\"aW1hZ2U=\"}}".getBytes(StandardCharsets.UTF_8);
+            byte[] response = responseBody.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, response.length);
             try (OutputStream outputStream = exchange.getResponseBody()) {
                 outputStream.write(response);
