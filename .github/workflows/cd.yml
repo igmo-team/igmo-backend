@@ -47,7 +47,11 @@ jobs:
           : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
           : "${OPENAPI_SERVER_URL:?Set OPENAPI_SERVER_URL in the production environment}"
           : "${GEMINI_API_KEY:?Set GEMINI_API_KEY in the production environment}"
+          : "${IGMO_AI_GEMINI_MODEL:?Set IGMO_AI_GEMINI_MODEL in the production environment}"
+          : "${IGMO_AI_GEMINI_IMAGE_SIZE:?Set IGMO_AI_GEMINI_IMAGE_SIZE in the production environment}"
           : "${IGMO_IMAGE_STORAGE_S3_BUCKET:?Set IGMO_IMAGE_STORAGE_S3_BUCKET in the production environment}"
+          : "${IGMO_IMAGE_STORAGE_S3_REGION:?Set IGMO_IMAGE_STORAGE_S3_REGION in the production environment}"
+          : "${IGMO_IMAGE_STORAGE_S3_KEY_PREFIX:?Set IGMO_IMAGE_STORAGE_S3_KEY_PREFIX in the production environment}"
 
       - name: Checkout repository
         uses: actions/checkout@v7
