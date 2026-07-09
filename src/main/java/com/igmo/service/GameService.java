@@ -205,6 +205,7 @@ public class GameService {
                     room -> room.completeImageGeneration(playerId, imageUrl),
                     new ImageGenerationResult(code, PromptEntryStatus.READY, submittedPrompt, imageUrl));
         } catch (Exception exception) {
+            log.warn("이미지 생성 실패. roomCode={}, playerId={}", code, playerId, exception);
             updateImageGenerationResult(
                     code,
                     playerId,
