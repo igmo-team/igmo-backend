@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,11 +18,12 @@ import org.springframework.util.StringUtils;
 public class GeminiImageGenerationClient implements ImageGenerationClient {
 
     private static final URI IMAGE_GENERATION_URI = URI.create("https://generativelanguage.googleapis.com/v1beta/interactions");
-    private static final String DATA_URL_PREFIX = "data:image/png;base64,";
+    private static final String IMAGE_CONTENT_TYPE = "image/jpeg";
     private static final int MAX_ERROR_BODY_LENGTH = 2_000;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final ImageStorageClient imageStorageClient;
     private final URI imageGenerationUri;
     private final String apiKey;
     private final String model;
@@ -30,16 +32,18 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
     @Autowired
     public GeminiImageGenerationClient(
             ObjectMapper objectMapper,
+            ImageStorageClient imageStorageClient,
             @Value("${igmo.ai.gemini.api-key}") String apiKey,
             @Value("${igmo.ai.gemini.model}") String model,
             @Value("${igmo.ai.gemini.image-size}") String imageSize
     ) {
-        this(objectMapper, HttpClient.newHttpClient(), IMAGE_GENERATION_URI, apiKey, model, imageSize);
+        this(objectMapper, HttpClient.newHttpClient(), imageStorageClient, IMAGE_GENERATION_URI, apiKey, model, imageSize);
     }
 
     GeminiImageGenerationClient(
             ObjectMapper objectMapper,
             HttpClient httpClient,
+            ImageStorageClient imageStorageClient,
             URI imageGenerationUri,
             String apiKey,
             String model,
@@ -47,6 +51,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
     ) {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
+        this.imageStorageClient = imageStorageClient;
         this.imageGenerationUri = imageGenerationUri;
         this.apiKey = apiKey;
         this.model = model;
@@ -70,7 +75,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                                             "text", prompt)),
                                     "response_format", Map.of(
                                             "type", "image",
-                                            "mime_type", "image/png",
+                                            "mime_type", IMAGE_CONTENT_TYPE,
                                             "image_size", imageSize)))))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -80,7 +85,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                                 response.statusCode(),
                                 formatErrorBody(response.body())));
             }
-            return DATA_URL_PREFIX + extractImageBase64(response.body());
+            return imageStorageClient.store(extractImage(response.body()), IMAGE_CONTENT_TYPE);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Image generation interrupted.", exception);
@@ -91,13 +96,20 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
         }
     }
 
-    private String extractImageBase64(String responseBody) throws java.io.IOException {
+    private byte[] extractImage(String responseBody) throws java.io.IOException {
         JsonNode response = objectMapper.readTree(responseBody);
-        JsonNode imageBase64 = response.path("output_image").path("data");
-        if (!imageBase64.isTextual()) {
-            throw new IllegalStateException("Image generation response does not contain output image data.");
+        for (JsonNode step : response.path("steps")) {
+            if (!"model_output".equals(step.path("type").asText())) {
+                continue;
+            }
+            for (JsonNode content : step.path("content")) {
+                JsonNode imageBase64 = content.path("data");
+                if ("image".equals(content.path("type").asText()) && imageBase64.isTextual()) {
+                    return Base64.getDecoder().decode(imageBase64.asText());
+                }
+            }
         }
-        return imageBase64.asText();
+        throw new IllegalStateException("Image generation response does not contain output image data.");
     }
 
     private String formatErrorBody(String responseBody) {
