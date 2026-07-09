@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: igmo
 
@@ -11,6 +13,12 @@ igmo:
       api-key: ${GEMINI_API_KEY:}
       model: ${IGMO_AI_GEMINI_MODEL:gemini-3.1-flash-image}
       image-size: ${IGMO_AI_GEMINI_IMAGE_SIZE:1K}
+  image-storage:
+    s3:
+      bucket: ${IGMO_IMAGE_STORAGE_S3_BUCKET:}
+      region: ${IGMO_IMAGE_STORAGE_S3_REGION:ap-northeast-2}
+      key-prefix: ${IGMO_IMAGE_STORAGE_S3_KEY_PREFIX:generated-images}
+      public-base-url: ${IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL:}
 
 management:
   endpoints:
