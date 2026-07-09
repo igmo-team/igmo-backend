@@ -27,6 +27,14 @@ jobs:
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
       OPENAPI_SERVER_URL: ${{ vars.OPENAPI_SERVER_URL }}
+      SERVER_PORT: ${{ vars.SERVER_PORT }}
+      GEMINI_API_KEY: ${{ vars.GEMINI_API_KEY }}
+      IGMO_AI_GEMINI_MODEL: ${{ vars.IGMO_AI_GEMINI_MODEL }}
+      IGMO_AI_GEMINI_IMAGE_SIZE: ${{ vars.IGMO_AI_GEMINI_IMAGE_SIZE }}
+      IGMO_IMAGE_STORAGE_S3_BUCKET: ${{ vars.IGMO_IMAGE_STORAGE_S3_BUCKET }}
+      IGMO_IMAGE_STORAGE_S3_REGION: ${{ vars.IGMO_IMAGE_STORAGE_S3_REGION }}
+      IGMO_IMAGE_STORAGE_S3_KEY_PREFIX: ${{ vars.IGMO_IMAGE_STORAGE_S3_KEY_PREFIX }}
+      IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL: ${{ vars.IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL }}
       DEPLOY_SHA: ${{ github.sha }}
 
     steps:
@@ -38,6 +46,8 @@ jobs:
           : "${ECR_REPOSITORY:?Set ECR_REPOSITORY in the production environment}"
           : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
           : "${OPENAPI_SERVER_URL:?Set OPENAPI_SERVER_URL in the production environment}"
+          : "${GEMINI_API_KEY:?Set GEMINI_API_KEY in the production environment}"
+          : "${IGMO_IMAGE_STORAGE_S3_BUCKET:?Set IGMO_IMAGE_STORAGE_S3_BUCKET in the production environment}"
 
       - name: Checkout repository
         uses: actions/checkout@v7
