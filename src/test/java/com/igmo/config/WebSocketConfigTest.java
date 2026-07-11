@@ -2,22 +2,19 @@ package com.igmo.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.igmo.support.AbstractSpringBootTest;
 import com.igmo.web.PlayerSessionInterceptor;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
 import org.springframework.messaging.support.AbstractMessageChannel;
-import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest
-@ActiveProfiles("test")
-class WebSocketConfigTest {
+class WebSocketConfigTest extends AbstractSpringBootTest {
 
     @Autowired
     private ApplicationContext context;
