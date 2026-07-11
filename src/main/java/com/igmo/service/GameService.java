@@ -222,8 +222,10 @@ public class GameService {
         try {
             gameRegistry.find(code)
                     .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
-                        operation.accept(lockedRoom);
+                        operation.accept(lockedRoom); //room에 대한  lock 획득
+                        PromptSubmissionSnapshot snapshot = PromptSubmissionSnapshot.from(lockedRoom);
                         sendImageGenerationResult(playerId, result);
+                        broadcastPromptSubmissionSnapshot(code, snapshot);
                     }));
         } catch (RoomNotFoundException ignored) {
             log.debug("이미지 생성 결과를 반영할 방이 없어 결과를 버린다. roomCode={}, playerId={}", code, playerId);
