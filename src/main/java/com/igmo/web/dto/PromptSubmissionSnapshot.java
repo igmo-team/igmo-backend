@@ -37,6 +37,6 @@ public record PromptSubmissionSnapshot(
 
     private static PromptEntryView toView(PromptEntry entry, Map<String, Player> playersById) {
         Player player = playersById.get(entry.getPlayerId());
-        return new PromptEntryView(PlayerView.from(player), entry.getStatus());
+        return new PromptEntryView(PlayerView.from(player), entry.isSubmitted());
     }
 }

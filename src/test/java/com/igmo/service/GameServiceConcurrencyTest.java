@@ -34,6 +34,7 @@ class GameServiceConcurrencyTest {
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
     private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
+    private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final GameService gameService =
             new GameService(
@@ -41,7 +42,9 @@ class GameServiceConcurrencyTest {
                     roomCodeGenerator,
                     messagingTemplate,
                     disconnectGraceScheduler,
-                    promptDeadlineScheduler
+                    promptDeadlineScheduler,
+                    imageGenerationClient,
+                    Runnable::run
             );
 
     @BeforeEach

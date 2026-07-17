@@ -2,12 +2,14 @@ package com.igmo.service;
 
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
+import com.igmo.domain.PromptEntryStatus;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
+import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
@@ -16,19 +18,23 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class GameService {
 
     private static final String ROOM_TOPIC_PREFIX = "/topic/rooms/";
+    private static final String IMAGE_GENERATION_QUEUE = "/queue/image-generation";
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
 
     private final GameRegistry gameRegistry;
@@ -36,6 +42,8 @@ public class GameService {
     private final SimpMessagingTemplate messagingTemplate;
     private final TaskScheduler disconnectGraceScheduler;
     private final TaskScheduler promptDeadlineScheduler;
+    private final ImageGenerationClient imageGenerationClient;
+    private final Executor imageGenerationExecutor;
 
     @Value("${igmo.game.disconnect-grace}")
     private Duration disconnectGrace;
@@ -49,12 +57,16 @@ public class GameService {
                        RoomCodeGenerator roomCodeGenerator,
                        SimpMessagingTemplate messagingTemplate,
                        @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
-                       @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler) {
+                       @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler,
+                       ImageGenerationClient imageGenerationClient,
+                       @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor) {
         this.gameRegistry = gameRegistry;
         this.roomCodeGenerator = roomCodeGenerator;
         this.messagingTemplate = messagingTemplate;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
         this.promptDeadlineScheduler = promptDeadlineScheduler;
+        this.imageGenerationClient = imageGenerationClient;
+        this.imageGenerationExecutor = imageGenerationExecutor;
     }
 
     public CreateGameResponse createGame(String nickname) {
@@ -111,13 +123,16 @@ public class GameService {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
-            room.submitPrompt(playerId, prompt, Instant.now());
+            Instant submittedAt = Instant.now();
+            room.submitPrompt(playerId, prompt, submittedAt);
             if (!room.hasWaitingPrompt()) {
                 cancelPromptExpiration(code);
+                room.completePromptSubmission(submittedAt);
             }
             return PromptSubmissionSnapshot.from(room);
         });
         broadcastPromptSubmissionSnapshot(code, snapshot);
+        startImageGeneration(code, playerId, prompt);
     }
 
     public void handleDisconnect(String code, String playerId) {
@@ -164,7 +179,7 @@ public class GameService {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.expireWaitingPrompts(Instant.now());
+                    lockedRoom.completePromptSubmission(Instant.now());
                     return PromptSubmissionSnapshot.from(lockedRoom);
                 }))
                 .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
@@ -174,6 +189,43 @@ public class GameService {
         ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
+        }
+    }
+
+    private void startImageGeneration(String code, String playerId, String prompt) {
+        imageGenerationExecutor.execute(() -> runImageGeneration(code, playerId, prompt));
+    }
+
+    private void runImageGeneration(String code, String playerId, String prompt) {
+        String submittedPrompt = prompt.trim();
+        try {
+            String imageUrl = imageGenerationClient.generate(submittedPrompt);
+            updateImageGenerationResult(code,
+                    playerId,
+                    room -> room.completeImageGeneration(playerId, imageUrl),
+                    new ImageGenerationResult(code, PromptEntryStatus.READY, submittedPrompt, imageUrl));
+        } catch (Exception exception) {
+            updateImageGenerationResult(
+                    code,
+                    playerId,
+                    room -> room.failImageGeneration(playerId),
+                    new ImageGenerationResult(code, PromptEntryStatus.FAILED, submittedPrompt, null));
+        }
+    }
+
+    private void updateImageGenerationResult(
+            String code,
+            String playerId,
+            Consumer<GameRoom> operation,
+            ImageGenerationResult result) {
+        try {
+            gameRegistry.find(code)
+                    .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
+                        operation.accept(lockedRoom);
+                        sendImageGenerationResult(playerId, result);
+                    }));
+        } catch (RoomNotFoundException ignored) {
+            log.debug("이미지 생성 결과를 반영할 방이 없어 결과를 버린다. roomCode={}, playerId={}", code, playerId);
         }
     }
 
@@ -199,6 +251,10 @@ public class GameService {
 
     private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
+    }
+
+    private void sendImageGenerationResult(String playerId, ImageGenerationResult result) {
+        messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, result);
     }
 
     private void withLockedRoom(String code, Consumer<GameRoom> operation) {

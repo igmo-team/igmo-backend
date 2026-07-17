@@ -134,22 +134,43 @@ public class GameRoom {
             throw new DuplicatePromptSubmissionException();
         }
         if (isPromptExpired(submittedAt)) {
-            entry.expire();
             throw new PromptSubmissionExpiredException();
         }
         entry.submit(prompt, submittedAt);
     }
 
-    public synchronized void expireWaitingPrompts(Instant now) {
-        if (!isPrompting() || !isPromptExpired(now)) {
+    public synchronized void completeImageGeneration(String playerId, String imageUrl) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null || !entry.isSubmitted()) {
             return;
         }
-        promptEntriesByPlayerId.values().forEach(PromptEntry::expire);
+        entry.completeImageGeneration(imageUrl);
+    }
+
+    public synchronized void failImageGeneration(String playerId) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null || !entry.isSubmitted()) {
+            return;
+        }
+        entry.failImageGeneration();
+    }
+
+    public synchronized void completePromptSubmission(Instant now) {
+        if (!isPrompting()) {
+            return;
+        }
+        if (isPromptExpired(now)) {
+            phase = GamePhase.IMAGE_PREVIEW;
+            return;
+        }
+        if (!hasWaitingPrompt()) {
+            phase = GamePhase.IMAGE_PREVIEW;
+        }
     }
 
     public synchronized boolean hasWaitingPrompt() {
         return promptEntriesByPlayerId.values().stream()
-                .anyMatch(entry -> entry.getStatus() == PromptStatus.WAITING);
+                .anyMatch(PromptEntry::isWaiting);
     }
 
     public synchronized boolean isPromptExpirationStale(Instant deadline) {

@@ -304,7 +304,7 @@ class GameRoomTest {
                     .containsExactly(host.getId(), guest1.getId(), guest2.getId());
             softly.assertThat(room.getPromptEntries())
                     .extracting(PromptEntry::getStatus)
-                    .containsOnly(PromptStatus.WAITING);
+                    .containsOnly(PromptEntryStatus.WAITING);
         });
     }
 
@@ -331,7 +331,7 @@ class GameRoomTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getPrompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(entry.getSubmittedAt()).isEqualTo(submittedAt);
-            softly.assertThat(entry.getStatus()).isEqualTo(PromptStatus.SUBMITTED);
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
         });
     }
 
@@ -377,8 +377,8 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("마감 시각 이후 대기 중인 프롬프트만 만료 상태로 바꾼다.")
-    void expireWaitingPrompts_마감_이후_대기_프롬프트만_만료한다() {
+    @DisplayName("마감 시각 이후 프롬프트 입력을 종료하면 대기 중인 프롬프트를 유지하고 IMAGE_PREVIEW 단계로 바꾼다.")
+    void completePromptSubmission_마감_이후이면_대기_프롬프트를_유지하고_IMAGE_PREVIEW로_바꾼다() {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
@@ -392,13 +392,14 @@ class GameRoomTest {
         room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
 
         // when
-        room.expireWaitingPrompts(PROMPT_STARTED_AT.plusSeconds(31));
+        room.completePromptSubmission(PROMPT_STARTED_AT.plusSeconds(31));
 
         // then
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(findPromptEntry(room, host.getId()).getStatus()).isEqualTo(PromptStatus.EXPIRED);
-            softly.assertThat(findPromptEntry(room, guest1.getId()).getStatus()).isEqualTo(PromptStatus.SUBMITTED);
-            softly.assertThat(findPromptEntry(room, guest2.getId()).getStatus()).isEqualTo(PromptStatus.EXPIRED);
+            softly.assertThat(findPromptEntry(room, host.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
+            softly.assertThat(findPromptEntry(room, guest1.getId()).getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(findPromptEntry(room, guest2.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
         });
     }
 
@@ -439,8 +440,8 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("마감 시각 전에는 대기 중인 프롬프트를 만료하지 않는다.")
-    void expireWaitingPrompts_마감_전이면_만료하지_않는다() {
+    @DisplayName("마감 시각 전이고 대기 중인 프롬프트가 있으면 프롬프트 입력을 종료하지 않는다.")
+    void completePromptSubmission_마감_전이고_대기_프롬프트가_있으면_종료하지_않는다() {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
@@ -453,17 +454,49 @@ class GameRoomTest {
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
         // when
-        room.expireWaitingPrompts(PROMPT_STARTED_AT.plusSeconds(29));
+        room.completePromptSubmission(PROMPT_STARTED_AT.plusSeconds(29));
 
         // then
-        assertThat(room.getPromptEntries())
-                .extracting(PromptEntry::getStatus)
-                .containsOnly(PromptStatus.WAITING);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPromptEntries())
+                    .extracting(PromptEntry::getStatus)
+                    .containsOnly(PromptEntryStatus.WAITING);
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PROMPTING);
+        });
     }
 
     @Test
-    @DisplayName("마감 시각 이후 프롬프트를 제출하면 PromptSubmissionExpiredException을 던지고 만료 상태로 바꾼다.")
-    void submitPrompt_마감_시각_이후이면_예외를_던지고_만료한다() {
+    @DisplayName("모든 프롬프트가 제출되면 마감 시각 전에도 IMAGE_PREVIEW 단계로 바꾼다.")
+    void completePromptSubmission_모두_제출했으면_IMAGE_PREVIEW로_바꾼다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+
+        // when
+        room.completePromptSubmission(PROMPT_STARTED_AT.plusSeconds(10));
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPromptEntries())
+                    .extracting(PromptEntry::getStatus)
+                    .containsOnly(PromptEntryStatus.GENERATING);
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.IMAGE_PREVIEW);
+        });
+    }
+
+    @Test
+    @DisplayName("마감 시각 이후 프롬프트를 제출하면 PromptSubmissionExpiredException을 던지고 대기 상태를 유지한다.")
+    void submitPrompt_마감_시각_이후이면_예외를_던지고_대기_상태를_유지한다() {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
@@ -480,7 +513,7 @@ class GameRoomTest {
         assertThatThrownBy(() -> room.submitPrompt(guest1.getId(), "늦은 프롬프트", expiredAt))
                 .isInstanceOf(PromptSubmissionExpiredException.class)
                 .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
-        assertThat(findPromptEntry(room, guest1.getId()).getStatus()).isEqualTo(PromptStatus.EXPIRED);
+        assertThat(findPromptEntry(room, guest1.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
     }
 
     @Test

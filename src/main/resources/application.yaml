@@ -6,6 +6,11 @@ igmo:
   game:
     disconnect-grace: 3s
     prompt-duration: 30s
+  ai:
+    gemini:
+      api-key: ${GEMINI_API_KEY:}
+      model: ${IGMO_AI_GEMINI_MODEL:gemini-3.1-flash-image}
+      image-size: ${IGMO_AI_GEMINI_IMAGE_SIZE:1K}
 
 management:
   endpoints:
