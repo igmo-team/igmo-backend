@@ -10,15 +10,17 @@ import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.PromptSubmissionSnapshot;
+import com.igmo.web.dto.RoomMessage;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
@@ -26,7 +28,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class GameService {
 
-    private static final String LOBBY_TOPIC_PREFIX = "/topic/rooms/";
+    private static final String ROOM_TOPIC_PREFIX = "/topic/rooms/";
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
 
     private final GameRegistry gameRegistry;
@@ -60,7 +62,7 @@ public class GameService {
             Player player = new Player(nickname);
             room.addPlayer(player);
             LobbySnapshot snapshot = LobbySnapshot.from(room);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, snapshot);
+            broadcastLobbySnapshot(code, snapshot);
             return new JoinGameResponse(player.getId(), player.getSecret(), snapshot);
         });
     }
@@ -84,7 +86,7 @@ public class GameService {
                 throw new PlayerNotFoundException();
             }
             room.changePlayerReady(playerId, ready);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+            broadcastLobbySnapshot(code, LobbySnapshot.from(room));
         });
     }
 
@@ -92,7 +94,17 @@ public class GameService {
         withLockedRoom(code, room -> {
             room.changePlayerReady(playerId, true);
             room.start(playerId);
-            messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + code, LobbySnapshot.from(room));
+            broadcastLobbySnapshot(code, LobbySnapshot.from(room));
+        });
+    }
+
+    public void submitPrompt(String code, String playerId, String prompt) {
+        withLockedRoom(code, room -> {
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            room.submitPrompt(playerId, prompt, Instant.now());
+            broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(room));
         });
     }
 
@@ -133,7 +145,22 @@ public class GameService {
             gameRegistry.remove(room.getCode());
             return;
         }
-        messagingTemplate.convertAndSend(LOBBY_TOPIC_PREFIX + room.getCode(), LobbySnapshot.from(room));
+        broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
+    }
+
+    private void broadcastLobbySnapshot(String code, LobbySnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.lobbySnapshot(snapshot));
+    }
+
+    private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
+    }
+
+    private void withLockedRoom(String code, Consumer<GameRoom> operation) {
+        withLockedRoom(code, room -> {
+            operation.accept(room);
+            return null;
+        });
     }
 
     private <T> T withLockedRoom(String code, Function<GameRoom, T> operation) {
@@ -145,13 +172,6 @@ public class GameService {
             }
             return operation.apply(room);
         }
-    }
-
-    private void withLockedRoom(String code, Consumer<GameRoom> operation) {
-        withLockedRoom(code, room -> {
-            operation.accept(room);
-            return null;
-        });
     }
 
     private boolean isDetached(String code, GameRoom room) {
