@@ -4,6 +4,7 @@ import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.service.exception.PlayerNotFoundException;
+import com.igmo.service.exception.ImageStorageException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -198,20 +199,75 @@ public class GameService {
 
     private void runImageGeneration(String code, String playerId, String prompt) {
         String submittedPrompt = prompt.trim();
+        long startedAt = System.nanoTime();
         try {
             String imageUrl = imageGenerationClient.generate(submittedPrompt);
-            updateImageGenerationResult(code,
-                    playerId,
-                    room -> room.completeImageGeneration(playerId, imageUrl),
-                    new ImageGenerationResult(code, PromptEntryStatus.READY, submittedPrompt, imageUrl));
+            completeImageGeneration(code, playerId, submittedPrompt, imageUrl, startedAt);
         } catch (Exception exception) {
-            log.warn("이미지 생성 실패. roomCode={}, playerId={}", code, playerId, exception);
-            updateImageGenerationResult(
+            handleImageGenerationFailure(code, playerId, submittedPrompt, startedAt, exception);
+        }
+    }
+
+    private void completeImageGeneration(
+            String code,
+            String playerId,
+            String submittedPrompt,
+            String imageUrl,
+            long startedAt
+    ) {
+        updateImageGenerationResult(
+                code,
+                playerId,
+                room -> room.completeImageGeneration(playerId, imageUrl),
+                new ImageGenerationResult(code, PromptEntryStatus.READY, submittedPrompt, imageUrl));
+        log.info(
+                "이미지 생성 완료. roomCode={}, playerId={}, durationMs={}",
+                code,
+                playerId,
+                elapsedMillis(startedAt));
+    }
+
+    private void handleImageGenerationFailure(
+            String code,
+            String playerId,
+            String submittedPrompt,
+            long startedAt,
+            Exception exception
+    ) {
+        logImageGenerationFailure(code, playerId, startedAt, exception);
+        failImageGeneration(code, playerId, submittedPrompt);
+    }
+
+    private void logImageGenerationFailure(String code, String playerId, long startedAt, Exception exception) {
+        if (exception instanceof ImageStorageException) {
+            log.warn(
+                    "S3 이미지 저장 실패. roomCode={}, playerId={}, reason={}, durationMs={}",
                     code,
                     playerId,
-                    room -> room.failImageGeneration(playerId),
-                    new ImageGenerationResult(code, PromptEntryStatus.FAILED, submittedPrompt, null));
+                    exception.getMessage(),
+                    elapsedMillis(startedAt),
+                    exception);
+            return;
         }
+        log.warn(
+                "이미지 생성 실패. roomCode={}, playerId={}, reason={}, durationMs={}",
+                code,
+                playerId,
+                exception.getMessage(),
+                elapsedMillis(startedAt),
+                exception);
+    }
+
+    private void failImageGeneration(String code, String playerId, String submittedPrompt) {
+        updateImageGenerationResult(
+                code,
+                playerId,
+                room -> room.failImageGeneration(playerId),
+                new ImageGenerationResult(code, PromptEntryStatus.FAILED, submittedPrompt, null));
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
     }
 
     private void updateImageGenerationResult(

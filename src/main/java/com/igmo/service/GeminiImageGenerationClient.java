@@ -2,6 +2,9 @@ package com.igmo.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.igmo.service.exception.GeminiRequestException;
+import com.igmo.service.exception.GeminiResponseException;
+import com.igmo.service.exception.ImageStorageException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -12,14 +15,13 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 public class GeminiImageGenerationClient implements ImageGenerationClient {
 
-    private static final URI IMAGE_GENERATION_URI = URI.create("https://generativelanguage.googleapis.com/v1beta/interactions");
+    private static final URI IMAGE_GENERATION_URI = URI.create(
+            "https://generativelanguage.googleapis.com/v1beta/interactions");
     private static final String IMAGE_CONTENT_TYPE = "image/jpeg";
-    private static final int MAX_ERROR_BODY_LENGTH = 2_000;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -37,7 +39,8 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
             @Value("${igmo.ai.gemini.model}") String model,
             @Value("${igmo.ai.gemini.image-size}") String imageSize
     ) {
-        this(objectMapper, HttpClient.newHttpClient(), imageStorageClient, IMAGE_GENERATION_URI, apiKey, model, imageSize);
+        this(objectMapper, HttpClient.newHttpClient(), imageStorageClient, IMAGE_GENERATION_URI, apiKey, model,
+                imageSize);
     }
 
     GeminiImageGenerationClient(
@@ -60,11 +63,19 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
 
     @Override
     public String generate(String prompt) {
-        if (!StringUtils.hasText(apiKey)) {
-            throw new IllegalStateException("Gemini API key is required for image generation.");
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new GeminiRequestException("Gemini API 키가 설정되지 않았습니다.", model, imageSize, null);
         }
+
+        HttpResponse<String> response = sendRequest(createRequest(prompt));
+        verifySuccessfulResponse(response);
+        byte[] image = extractImage(response.body(), response.statusCode());
+        return storeImage(image);
+    }
+
+    private HttpRequest createRequest(String prompt) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(imageGenerationUri)
+            return HttpRequest.newBuilder(imageGenerationUri)
                     .header("x-goog-api-key", apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(
@@ -78,26 +89,33 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                                             "mime_type", IMAGE_CONTENT_TYPE,
                                             "image_size", imageSize)))))
                     .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException(
-                        "Image generation failed. status=%d, body=%s".formatted(
-                                response.statusCode(),
-                                formatErrorBody(response.body())));
-            }
-            return imageStorageClient.store(extractImage(response.body()), IMAGE_CONTENT_TYPE);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Image generation interrupted.", exception);
-        } catch (IllegalStateException exception) {
-            throw exception;
         } catch (Exception exception) {
-            throw new IllegalStateException("Image generation failed.", exception);
+            throw new GeminiRequestException(
+                    "Gemini 이미지 생성 요청을 만들지 못했습니다.", model, imageSize, exception);
         }
     }
 
-    private byte[] extractImage(String responseBody) throws java.io.IOException {
-        JsonNode response = objectMapper.readTree(responseBody);
+    private HttpResponse<String> sendRequest(HttpRequest request) {
+        try {
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new GeminiRequestException(
+                    "Gemini 이미지 생성 요청이 중단되었습니다.", model, imageSize, exception);
+        } catch (Exception exception) {
+            throw new GeminiRequestException("Gemini 이미지 생성 요청에 실패했습니다.", model, imageSize, exception);
+        }
+    }
+
+    private void verifySuccessfulResponse(HttpResponse<String> response) {
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new GeminiRequestException(response.statusCode(), model, imageSize);
+        }
+    }
+
+    private byte[] extractImage(String responseBody, int httpStatus) {
+        JsonNode response = readResponse(responseBody, httpStatus);
+        List<String> modelOutputContentTypes = extractModelOutputContentTypes(response);
         for (JsonNode step : response.path("steps")) {
             if (!"model_output".equals(step.path("type").asText())) {
                 continue;
@@ -105,20 +123,60 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
             for (JsonNode content : step.path("content")) {
                 JsonNode imageBase64 = content.path("data");
                 if ("image".equals(content.path("type").asText()) && imageBase64.isTextual()) {
-                    return Base64.getDecoder().decode(imageBase64.asText());
+                    try {
+                        return Base64.getDecoder().decode(imageBase64.asText());
+                    } catch (IllegalArgumentException exception) {
+                        throw new GeminiResponseException(
+                                "Gemini 응답의 이미지 데이터 형식이 올바르지 않습니다.",
+                                httpStatus,
+                                model,
+                                imageSize,
+                                exception);
+                    }
                 }
             }
         }
-        throw new IllegalStateException("Image generation response does not contain output image data.");
+        throw new GeminiResponseException(
+                "Gemini 응답에 이미지 데이터가 없습니다.",
+                modelOutputContentTypes,
+                httpStatus,
+                model,
+                imageSize);
     }
 
-    private String formatErrorBody(String responseBody) {
-        if (!StringUtils.hasText(responseBody)) {
-            return "<empty>";
+    private JsonNode readResponse(String responseBody, int httpStatus) {
+        try {
+            return objectMapper.readTree(responseBody);
+        } catch (Exception exception) {
+            throw new GeminiResponseException(
+                    "Gemini 응답을 파싱하지 못했습니다.",
+                    httpStatus,
+                    model,
+                    imageSize,
+                    exception);
         }
-        if (responseBody.length() <= MAX_ERROR_BODY_LENGTH) {
-            return responseBody;
+    }
+
+    private List<String> extractModelOutputContentTypes(JsonNode response) {
+        List<String> contentTypes = new java.util.ArrayList<>();
+        for (JsonNode step : response.path("steps")) {
+            if (!"model_output".equals(step.path("type").asText())) {
+                continue;
+            }
+            for (JsonNode content : step.path("content")) {
+                if (content.path("type").isTextual()) {
+                    contentTypes.add(content.path("type").asText());
+                }
+            }
         }
-        return responseBody.substring(0, MAX_ERROR_BODY_LENGTH) + "...<truncated>";
+        return contentTypes;
+    }
+
+    private String storeImage(byte[] image) {
+        try {
+            return imageStorageClient.store(image, IMAGE_CONTENT_TYPE);
+        } catch (Exception exception) {
+            throw new ImageStorageException(exception);
+        }
     }
 }
