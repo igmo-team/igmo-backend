@@ -102,7 +102,7 @@ public class GameRoom {
         if (!allOthersReady()) {
             throw new PlayersNotReadyException();
         }
-        phase = GamePhase.GENERATING;
+        phase = GamePhase.PROMPTING;
     }
 
     private boolean allOthersReady() {

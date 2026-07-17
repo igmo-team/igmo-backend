@@ -390,7 +390,7 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("방장이 시작하면 GENERATING 단계로 진행한 스냅샷을 브로드캐스트한다.")
+    @DisplayName("방장이 시작하면 PROMPTING 단계로 진행한 스냅샷을 브로드캐스트한다.")
     void startGame_방장이_시작하면_다음_단계_스냅샷을_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
@@ -405,7 +405,7 @@ class GameServiceTest {
 
         // then
         LobbySnapshot snapshot = captureLastBroadcast(5);
-        assertThat(snapshot.phase()).isEqualTo(GamePhase.GENERATING);
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.PROMPTING);
     }
 
     @Test
