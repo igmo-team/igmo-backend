@@ -116,7 +116,7 @@ public class GameRoom {
         if (!allOthersReady()) {
             throw new PlayersNotReadyException();
         }
-        phase = GamePhase.PROMPTING;
+        phase = GamePhase.GENERATING;
         promptStartedAt = startedAt;
         promptDeadline = startedAt.plus(promptDuration);
         initializePromptEntries();
@@ -160,11 +160,11 @@ public class GameRoom {
             return;
         }
         if (isPromptExpired(now)) {
-            phase = GamePhase.IMAGE_PREVIEW;
+            phase = GamePhase.GENERATING; //TODO 임시 처리함 -> 변경 필요
             return;
         }
         if (!hasWaitingPrompt()) {
-            phase = GamePhase.IMAGE_PREVIEW;
+            phase = GamePhase.GENERATING; //TODO 임시 처리함 -> 변경 필요
         }
     }
 
@@ -193,7 +193,7 @@ public class GameRoom {
     }
 
     private boolean isPrompting() {
-        return phase == GamePhase.PROMPTING;
+        return phase == GamePhase.GENERATING;
     }
 
     private boolean isPromptExpired(Instant now) {
