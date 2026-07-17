@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.igmo.service.exception.GeminiRequestException;
+import com.igmo.service.exception.GeminiResponseException;
+import com.igmo.service.exception.ImageStorageException;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -70,7 +73,7 @@ class GeminiImageGenerationClientTest {
     }
 
     @Test
-    @DisplayName("이미지 content 블록이 없으면 예외를 던진다.")
+    @DisplayName("이미지 content 블록이 없으면 Gemini 응답 예외를 던진다.")
     void generate_throwsExceptionWithoutImageContent() throws Exception {
         // given
         server = startServer(new AtomicReference<>(), 200, """
@@ -88,8 +91,8 @@ class GeminiImageGenerationClientTest {
 
         // when & then
         assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Image generation response does not contain output image data.");
+                .isInstanceOf(GeminiResponseException.class)
+                .hasMessage("Gemini 응답에 이미지 데이터가 없습니다.");
     }
 
     @Test
@@ -137,8 +140,8 @@ class GeminiImageGenerationClientTest {
     }
 
     @Test
-    @DisplayName("이미지 생성 API 실패 시 응답 본문을 예외 메시지에 포함한다.")
-    void generate_includesResponseBodyWhenApiFails() throws Exception {
+    @DisplayName("이미지 생성 API 실패 시 Gemini 요청 예외와 HTTP 상태를 반환한다.")
+    void generate_throwsGeminiRequestExceptionWhenApiFails() throws Exception {
         // given
         String responseBody = "{\"error\":{\"message\":\"unsupported image_size\"}}";
         server = startServer(new AtomicReference<>(), 400, responseBody);
@@ -154,9 +157,33 @@ class GeminiImageGenerationClientTest {
 
         // when & then
         assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Image generation failed. status=400")
-                .hasMessageContaining(responseBody);
+                .isInstanceOfSatisfying(GeminiRequestException.class, exception ->
+                        assertThat(exception.getHttpStatus()).isEqualTo(400))
+                .hasMessage("Gemini 이미지 생성 요청에 실패했습니다. status=400");
+    }
+
+    @Test
+    @DisplayName("이미지 저장에 실패하면 이미지 저장 예외를 던진다.")
+    void generate_throwsImageStorageExceptionWhenStorageFails() throws Exception {
+        // given
+        server = startServer(new AtomicReference<>());
+        GeminiImageGenerationClient client = new GeminiImageGenerationClient(
+                objectMapper,
+                HttpClient.newHttpClient(),
+                (image, contentType) -> {
+                    throw new IllegalStateException("S3 unavailable");
+                },
+                URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
+                "api-key",
+                "gemini-3.1-flash-image",
+                "2K"
+        );
+
+        // when & then
+        assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
+                .isInstanceOf(ImageStorageException.class)
+                .hasMessage("S3 이미지 저장에 실패했습니다.")
+                .hasCauseInstanceOf(IllegalStateException.class);
     }
 
     private HttpServer startServer(AtomicReference<String> requestBody) throws IOException {

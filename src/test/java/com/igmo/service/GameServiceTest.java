@@ -14,6 +14,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
@@ -23,6 +26,7 @@ import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
+import com.igmo.service.exception.GeminiResponseException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -41,6 +45,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
+import org.junit.jupiter.api.AfterEach;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -50,6 +55,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.slf4j.LoggerFactory;
 
 class GameServiceTest {
 
@@ -59,6 +65,8 @@ class GameServiceTest {
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
     private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
     private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
+    private final Logger gameServiceLogger = (Logger) LoggerFactory.getLogger(GameService.class);
+    private ListAppender<ILoggingEvent> imageGenerationLogAppender;
     private Runnable imageGenerationTask;
     private final Executor imageGenerationExecutor = command -> imageGenerationTask = command;
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
@@ -83,6 +91,14 @@ class GameServiceTest {
                 .willAnswer(invocation -> scheduledRemoval);
         given(promptDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledPromptExpiration);
+        imageGenerationLogAppender = new ListAppender<>();
+        imageGenerationLogAppender.start();
+        gameServiceLogger.addAppender(imageGenerationLogAppender);
+    }
+
+    @AfterEach
+    void 이미지_생성_로그_appender를_제거한다() {
+        gameServiceLogger.detachAppender(imageGenerationLogAppender);
     }
 
     @Test
@@ -559,6 +575,8 @@ class GameServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
+            softly.assertThat(lastLogMessage("이미지 생성 완료"))
+                    .contains("roomCode=ABCD", "playerId=", "durationMs=");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
@@ -575,7 +593,12 @@ class GameServiceTest {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
-                .willThrow(new IllegalStateException("외부 AI 실패"));
+                .willThrow(new GeminiResponseException(
+                        "Gemini 응답에 이미지 데이터가 없습니다.",
+                        List.of("text"),
+                        200,
+                        "gemini-3.1-flash-image",
+                        "2K"));
         CreateGameResponse created = gameService.createGame("호스트");
         JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
@@ -598,6 +621,9 @@ class GameServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isNull();
+            softly.assertThat(lastLogMessage("이미지 생성 실패"))
+                    .contains("roomCode=ABCD", "playerId=", "durationMs=")
+                    .contains("reason=Gemini 응답에 이미지 데이터가 없습니다.");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
@@ -856,6 +882,14 @@ class GameServiceTest {
         ArgumentCaptor<ImageGenerationResult> captor = ArgumentCaptor.forClass(ImageGenerationResult.class);
         verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/image-generation"), captor.capture());
         return captor.getValue();
+    }
+
+    private String lastLogMessage(String messagePrefix) {
+        return imageGenerationLogAppender.list.stream()
+                .filter(loggingEvent -> loggingEvent.getFormattedMessage().startsWith(messagePrefix))
+                .reduce((previous, current) -> current)
+                .orElseThrow()
+                .getFormattedMessage();
     }
 
     private PromptEntry findPromptEntry(String code, String playerId) {
