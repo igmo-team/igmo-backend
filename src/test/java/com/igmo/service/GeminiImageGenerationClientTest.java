@@ -34,10 +34,17 @@ class GeminiImageGenerationClientTest {
     void generate_sendsInteractionsRestRequest() throws Exception {
         // given
         AtomicReference<String> requestBody = new AtomicReference<>();
+        AtomicReference<byte[]> storedImage = new AtomicReference<>();
+        AtomicReference<String> storedContentType = new AtomicReference<>();
         server = startServer(requestBody);
         GeminiImageGenerationClient client = new GeminiImageGenerationClient(
                 objectMapper,
                 HttpClient.newHttpClient(),
+                (image, contentType) -> {
+                    storedImage.set(image);
+                    storedContentType.set(contentType);
+                    return "https://cdn.example.com/generated-images/prompt-1.png";
+                },
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -55,19 +62,24 @@ class GeminiImageGenerationClientTest {
         assertThat(input.get(0).path("type").asText()).isEqualTo("text");
         assertThat(input.get(0).path("text").asText()).isEqualTo("동굴 벽화 스타일의 바나나");
         assertThat(body.path("response_format").path("type").asText()).isEqualTo("image");
-        assertThat(body.path("response_format").path("mime_type").asText()).isEqualTo("image/png");
+        assertThat(body.path("response_format").path("mime_type").asText()).isEqualTo("image/jpeg");
         assertThat(body.path("response_format").path("image_size").asText()).isEqualTo("2K");
-        assertThat(imageUrl).isEqualTo("data:image/png;base64,aW1hZ2U=");
+        assertThat(storedImage.get()).isEqualTo("image".getBytes(StandardCharsets.UTF_8));
+        assertThat(storedContentType.get()).isEqualTo("image/jpeg");
+        assertThat(imageUrl).isEqualTo("https://cdn.example.com/generated-images/prompt-1.png");
     }
 
     @Test
-    @DisplayName("공식 output_image 필드가 없으면 예외를 던진다.")
-    void generate_throwsExceptionWithoutOfficialOutputImage() throws Exception {
+    @DisplayName("이미지 content 블록이 없으면 예외를 던진다.")
+    void generate_throwsExceptionWithoutImageContent() throws Exception {
         // given
-        server = startServer(new AtomicReference<>(), 200, "{\"outputImage\":{\"data\":\"aW1hZ2U=\"}}");
+        server = startServer(new AtomicReference<>(), 200, """
+                {"steps":[{"type":"model_output","content":[{"type":"text","text":"image omitted"}]}]}
+                """);
         GeminiImageGenerationClient client = new GeminiImageGenerationClient(
                 objectMapper,
                 HttpClient.newHttpClient(),
+                (image, contentType) -> "https://cdn.example.com/generated-images/prompt-1.png",
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -81,6 +93,50 @@ class GeminiImageGenerationClientTest {
     }
 
     @Test
+    @DisplayName("모델 출력이 아닌 step은 건너뛰고 모델 출력의 이미지 content를 저장한다.")
+    void generate_skipsNonModelOutputStepsAndStoresModelOutputImage() throws Exception {
+        // given
+        AtomicReference<byte[]> storedImage = new AtomicReference<>();
+        server = startServer(new AtomicReference<>(), 200, """
+                {
+                  "steps": [
+                    {
+                      "type": "tool_output",
+                      "content": [
+                        {"type": "image", "data": "d3JvbmctaW1hZ2U=", "mime_type": "image/jpeg"}
+                      ]
+                    },
+                    {
+                      "type": "model_output",
+                      "content": [
+                        {"type": "image", "data": "cmlnaHQtaW1hZ2U=", "mime_type": "image/jpeg"}
+                      ]
+                    }
+                  ]
+                }
+                """);
+        GeminiImageGenerationClient client = new GeminiImageGenerationClient(
+                objectMapper,
+                HttpClient.newHttpClient(),
+                (image, contentType) -> {
+                    storedImage.set(image);
+                    return "https://cdn.example.com/generated-images/prompt-1.png";
+                },
+                URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
+                "api-key",
+                "gemini-3.1-flash-image",
+                "2K"
+        );
+
+        // when
+        String imageUrl = client.generate("동굴 벽화 스타일의 바나나");
+
+        // then
+        assertThat(storedImage.get()).isEqualTo("right-image".getBytes(StandardCharsets.UTF_8));
+        assertThat(imageUrl).isEqualTo("https://cdn.example.com/generated-images/prompt-1.png");
+    }
+
+    @Test
     @DisplayName("이미지 생성 API 실패 시 응답 본문을 예외 메시지에 포함한다.")
     void generate_includesResponseBodyWhenApiFails() throws Exception {
         // given
@@ -89,6 +145,7 @@ class GeminiImageGenerationClientTest {
         GeminiImageGenerationClient client = new GeminiImageGenerationClient(
                 objectMapper,
                 HttpClient.newHttpClient(),
+                (image, contentType) -> "https://cdn.example.com/generated-images/prompt-1.png",
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -103,7 +160,9 @@ class GeminiImageGenerationClientTest {
     }
 
     private HttpServer startServer(AtomicReference<String> requestBody) throws IOException {
-        return startServer(requestBody, 200, "{\"output_image\":{\"data\":\"aW1hZ2U=\"}}");
+        return startServer(requestBody, 200, """
+                {"steps":[{"type":"model_output","content":[{"type":"image","data":"aW1hZ2U=","mime_type":"image/jpeg"}]}]}
+                """);
     }
 
     private HttpServer startServer(AtomicReference<String> requestBody, int statusCode, String responseBody)

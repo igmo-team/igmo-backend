@@ -1,0 +1,15 @@
+igmo:
+  game:
+    disconnect-grace: 3s
+    prompt-duration: 30s
+  ai:
+    gemini:
+      api-key: test-gemini-api-key
+      model: test-gemini-model
+      image-size: 1K
+  image-storage:
+    s3:
+      bucket: test-image-bucket
+      region: ap-northeast-2
+      key-prefix: generated-images
+      public-base-url:

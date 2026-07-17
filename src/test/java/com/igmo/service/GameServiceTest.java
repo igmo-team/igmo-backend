@@ -529,8 +529,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("이미지 생성이 성공하면 이미지 URL을 저장하고 주인에게만 결과를 보낸다.")
-    void imageGeneration_성공하면_이미지_주인에게만_결과를_보낸다() {
+    @DisplayName("이미지 생성이 성공하면 이미지 URL을 개인 전송하고 전체 상태를 브로드캐스트한다.")
+    void imageGeneration_성공하면_이미지_URL을_개인_전송하고_전체_상태를_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
@@ -559,12 +559,17 @@ class GameServiceTest {
             softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
-        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+        PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
+        assertThat(snapshot.promptEntries())
+                .filteredOn(promptEntry -> promptEntry.player().id().equals(guest1.playerId()))
+                .singleElement()
+                .extracting(PromptEntryView::submitted)
+                .isEqualTo(true);
     }
 
     @Test
-    @DisplayName("이미지 생성이 실패하면 주인에게만 실패 결과를 보낸다.")
-    void imageGeneration_실패하면_이미지_주인에게만_실패_결과를_보낸다() {
+    @DisplayName("이미지 생성이 실패하면 개인 실패 결과를 전송하고 전체 상태를 브로드캐스트한다.")
+    void imageGeneration_실패하면_개인_실패_결과를_전송하고_전체_상태를_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
@@ -593,7 +598,12 @@ class GameServiceTest {
             softly.assertThat(result.imageUrl()).isNull();
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
-        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+        PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
+        assertThat(snapshot.promptEntries())
+                .filteredOn(promptEntry -> promptEntry.player().id().equals(guest1.playerId()))
+                .singleElement()
+                .extracting(PromptEntryView::submitted)
+                .isEqualTo(true);
     }
 
     @Test
@@ -819,6 +829,16 @@ class GameServiceTest {
     }
 
     private PromptSubmissionSnapshot capturePromptSubmissionBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.PROMPT_SUBMISSION_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (PromptSubmissionSnapshot) message.payload();
+    }
+
+    private PromptSubmissionSnapshot captureLastPromptSubmissionBroadcast() {
         ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
         verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
         RoomMessage message = captor.getAllValues().stream()
