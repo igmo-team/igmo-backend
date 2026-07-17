@@ -1,10 +1,9 @@
 package com.igmo;
 
+import com.igmo.support.AbstractSpringBootTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class IgmoApplicationTests {
+class IgmoApplicationTests extends AbstractSpringBootTest {
 
     @Test
     void contextLoads() {

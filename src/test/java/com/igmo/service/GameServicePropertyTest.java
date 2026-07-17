@@ -6,6 +6,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.igmo.support.AbstractNonWebSpringBootTest;
 import com.igmo.web.dto.CreateGameResponse;
 import java.time.Instant;
 import java.util.concurrent.ScheduledFuture;
@@ -13,20 +14,21 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-@SpringBootTest(
-        webEnvironment = SpringBootTest.WebEnvironment.NONE,
-        properties = "igmo.game.disconnect-grace=17s")
-class GameServicePropertyTest {
+@TestPropertySource(properties = "igmo.game.disconnect-grace=17s")
+class GameServicePropertyTest extends AbstractNonWebSpringBootTest {
 
     @Autowired
     private GameService gameService;
 
     @MockitoBean(name = "disconnectGraceScheduler")
     private TaskScheduler disconnectGraceScheduler;
+
+    @MockitoBean(name = "promptDeadlineScheduler")
+    private TaskScheduler promptDeadlineScheduler;
 
     @Test
     @DisplayName("연결 끊김 유예 시간은 igmo.game.disconnect-grace 프로퍼티 값을 사용한다.")

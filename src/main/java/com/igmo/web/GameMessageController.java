@@ -1,8 +1,10 @@
 package com.igmo.web;
 
 import com.igmo.service.GameService;
+import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -29,6 +31,14 @@ public class GameMessageController {
                           SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
         gameService.startGame(code, playerId);
+    }
+
+    @MessageMapping("/rooms/{code}/prompts")
+    public void submitPrompt(@DestinationVariable String code,
+                             @Valid PromptRequest request,
+                             SimpMessageHeaderAccessor headerAccessor) {
+        String playerId = requirePlayerId(headerAccessor);
+        gameService.submitPrompt(code, playerId, request.prompt());
     }
 
     private String requirePlayerId(SimpMessageHeaderAccessor headerAccessor) {

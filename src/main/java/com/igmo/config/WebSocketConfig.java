@@ -62,4 +62,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         scheduler.setThreadNamePrefix("disconnect-grace-");
         return scheduler;
     }
+
+    @Bean
+    public TaskScheduler promptDeadlineScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("prompt-deadline-");
+        return scheduler;
+    }
 }

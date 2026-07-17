@@ -2,8 +2,8 @@ package com.igmo.domain;
 
 public enum GamePhase {
     LOBBY,
-    GENERATING,
-    SUBMITTING,
+    PROMPTING,
+    IMAGE_PREVIEW,
     VOTING,
     RESULTS,
     ENDED

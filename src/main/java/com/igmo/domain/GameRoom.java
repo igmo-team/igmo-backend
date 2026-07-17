@@ -1,16 +1,20 @@
 package com.igmo.domain;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
-
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.PromptSubmissionExpiredException;
+import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import lombok.Getter;
 
 public class GameRoom {
@@ -24,7 +28,12 @@ public class GameRoom {
     private String hostId;
     @Getter
     private GamePhase phase;
+    @Getter
+    private Instant promptStartedAt;
+    @Getter
+    private Instant promptDeadline;
     private final Map<String, Player> players = new LinkedHashMap<>();
+    private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
 
     private GameRoom(String code, Player host) {
         this.code = code;
@@ -55,6 +64,7 @@ public class GameRoom {
         if (players.remove(playerId) == null) {
             return false;
         }
+        promptEntriesByPlayerId.remove(playerId);
         if (playerId.equals(hostId) && !players.isEmpty()) {
             assignRandomHost();
         }
@@ -63,6 +73,10 @@ public class GameRoom {
 
     public synchronized List<Player> getPlayers() {
         return List.copyOf(players.values());
+    }
+
+    public synchronized List<PromptEntry> getPromptEntries() {
+        return List.copyOf(promptEntriesByPlayerId.values());
     }
 
     public synchronized boolean isEmpty() {
@@ -89,7 +103,7 @@ public class GameRoom {
         player.changeReady(ready);
     }
 
-    public synchronized void start(String requesterId) {
+    public synchronized void start(String requesterId, Instant startedAt, Duration promptDuration) {
         if (!isInLobby()) {
             throw new GameAlreadyStartedException();
         }
@@ -102,7 +116,65 @@ public class GameRoom {
         if (!allOthersReady()) {
             throw new PlayersNotReadyException();
         }
-        phase = GamePhase.GENERATING;
+        phase = GamePhase.PROMPTING;
+        promptStartedAt = startedAt;
+        promptDeadline = startedAt.plus(promptDuration);
+        initializePromptEntries();
+    }
+
+    public synchronized void submitPrompt(String playerId, String prompt, Instant submittedAt) {
+        if (!isPrompting()) {
+            throw new PromptSubmissionNotAllowedException();
+        }
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null) {
+            return;
+        }
+        if (entry.isSubmitted()) {
+            throw new DuplicatePromptSubmissionException();
+        }
+        if (isPromptExpired(submittedAt)) {
+            throw new PromptSubmissionExpiredException();
+        }
+        entry.submit(prompt, submittedAt);
+    }
+
+    public synchronized void completeImageGeneration(String playerId, String imageUrl) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null || !entry.isSubmitted()) {
+            return;
+        }
+        entry.completeImageGeneration(imageUrl);
+    }
+
+    public synchronized void failImageGeneration(String playerId) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        if (entry == null || !entry.isSubmitted()) {
+            return;
+        }
+        entry.failImageGeneration();
+    }
+
+    public synchronized void completePromptSubmission(Instant now) {
+        if (!isPrompting()) {
+            return;
+        }
+        if (isPromptExpired(now)) {
+            phase = GamePhase.IMAGE_PREVIEW;
+            return;
+        }
+        if (!hasWaitingPrompt()) {
+            phase = GamePhase.IMAGE_PREVIEW;
+        }
+    }
+
+    public synchronized boolean hasWaitingPrompt() {
+        return promptEntriesByPlayerId.values().stream()
+                .anyMatch(PromptEntry::isWaiting);
+    }
+
+    public synchronized boolean isPromptExpirationStale(Instant deadline) {
+        return promptDeadline == null || !promptDeadline.equals(deadline);
     }
 
     private boolean allOthersReady() {
@@ -118,6 +190,20 @@ public class GameRoom {
 
     private boolean isInLobby() {
         return phase == GamePhase.LOBBY;
+    }
+
+    private boolean isPrompting() {
+        return phase == GamePhase.PROMPTING;
+    }
+
+    private boolean isPromptExpired(Instant now) {
+        return promptDeadline != null && now.isAfter(promptDeadline);
+    }
+
+    private void initializePromptEntries() {
+        promptEntriesByPlayerId.clear();
+        players.keySet().forEach(playerId ->
+                promptEntriesByPlayerId.put(playerId, PromptEntry.waiting(playerId)));
     }
 
     private boolean isFull() {

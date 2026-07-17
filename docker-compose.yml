@@ -1,5 +1,8 @@
 services:
   app:
+    env_file:
+      - path: .env
+        required: false
     build:
       context: .
       dockerfile: Dockerfile

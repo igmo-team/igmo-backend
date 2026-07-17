@@ -10,6 +10,7 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,11 +27,14 @@ public class PlayerSessionInterceptor implements ChannelInterceptor {
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+        MessageHeaderAccessor mutableAccessor = MessageHeaderAccessor.getMutableAccessor(message);
+        if (!(mutableAccessor instanceof StompHeaderAccessor accessor)) {
+            return message;
+        }
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
             bindPlayerToSession(accessor);
         }
-        return message;
+        return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 
     private void bindPlayerToSession(StompHeaderAccessor accessor) {
@@ -53,5 +57,6 @@ public class PlayerSessionInterceptor implements ChannelInterceptor {
         }
         sessionAttributes.put(ROOM_CODE_ATTRIBUTE, roomCode);
         sessionAttributes.put(PLAYER_ID_ATTRIBUTE, playerId);
+        accessor.setUser(() -> playerId);
     }
 }
