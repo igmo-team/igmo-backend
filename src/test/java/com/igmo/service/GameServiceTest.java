@@ -575,6 +575,7 @@ class GameServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
+            softly.assertThat(result.isLast()).isFalse();
             softly.assertThat(lastLogMessage("이미지 생성 완료"))
                     .contains("roomCode=ABCD", "playerId=", "durationMs=");
         });
@@ -585,6 +586,40 @@ class GameServiceTest {
                 .singleElement()
                 .extracting(PromptEntryView::submitted)
                 .isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("방의 마지막 이미지 생성 결과만 개인 큐에 isLast true로 전송한다.")
+    void imageGeneration_마지막_이미지_생성_결과만_isLast_true로_전송한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate(any()))
+                .willReturn(
+                        "https://cdn.example.com/host.png",
+                        "https://cdn.example.com/guest-1.png",
+                        "https://cdn.example.com/guest-2.png");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+
+        // when & then
+        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        clearInvocations(messagingTemplate);
+        runImageGenerationTask();
+        assertThat(captureImageGenerationResult(created.playerId()).isLast()).isFalse();
+
+        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+        clearInvocations(messagingTemplate);
+        runImageGenerationTask();
+        assertThat(captureImageGenerationResult(guest1.playerId()).isLast()).isFalse();
+
+        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+        clearInvocations(messagingTemplate);
+        runImageGenerationTask();
+        assertThat(captureImageGenerationResult(guest2.playerId()).isLast()).isTrue();
     }
 
     @Test
@@ -621,6 +656,7 @@ class GameServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isNull();
+            softly.assertThat(result.isLast()).isFalse();
             softly.assertThat(lastLogMessage("이미지 생성 실패"))
                     .contains("roomCode=ABCD", "playerId=", "durationMs=")
                     .contains("reason=Gemini 응답에 이미지 데이터가 없습니다.");

@@ -219,7 +219,9 @@ public class GameService {
                 code,
                 playerId,
                 room -> room.completeImageGeneration(playerId, imageUrl),
-                new ImageGenerationResult(code, PromptEntryStatus.READY, submittedPrompt, imageUrl));
+                PromptEntryStatus.READY,
+                submittedPrompt,
+                imageUrl);
         log.info(
                 "이미지 생성 완료. roomCode={}, playerId={}, durationMs={}",
                 code,
@@ -263,7 +265,9 @@ public class GameService {
                 code,
                 playerId,
                 room -> room.failImageGeneration(playerId),
-                new ImageGenerationResult(code, PromptEntryStatus.FAILED, submittedPrompt, null));
+                PromptEntryStatus.FAILED,
+                submittedPrompt,
+                null);
     }
 
     private long elapsedMillis(long startedAt) {
@@ -274,13 +278,21 @@ public class GameService {
             String code,
             String playerId,
             Consumer<GameRoom> operation,
-            ImageGenerationResult result) {
+            PromptEntryStatus status,
+            String submittedPrompt,
+            String imageUrl) {
         try {
             gameRegistry.find(code)
                     .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
                         operation.accept(lockedRoom); //room에 대한  lock 획득
                         PromptSubmissionSnapshot snapshot = PromptSubmissionSnapshot.from(lockedRoom);
-                        sendImageGenerationResult(playerId, result);
+                        ImageGenerationResult resultWithLast = new ImageGenerationResult(
+                                code,
+                                status,
+                                submittedPrompt,
+                                imageUrl,
+                                lockedRoom.hasAllImagesGenerated());
+                        sendImageGenerationResult(playerId, resultWithLast);
                         broadcastPromptSubmissionSnapshot(code, snapshot);
                     }));
         } catch (RoomNotFoundException ignored) {

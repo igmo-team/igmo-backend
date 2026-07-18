@@ -377,6 +377,57 @@ class GameRoomTest {
         assertThat(room.hasWaitingPrompt()).isFalse();
     }
 
+    @Test
+    @DisplayName("모든 제출 프롬프트의 이미지가 READY 상태가 되면 생성 완료로 판단한다.")
+    void hasAllImagesGenerated_모든_이미지가_READY이면_true를_반환한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
+
+        // when & then
+        assertThat(room.hasAllImagesGenerated()).isFalse();
+
+        room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
+
+        assertThat(room.hasAllImagesGenerated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("이미지 생성이 하나라도 실패하면 생성 완료로 판단하지 않는다.")
+    void hasAllImagesGenerated_이미지_생성이_실패하면_false를_반환한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
+        room.failImageGeneration(guest2.getId());
+
+        // when & then
+        assertThat(room.hasAllImagesGenerated()).isFalse();
+    }
+
     @Disabled
     @Test
     @DisplayName("마감 시각 이후 프롬프트 입력을 종료하면 대기 중인 프롬프트를 유지하고 IMAGE_PREVIEW 단계로 바꾼다.")

@@ -173,6 +173,12 @@ public class GameRoom {
                 .anyMatch(PromptEntry::isWaiting);
     }
 
+    public synchronized boolean hasAllImagesGenerated() {
+        return !promptEntriesByPlayerId.isEmpty()
+                && promptEntriesByPlayerId.values().stream()
+                .allMatch(entry -> entry.getStatus() == PromptEntryStatus.READY);
+    }
+
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
         return promptDeadline == null || !promptDeadline.equals(deadline);
     }
