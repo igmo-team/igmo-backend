@@ -25,8 +25,8 @@ import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
-import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.GeminiResponseException;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -45,17 +45,17 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
-import org.junit.jupiter.api.AfterEach;
 import org.assertj.core.api.SoftAssertions;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.slf4j.LoggerFactory;
 
 class GameServiceTest {
 
@@ -439,7 +439,7 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("방장이 시작하면 PROMPTING 단계로 진행한 스냅샷을 브로드캐스트한다.")
+    @DisplayName("방장이 시작하면 GENERATING 단계로 진행한 스냅샷을 브로드캐스트한다.")
     void startGame_방장이_시작하면_다음_단계_스냅샷을_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
@@ -503,8 +503,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("PROMPTING 단계에서 프롬프트를 제출하면 플레이어의 프롬프트 상태를 저장하고 스냅샷을 브로드캐스트한다.")
-    void submitPrompt_PROMPTING_단계이면_프롬프트를_저장하고_브로드캐스트한다() {
+    @DisplayName("GENERATING 단계에서 프롬프트를 제출하면 플레이어의 프롬프트 상태를 저장하고 스냅샷을 브로드캐스트한다.")
+    void submitPrompt_GENERATING_단계이면_프롬프트를_저장하고_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameService.createGame("호스트");
@@ -657,8 +657,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("PROMPTING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
-    void submitPrompt_PROMPTING_단계가_아니면_예외를_던진다() {
+    @DisplayName("GENERATING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
+    void submitPrompt_GENERATING_단계가_아니면_예외를_던진다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameService.createGame("호스트");

@@ -311,7 +311,7 @@ class GameRoomTest {
 
     @Test
     @DisplayName("GENERATING 단계에서 프롬프트를 제출하면 입력 상태를 저장한다.")
-    void submitPrompt_PROMPTING_단계이면_프롬프트를_저장한다() {
+    void submitPrompt_GENERATING_단계이면_프롬프트를_저장한다() {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
@@ -522,7 +522,7 @@ class GameRoomTest {
 
     @Test
     @DisplayName("GENERATING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
-    void submitPrompt_PROMPTING_단계가_아니면_예외를_던진다() {
+    void submitPrompt_GENERATING_단계가_아니면_예외를_던진다() {
         // given
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
 
