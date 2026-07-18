@@ -41,6 +41,13 @@ public class GameMessageController {
         gameService.submitPrompt(code, playerId, request.prompt());
     }
 
+    @MessageMapping("/rooms/{code}/advance-round")
+    public void advanceRound(@DestinationVariable String code,
+                             SimpMessageHeaderAccessor headerAccessor) {
+        String playerId = requirePlayerId(headerAccessor);
+        gameService.advanceRound(code, playerId);
+    }
+
     private String requirePlayerId(SimpMessageHeaderAccessor headerAccessor) {
         String playerId = playerSessionResolver.resolvePlayerId(headerAccessor);
         if (playerId == null) {

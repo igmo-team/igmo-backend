@@ -18,10 +18,12 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.igmo.domain.GamePhase;
+import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
@@ -620,6 +622,60 @@ class GameServiceTest {
         clearInvocations(messagingTemplate);
         runImageGenerationTask();
         assertThat(captureImageGenerationResult(guest2.playerId()).isLast()).isTrue();
+    }
+
+    @Test
+    @DisplayName("다음 단계 요청 시 모든 이미지가 생성됐으면 PLAYING으로 전환한다.")
+    void advanceRound_모든_이미지가_생성됐으면_PLAYING으로_전환한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate(any()))
+                .willReturn(
+                        "https://cdn.example.com/host.png",
+                        "https://cdn.example.com/guest-1.png",
+                        "https://cdn.example.com/guest-2.png");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        runImageGenerationTask();
+        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+        runImageGenerationTask();
+        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+        runImageGenerationTask();
+        clearInvocations(messagingTemplate);
+
+        // when
+        gameService.advanceRound("ABCD", created.playerId());
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.PLAYING);
+    }
+
+    @Test
+    @DisplayName("다음 단계 요청 시 모든 이미지가 생성되지 않았으면 PLAYING으로 전환하지 않는다.")
+    void advanceRound_모든_이미지가_생성되지_않았으면_PLAYING으로_전환하지_않는다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+
+        // when & then
+        assertThatThrownBy(() -> gameService.advanceRound("ABCD", created.playerId()))
+                .isInstanceOf(ImagesNotReadyException.class)
+                .hasMessage("모든 플레이어의 이미지가 생성된 후 게임을 진행할 수 있습니다.");
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.GENERATING);
     }
 
     @Test

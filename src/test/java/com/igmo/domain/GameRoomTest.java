@@ -17,7 +17,6 @@ import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
 import org.assertj.core.api.SoftAssertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -428,35 +427,6 @@ class GameRoomTest {
         assertThat(room.hasAllImagesGenerated()).isFalse();
     }
 
-    @Disabled
-    @Test
-    @DisplayName("마감 시각 이후 프롬프트 입력을 종료하면 대기 중인 프롬프트를 유지하고 IMAGE_PREVIEW 단계로 바꾼다.")
-    void completePromptSubmission_마감_이후이면_대기_프롬프트를_유지하고_IMAGE_PREVIEW로_바꾼다() {
-        // given
-        Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
-        Player guest1 = new Player("참가자1");
-        Player guest2 = new Player("참가자2");
-        room.addPlayer(guest1);
-        room.addPlayer(guest2);
-        room.changePlayerReady(guest1.getId(), true);
-        room.changePlayerReady(guest2.getId(), true);
-        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
-        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
-
-        // when
-        room.completePromptSubmission(PROMPT_STARTED_AT.plusSeconds(31));
-
-        // then
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(findPromptEntry(room, host.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
-            softly.assertThat(findPromptEntry(room, guest1.getId()).getStatus())
-                    .isEqualTo(PromptEntryStatus.GENERATING);
-            softly.assertThat(findPromptEntry(room, guest2.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
-        });
-    }
-
     @Test
     @DisplayName("예약된 마감 시각이 현재 방의 마감 시각과 다르면 오래된 만료 작업으로 판단한다.")
     void isPromptExpirationStale_마감_시각이_다르면_true를_반환한다() {
@@ -494,35 +464,8 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("마감 시각 전이고 대기 중인 프롬프트가 있으면 프롬프트 입력을 종료하지 않는다.")
-    void completePromptSubmission_마감_전이고_대기_프롬프트가_있으면_종료하지_않는다() {
-        // given
-        Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
-        Player guest1 = new Player("참가자1");
-        Player guest2 = new Player("참가자2");
-        room.addPlayer(guest1);
-        room.addPlayer(guest2);
-        room.changePlayerReady(guest1.getId(), true);
-        room.changePlayerReady(guest2.getId(), true);
-        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
-
-        // when
-        room.completePromptSubmission(PROMPT_STARTED_AT.plusSeconds(29));
-
-        // then
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(room.getPromptEntries())
-                    .extracting(PromptEntry::getStatus)
-                    .containsOnly(PromptEntryStatus.WAITING);
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
-        });
-    }
-
-    @Disabled
-    @Test
-    @DisplayName("모든 프롬프트가 제출되면 마감 시각 전에도 IMAGE_PREVIEW 단계로 바꾼다.")
-    void completePromptSubmission_모두_제출했으면_IMAGE_PREVIEW로_바꾼다() {
+    @DisplayName("모든 이미지가 생성됐으면 PLAYING 단계로 전환한다.")
+    void advanceToRound_모든_이미지가_생성됐으면_PLAYING으로_전환한다() {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
@@ -536,16 +479,41 @@ class GameRoomTest {
         room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
         room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
         room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
+        room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
 
         // when
-        room.completePromptSubmission(PROMPT_STARTED_AT.plusSeconds(10));
+        boolean advanced = room.advanceToRound();
 
         // then
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(room.getPromptEntries())
-                    .extracting(PromptEntry::getStatus)
-                    .containsOnly(PromptEntryStatus.GENERATING);
+            softly.assertThat(advanced).isTrue();
             softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
+        });
+    }
+
+    @Test
+    @DisplayName("이미지 생성이 완료되지 않았으면 PLAYING 단계로 전환할 수 없다.")
+    void advanceToRound_이미지가_생성되지_않았으면_예외를_던진다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // when
+        boolean advanced = room.advanceToRound();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(advanced).isFalse();
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
         });
     }
 

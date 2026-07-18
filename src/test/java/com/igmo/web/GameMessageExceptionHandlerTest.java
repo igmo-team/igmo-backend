@@ -2,6 +2,7 @@ package com.igmo.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.web.dto.ErrorResponse;
 import com.igmo.web.dto.PromptRequest;
@@ -40,6 +41,19 @@ class GameMessageExceptionHandlerTest {
             softly.assertThat(sendToUser.destinations()).containsExactly("/queue/errors");
             softly.assertThat(sendToUser.broadcast()).isFalse();
         });
+    }
+
+    @Test
+    @DisplayName("이미지가 준비되지 않은 다음 단계 요청은 요청 세션의 오류 큐로 메시지를 반환한다.")
+    void handleGameException_이미지가_준비되지_않았으면_오류를_반환한다() {
+        // given
+        ImagesNotReadyException exception = new ImagesNotReadyException();
+
+        // when
+        ErrorResponse response = handler.handleGameException(exception);
+
+        // then
+        assertThat(response.message()).isEqualTo("모든 플레이어의 이미지가 생성된 후 게임을 진행할 수 있습니다.");
     }
 
     @Test

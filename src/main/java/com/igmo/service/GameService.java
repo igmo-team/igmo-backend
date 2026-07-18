@@ -3,6 +3,7 @@ package com.igmo.service;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.service.exception.ImageStorageException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
@@ -128,7 +129,6 @@ public class GameService {
             room.submitPrompt(playerId, prompt, submittedAt);
             if (!room.hasWaitingPrompt()) {
                 cancelPromptExpiration(code);
-                room.completePromptSubmission(submittedAt);
             }
             return PromptSubmissionSnapshot.from(room);
         });
@@ -180,10 +180,20 @@ public class GameService {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.completePromptSubmission(Instant.now());
                     return PromptSubmissionSnapshot.from(lockedRoom);
                 }))
                 .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
+    }
+
+    public void advanceRound(String code, String playerId) {
+        withLockedRoom(code, room -> {
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            if (!room.advanceToRound()) {
+                throw new ImagesNotReadyException();
+            }
+        });
     }
 
     private void cancelPromptExpiration(String code) {

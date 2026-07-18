@@ -2,6 +2,7 @@ package com.igmo.web;
 
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
@@ -27,6 +28,7 @@ public class GameMessageExceptionHandler {
             RoomNotFoundException.class,
             PlayerNotFoundException.class,
             GameAlreadyStartedException.class,
+            ImagesNotReadyException.class,
             PromptSubmissionNotAllowedException.class,
             PromptSubmissionExpiredException.class,
             DuplicatePromptSubmissionException.class,

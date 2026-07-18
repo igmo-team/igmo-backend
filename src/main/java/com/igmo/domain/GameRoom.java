@@ -155,17 +155,12 @@ public class GameRoom {
         entry.failImageGeneration();
     }
 
-    public synchronized void completePromptSubmission(Instant now) {
-        if (!isGenerating()) {
-            return;
+    public synchronized boolean advanceToRound() {
+        if (!isGenerating() || !hasAllImagesGenerated()) {
+            return false;
         }
-        if (isPromptExpired(now)) {
-            phase = GamePhase.GENERATING; //TODO 임시 처리함 -> 변경 필요
-            return;
-        }
-        if (!hasWaitingPrompt()) {
-            phase = GamePhase.GENERATING; //TODO 임시 처리함 -> 변경 필요
-        }
+        phase = GamePhase.PLAYING;
+        return true;
     }
 
     public synchronized boolean hasWaitingPrompt() {
