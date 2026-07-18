@@ -176,7 +176,7 @@ public class GameRoom {
     public synchronized boolean hasAllImagesGenerated() {
         return !promptEntriesByPlayerId.isEmpty()
                 && promptEntriesByPlayerId.values().stream()
-                .allMatch(entry -> entry.getStatus() == PromptEntryStatus.READY);
+                .allMatch(PromptEntry::isImageGenerated);
     }
 
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
