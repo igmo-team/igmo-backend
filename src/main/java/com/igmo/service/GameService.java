@@ -3,8 +3,8 @@ package com.igmo.service;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
-import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.ImageStorageException;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -284,7 +284,7 @@ public class GameService {
         try {
             gameRegistry.find(code)
                     .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
-                        operation.accept(lockedRoom); //room에 대한  lock 획득
+                        operation.accept(lockedRoom);
                         PromptSubmissionSnapshot snapshot = PromptSubmissionSnapshot.from(lockedRoom);
                         ImageGenerationResult resultWithLast = new ImageGenerationResult(
                                 code,
