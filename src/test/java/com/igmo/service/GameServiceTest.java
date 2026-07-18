@@ -50,7 +50,6 @@ import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -778,73 +777,6 @@ class GameServiceTest {
         assertThatThrownBy(() -> gameService.submitPrompt("ABCD", guest1.playerId(), "두 번째 프롬프트"))
                 .isInstanceOf(DuplicatePromptSubmissionException.class)
                 .hasMessage("이미 프롬프트를 제출했습니다.");
-    }
-
-    @Disabled
-    @Test
-    @DisplayName("모든 플레이어가 프롬프트를 제출하면 IMAGE_PREVIEW 단계로 전환하고 마감 작업을 취소한다.")
-    void submitPrompt_모든_플레이어가_제출하면_IMAGE_PREVIEW로_전환하고_마감_작업을_취소한다() {
-        // given
-        given(roomCodeGenerator.generate()).willReturn("ABCD");
-        CreateGameResponse created = gameService.createGame("호스트");
-        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
-        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
-        gameService.changeReady("ABCD", guest1.playerId(), true);
-        gameService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
-        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
-
-        // when
-        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
-
-        // then
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
-            softly.assertThat(snapshot.promptEntries())
-                    .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::submitted)
-                    .containsExactly(
-                            tuple(created.playerId(), true),
-                            tuple(guest1.playerId(), true),
-                            tuple(guest2.playerId(), true)
-                    );
-        });
-        verify(scheduledPromptExpiration).cancel(false);
-    }
-
-    @Disabled
-    @Test
-    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 유지하고 IMAGE_PREVIEW 스냅샷을 브로드캐스트한다.")
-    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_유지하고_IMAGE_PREVIEW로_전환한다() {
-        // given
-        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
-        given(roomCodeGenerator.generate()).willReturn("ABCD");
-        CreateGameResponse created = gameService.createGame("호스트");
-        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
-        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
-        gameService.changeReady("ABCD", guest1.playerId(), true);
-        gameService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        Runnable promptExpiration = captureScheduledPromptExpiration();
-
-        // when
-        promptExpiration.run();
-
-        // then
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
-            softly.assertThat(snapshot.promptEntries())
-                    .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::submitted)
-                    .containsExactly(
-                            tuple(created.playerId(), false),
-                            tuple(guest1.playerId(), false),
-                            tuple(guest2.playerId(), false)
-                    );
-        });
     }
 
     @Test
