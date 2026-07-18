@@ -123,7 +123,7 @@ public class GameRoom {
     }
 
     public synchronized void submitPrompt(String playerId, String prompt, Instant submittedAt) {
-        if (!isPrompting()) {
+        if (!isGenerating()) {
             throw new PromptSubmissionNotAllowedException();
         }
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
@@ -156,7 +156,7 @@ public class GameRoom {
     }
 
     public synchronized void completePromptSubmission(Instant now) {
-        if (!isPrompting()) {
+        if (!isGenerating()) {
             return;
         }
         if (isPromptExpired(now)) {
@@ -198,7 +198,7 @@ public class GameRoom {
         return phase == GamePhase.LOBBY;
     }
 
-    private boolean isPrompting() {
+    private boolean isGenerating() {
         return phase == GamePhase.GENERATING;
     }
 
