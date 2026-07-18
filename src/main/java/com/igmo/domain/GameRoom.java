@@ -3,6 +3,7 @@ package com.igmo.domain;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
@@ -155,12 +156,11 @@ public class GameRoom {
         entry.failImageGeneration();
     }
 
-    public synchronized boolean advanceToRound() {
+    public synchronized void advanceToRound() {
         if (!isGenerating() || !hasAllImagesGenerated()) {
-            return false;
+            throw new ImagesNotReadyException();
         }
         phase = GamePhase.PLAYING;
-        return true;
     }
 
     public synchronized boolean hasWaitingPrompt() {

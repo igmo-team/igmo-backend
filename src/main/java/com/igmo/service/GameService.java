@@ -3,7 +3,6 @@ package com.igmo.service;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
-import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.service.exception.ImageStorageException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
@@ -190,9 +189,7 @@ public class GameService {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
-            if (!room.advanceToRound()) {
-                throw new ImagesNotReadyException();
-            }
+            room.advanceToRound();
         });
     }
 

@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
@@ -484,13 +485,10 @@ class GameRoomTest {
         room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
 
         // when
-        boolean advanced = room.advanceToRound();
+        room.advanceToRound();
 
         // then
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(advanced).isTrue();
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
-        });
+        assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
     }
 
     @Test
@@ -507,14 +505,11 @@ class GameRoomTest {
         room.changePlayerReady(guest2.getId(), true);
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
-        // when
-        boolean advanced = room.advanceToRound();
-
-        // then
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(advanced).isFalse();
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
-        });
+        // when & then
+        assertThatThrownBy(room::advanceToRound)
+                .isInstanceOf(ImagesNotReadyException.class)
+                .hasMessage("모든 플레이어의 이미지가 생성된 후 게임을 진행할 수 있습니다.");
+        assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
     }
 
     @Test
