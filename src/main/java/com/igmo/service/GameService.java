@@ -286,13 +286,13 @@ public class GameService {
                     .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
                         operation.accept(lockedRoom);
                         PromptSubmissionSnapshot snapshot = PromptSubmissionSnapshot.from(lockedRoom);
-                        ImageGenerationResult resultWithLast = new ImageGenerationResult(
+                        ImageGenerationResult generationResult = new ImageGenerationResult(
                                 code,
                                 status,
                                 submittedPrompt,
                                 imageUrl,
                                 lockedRoom.hasAllImagesGenerated());
-                        sendImageGenerationResult(playerId, resultWithLast);
+                        sendImageGenerationResult(playerId, generationResult);
                         broadcastPromptSubmissionSnapshot(code, snapshot);
                     }));
         } catch (RoomNotFoundException ignored) {
