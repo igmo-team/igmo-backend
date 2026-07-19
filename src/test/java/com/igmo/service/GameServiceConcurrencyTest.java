@@ -54,6 +54,7 @@ class GameServiceConcurrencyTest {
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
+        ReflectionTestUtils.setField(gameService, "playingPromptDuration", Duration.ofSeconds(30));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }

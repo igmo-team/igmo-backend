@@ -485,10 +485,18 @@ class GameRoomTest {
         room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
 
         // when
-        room.advanceToRound();
+        Instant roundStartedAt = PROMPT_STARTED_AT.plusSeconds(10);
+
+        room.advanceToRound(roundStartedAt, PROMPT_DURATION);
 
         // then
-        assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(room.getCurrentRound()).isEqualTo(1);
+            softly.assertThat(room.getCurrentRoundPromptEntry().getPlayerId()).isEqualTo(host.getId());
+            softly.assertThat(room.getPlayingPromptDeadline()).isEqualTo(roundStartedAt.plus(PROMPT_DURATION));
+            softly.assertThat(room.isPlayingPromptSubmissionOpen()).isTrue();
+        });
     }
 
     @Test
@@ -506,10 +514,61 @@ class GameRoomTest {
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
         // when & then
-        assertThatThrownBy(room::advanceToRound)
+        assertThatThrownBy(() -> room.advanceToRound(PROMPT_STARTED_AT, PROMPT_DURATION))
                 .isInstanceOf(ImagesNotReadyException.class)
                 .hasMessage("모든 플레이어의 이미지가 생성된 후 게임을 진행할 수 있습니다.");
         assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+    }
+
+    @Test
+    @DisplayName("현재 PLAYING 프롬프트 마감 시각이면 입력을 닫는다.")
+    void closePlayingPromptSubmission_현재_마감_시각이면_입력을_닫는다() {
+        // given
+        GameRoom room = createPlayingRoom();
+
+        // when
+        boolean closed = room.closePlayingPromptSubmission(room.getPlayingPromptDeadline());
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(closed).isTrue();
+            softly.assertThat(room.isPlayingPromptSubmissionOpen()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("오래된 PLAYING 프롬프트 마감 작업이면 입력 상태를 유지한다.")
+    void closePlayingPromptSubmission_오래된_마감_작업이면_입력_상태를_유지한다() {
+        // given
+        GameRoom room = createPlayingRoom();
+        Instant staleDeadline = room.getPlayingPromptDeadline().minusSeconds(1);
+
+        // when
+        boolean closed = room.closePlayingPromptSubmission(staleDeadline);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(closed).isFalse();
+            softly.assertThat(room.isPlayingPromptSubmissionOpen()).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("이미 닫힌 PLAYING 프롬프트 입력이면 다시 닫지 않는다.")
+    void closePlayingPromptSubmission_이미_닫힌_입력이면_다시_닫지_않는다() {
+        // given
+        GameRoom room = createPlayingRoom();
+        Instant deadline = room.getPlayingPromptDeadline();
+        room.closePlayingPromptSubmission(deadline);
+
+        // when
+        boolean closed = room.closePlayingPromptSubmission(deadline);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(closed).isFalse();
+            softly.assertThat(room.isPlayingPromptSubmissionOpen()).isFalse();
+        });
     }
 
     @Test
@@ -640,6 +699,26 @@ class GameRoomTest {
         Field field = GameRoom.class.getDeclaredField("phase");
         field.setAccessible(true);
         field.set(room, phase);
+    }
+
+    private GameRoom createPlayingRoom() {
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
+        room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
+        room.advanceToRound(PROMPT_STARTED_AT.plusSeconds(10), PROMPT_DURATION);
+        return room;
     }
 
     private PromptEntry findPromptEntry(GameRoom room, String playerId) {

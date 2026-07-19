@@ -14,6 +14,7 @@ import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.PlayingSnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import java.time.Duration;
@@ -54,10 +55,13 @@ public class GameService {
     private Duration promptDuration;
     @Value("${igmo.game.image-generation-completion-delay}")
     private Duration imageGenerationCompletionDelay;
+    @Value("${igmo.game.playing-prompt-duration}")
+    private Duration playingPromptDuration;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPlayingTransitions = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingPlayingPromptExpirations = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
                        RoomCodeGenerator roomCodeGenerator,
@@ -325,13 +329,39 @@ public class GameService {
         try {
             gameRegistry.find(code)
                     .map(room -> withLockedRoom(code, lockedRoom -> {
-                        lockedRoom.advanceToRound();
-                        return PromptSubmissionSnapshot.from(lockedRoom);
+                        Instant startedAt = Instant.now();
+                        lockedRoom.advanceToRound(startedAt, playingPromptDuration);
+                        schedulePlayingPromptExpiration(code, lockedRoom.getPlayingPromptDeadline());
+                        return PlayingSnapshot.from(lockedRoom);
                     }))
-                    .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
+                    .ifPresent(snapshot -> broadcastPlayingSnapshot(code, snapshot));
         } catch (RoomNotFoundException | ImagesNotReadyException ignored) {
             log.debug("이미지 생성 완료 전환 조건이 충족되지 않아 무시한다. roomCode={}", code);
         }
+    }
+
+    private void schedulePlayingPromptExpiration(String code, Instant deadline) {
+        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
+                () -> runPlayingPromptExpiration(code, deadline),
+                deadline);
+        ScheduledFuture<?> previous = pendingPlayingPromptExpirations.put(code, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    private void runPlayingPromptExpiration(String code, Instant deadline) {
+        if (pendingPlayingPromptExpirations.remove(code) == null) {
+            return;
+        }
+        gameRegistry.find(code)
+                .map(room -> withLockedRoom(code, lockedRoom -> {
+                    if (!lockedRoom.closePlayingPromptSubmission(deadline)) {
+                        return null;
+                    }
+                    return PlayingSnapshot.from(lockedRoom);
+                }))
+                .ifPresent(snapshot -> broadcastPlayingSnapshot(code, snapshot));
     }
 
     private static String removalKey(String code, String playerId) {
@@ -345,6 +375,7 @@ public class GameService {
         if (room.isEmpty()) {
             cancelPromptExpiration(room.getCode());
             cancelPlayingTransition(room.getCode());
+            cancelPlayingPromptExpiration(room.getCode());
             gameRegistry.remove(room.getCode());
             return;
         }
@@ -359,12 +390,23 @@ public class GameService {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
     }
 
+    private void broadcastPlayingSnapshot(String code, PlayingSnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.playingSnapshot(snapshot));
+    }
+
     private void sendImageGenerationResult(String playerId, ImageGenerationResult result) {
         messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, result);
     }
 
     private void cancelPlayingTransition(String code) {
         ScheduledFuture<?> future = pendingPlayingTransitions.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void cancelPlayingPromptExpiration(String code) {
+        ScheduledFuture<?> future = pendingPlayingPromptExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
         }
