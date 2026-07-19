@@ -34,6 +34,7 @@ class GameServiceConcurrencyTest {
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
     private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
+    private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
     private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final GameService gameService =
@@ -43,6 +44,7 @@ class GameServiceConcurrencyTest {
                     messagingTemplate,
                     disconnectGraceScheduler,
                     promptDeadlineScheduler,
+                    imageGenerationCompletionScheduler,
                     imageGenerationClient,
                     Runnable::run
             );
@@ -51,6 +53,7 @@ class GameServiceConcurrencyTest {
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }

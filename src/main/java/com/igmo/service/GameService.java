@@ -3,6 +3,7 @@ package com.igmo.service;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.service.exception.ImageStorageException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
@@ -43,6 +44,7 @@ public class GameService {
     private final SimpMessagingTemplate messagingTemplate;
     private final TaskScheduler disconnectGraceScheduler;
     private final TaskScheduler promptDeadlineScheduler;
+    private final TaskScheduler imageGenerationCompletionScheduler;
     private final ImageGenerationClient imageGenerationClient;
     private final Executor imageGenerationExecutor;
 
@@ -50,15 +52,19 @@ public class GameService {
     private Duration disconnectGrace;
     @Value("${igmo.game.prompt-duration}")
     private Duration promptDuration;
+    @Value("${igmo.game.image-generation-completion-delay}")
+    private Duration imageGenerationCompletionDelay;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingPlayingTransitions = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
                        RoomCodeGenerator roomCodeGenerator,
                        SimpMessagingTemplate messagingTemplate,
                        @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
                        @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler,
+                       @Qualifier("imageGenerationCompletionScheduler") TaskScheduler imageGenerationCompletionScheduler,
                        ImageGenerationClient imageGenerationClient,
                        @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor) {
         this.gameRegistry = gameRegistry;
@@ -66,6 +72,7 @@ public class GameService {
         this.messagingTemplate = messagingTemplate;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
         this.promptDeadlineScheduler = promptDeadlineScheduler;
+        this.imageGenerationCompletionScheduler = imageGenerationCompletionScheduler;
         this.imageGenerationClient = imageGenerationClient;
         this.imageGenerationExecutor = imageGenerationExecutor;
     }
@@ -184,15 +191,6 @@ public class GameService {
                 .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
     }
 
-    public void advanceRound(String code, String playerId) {
-        withLockedRoom(code, room -> {
-            if (!room.hasPlayer(playerId)) {
-                throw new PlayerNotFoundException();
-            }
-            room.advanceToRound();
-        });
-    }
-
     private void cancelPromptExpiration(String code) {
         ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
         if (future != null) {
@@ -289,21 +287,50 @@ public class GameService {
             String submittedPrompt,
             String imageUrl) {
         try {
-            gameRegistry.find(code)
-                    .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
+            boolean shouldSchedulePlayingTransition = gameRegistry.find(code)
+                    .map(room -> withLockedRoom(code, lockedRoom -> {
+                        boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
                         operation.accept(lockedRoom);
-                        PromptSubmissionSnapshot snapshot = PromptSubmissionSnapshot.from(lockedRoom);
-                        ImageGenerationResult generationResult = new ImageGenerationResult(
-                                code,
-                                status,
-                                submittedPrompt,
-                                imageUrl,
-                                lockedRoom.hasAllImagesGenerated());
-                        sendImageGenerationResult(playerId, generationResult);
-                        broadcastPromptSubmissionSnapshot(code, snapshot);
-                    }));
+
+                        sendImageGenerationResult(
+                                playerId,
+                                new ImageGenerationResult(code, status, submittedPrompt, imageUrl)
+                        );
+                        broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(lockedRoom));
+                        return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
+                    }))
+                    .orElse(false);
+            if (shouldSchedulePlayingTransition) {
+                schedulePlayingTransition(code);
+            }
         } catch (RoomNotFoundException ignored) {
             log.debug("이미지 생성 결과를 반영할 방이 없어 결과를 버린다. roomCode={}, playerId={}", code, playerId);
+        }
+    }
+
+    private void schedulePlayingTransition(String code) {
+        ScheduledFuture<?> future = imageGenerationCompletionScheduler.schedule(
+                () -> runPlayingTransition(code),
+                Instant.now().plus(imageGenerationCompletionDelay));
+        ScheduledFuture<?> existing = pendingPlayingTransitions.putIfAbsent(code, future);
+        if (existing != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void runPlayingTransition(String code) {
+        if (pendingPlayingTransitions.remove(code) == null) {
+            return;
+        }
+        try {
+            gameRegistry.find(code)
+                    .map(room -> withLockedRoom(code, lockedRoom -> {
+                        lockedRoom.advanceToRound();
+                        return PromptSubmissionSnapshot.from(lockedRoom);
+                    }))
+                    .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
+        } catch (RoomNotFoundException | ImagesNotReadyException ignored) {
+            log.debug("이미지 생성 완료 전환 조건이 충족되지 않아 무시한다. roomCode={}", code);
         }
     }
 
@@ -317,6 +344,7 @@ public class GameService {
         }
         if (room.isEmpty()) {
             cancelPromptExpiration(room.getCode());
+            cancelPlayingTransition(room.getCode());
             gameRegistry.remove(room.getCode());
             return;
         }
@@ -333,6 +361,13 @@ public class GameService {
 
     private void sendImageGenerationResult(String playerId, ImageGenerationResult result) {
         messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, result);
+    }
+
+    private void cancelPlayingTransition(String code) {
+        ScheduledFuture<?> future = pendingPlayingTransitions.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
     }
 
     private void withLockedRoom(String code, Consumer<GameRoom> operation) {

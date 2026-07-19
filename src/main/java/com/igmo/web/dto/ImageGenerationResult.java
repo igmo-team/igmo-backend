@@ -6,7 +6,6 @@ public record ImageGenerationResult(
         String roomCode,
         PromptEntryStatus status,
         String prompt,
-        String imageUrl,
-        boolean isLast
+        String imageUrl
 ) {
 }

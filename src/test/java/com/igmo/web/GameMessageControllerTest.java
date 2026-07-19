@@ -12,7 +12,6 @@ import com.igmo.web.dto.ReadyRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
-import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -91,26 +90,6 @@ class GameMessageControllerTest {
 
         // then
         verify(gameService).submitPrompt("ABCD", "player-1", "프롬프트");
-    }
-
-    @Test
-    @DisplayName("세션의 playerId로 다음 단계 전환을 서비스에 위임한다.")
-    void advanceRound_세션_playerId로_서비스에_위임한다() throws NoSuchMethodException {
-        // given
-        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
-
-        // when
-        controller.advanceRound("ABCD", headerAccessor);
-
-        // then
-        verify(gameService).advanceRound("ABCD", "player-1");
-        Method method = GameMessageController.class.getDeclaredMethod(
-                "advanceRound",
-                String.class,
-                SimpMessageHeaderAccessor.class
-        );
-        assertThat(method.getAnnotation(MessageMapping.class).value())
-                .containsExactly("/rooms/{code}/advance-round");
     }
 
     @Test
