@@ -47,4 +47,8 @@ public class PromptEntry {
     public boolean isWaiting() {
         return status == PromptEntryStatus.WAITING;
     }
+
+    public boolean isImageGenerated() {
+        return status == PromptEntryStatus.READY;
+    }
 }

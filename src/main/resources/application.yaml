@@ -10,6 +10,7 @@ igmo:
     prompt-duration: 30s
     guess-duration: 10s
     vote-duration: 10s
+    image-generation-completion-delay: 3s
   ai:
     gemini:
       api-key: ${GEMINI_API_KEY}
