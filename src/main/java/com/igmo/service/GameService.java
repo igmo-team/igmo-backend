@@ -148,7 +148,6 @@ public class GameService {
         startImageGeneration(code, playerId, prompt);
     }
 
-    // PLAYING 전환 이후 라운드 초기화 진입점. 전환 흐름과의 호출 연결은 이미지 준비 담당 개발 완료 후 조정한다. (#69)
     public void startRounds(String code) {
         RoundSnapshot snapshot = withLockedRoom(code, room -> {
             return initializeRounds(code, room, Instant.now());
@@ -190,7 +189,6 @@ public class GameService {
     }
 
     private void runScheduledRemoval(String code, String playerId) {
-        // 취소 측이 먼저 키를 지웠으면 경합에서 진 것이므로 제거하지 않는다.
         if (pendingRemovals.remove(removalKey(code, playerId)) == null) {
             return;
         }
@@ -403,11 +401,10 @@ public class GameService {
         }
         try {
             gameRegistry.find(code)
-                    .map(room -> withLockedRoom(code, lockedRoom -> {
+                    .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
                         lockedRoom.advanceToPlaying();
-                        return initializeRounds(code, lockedRoom, Instant.now());
-                    }))
-                    .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
+                        startRounds(code);
+                    }));
         } catch (RoomNotFoundException | ImagesNotReadyException | RoundStartNotAllowedException ignored) {
             log.debug("이미지 생성 완료 전환 조건이 충족되지 않아 무시한다. roomCode={}", code);
         }
