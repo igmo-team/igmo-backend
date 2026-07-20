@@ -677,8 +677,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("진행 중 참가자가 정상 퇴장하면 방을 로비로 되돌린다.")
-    void leaveGame_진행_중_참가자가_나가면_로비로_되돌린다() {
+    @DisplayName("진행 중 참가자가 정상 퇴장해도 방 상태와 타이머를 유지한다.")
+    void leaveGame_진행_중_참가자가_나가도_방_상태와_타이머를_유지한다() {
         // given
         GameSession session = startGeneratingGame();
         clearInvocations(messagingTemplate);
@@ -688,25 +688,18 @@ class GameServiceTest {
 
         // then
         GameRoom room = gameRegistry.find("ABCD").orElseThrow();
-        LobbySnapshot snapshot = captureLastLobbyBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
-            softly.assertThat(room.getPromptEntries()).isEmpty();
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
-            softly.assertThat(snapshot.players())
-                    .extracting(PlayerView::id, PlayerView::ready)
-                    .containsExactly(
-                            tuple(session.host().playerId(), false),
-                            tuple(session.guest1().playerId(), false)
-                    );
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+            softly.assertThat(room.hasPlayer(session.guest2().playerId())).isFalse();
+            softly.assertThat(room.getPromptEntries()).hasSize(2);
         });
-        verify(scheduledPromptExpiration).cancel(false);
-        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+        verify(scheduledPromptExpiration, never()).cancel(false);
+        verifyNoInteractions(messagingTemplate);
     }
 
     @Test
-    @DisplayName("진행 중 참가자의 연결 종료가 확정되면 방을 로비로 되돌린다.")
-    void handleDisconnect_진행_중_참가자가_제거되면_로비로_되돌린다() {
+    @DisplayName("진행 중 참가자의 연결 종료가 확정돼도 방 상태와 타이머를 유지한다.")
+    void handleDisconnect_진행_중_참가자가_제거돼도_방_상태와_타이머를_유지한다() {
         // given
         GameSession session = startGeneratingGame();
         gameService.handleDisconnect("ABCD", session.guest2().playerId());
@@ -717,32 +710,11 @@ class GameServiceTest {
 
         // then
         GameRoom room = gameRegistry.find("ABCD").orElseThrow();
-        LobbySnapshot snapshot = captureLastLobbyBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
-            softly.assertThat(room.getPromptEntries()).isEmpty();
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+            softly.assertThat(room.hasPlayer(session.guest2().playerId())).isFalse();
+            softly.assertThat(room.getPromptEntries()).hasSize(2);
         });
-        verify(scheduledPromptExpiration).cancel(false);
-        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
-    }
-
-    @Test
-    @DisplayName("로비 복귀 후 완료된 이미지 생성 결과는 무시한다.")
-    void imageGeneration_로비_복귀_후_완료된_결과는_무시한다() {
-        // given
-        GameSession session = startGeneratingGame();
-        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
-        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
-        clearInvocations(messagingTemplate);
-
-        // when
-        runImageGenerationTask();
-
-        // then
-        assertThat(gameRegistry.find("ABCD")).get()
-                .extracting(GameRoom::getPhase)
-                .isEqualTo(GamePhase.LOBBY);
         verifyNoInteractions(messagingTemplate);
     }
 

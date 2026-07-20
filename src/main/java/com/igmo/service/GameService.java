@@ -522,14 +522,14 @@ public class GameService {
                 gameRegistry.remove(room.getCode());
                 return;
             }
-            if (room.returnToLobby()) {
-                cancelRoomTimers(room.getCode());
+            // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
+            if (room.getPhase() == GamePhase.LOBBY) {
+                broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
             }
-            broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
         }
     }
 
-    // 방이 사라지거나 로비로 돌아가면 진행 중이던 단계 타이머는 모두 의미를 잃는다.
+    // 방이 사라지면 진행 중이던 단계 타이머는 모두 의미를 잃는다.
     private void cancelRoomTimers(String code) {
         cancelPromptExpiration(code);
         cancelGuessExpiration(code);

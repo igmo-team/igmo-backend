@@ -29,7 +29,4 @@ public class Player {
         this.score += delta;
     }
 
-    public void resetScore() {
-        this.score = 0;
-    }
 }

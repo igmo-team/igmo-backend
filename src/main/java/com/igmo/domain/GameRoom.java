@@ -89,26 +89,6 @@ public class GameRoom {
         return true;
     }
 
-    public synchronized boolean returnToLobby() {
-        if (isInLobby()) {
-            return false;
-        }
-        phase = GamePhase.LOBBY;
-        promptStartedAt = null;
-        promptDeadline = null;
-        guessDeadline = null;
-        voteDeadline = null;
-        resultDeadline = null;
-        promptEntriesByPlayerId.clear();
-        rounds.clear();
-        currentRoundIndex = 0;
-        players.values().forEach(player -> {
-            player.changeReady(false);
-            player.resetScore();
-        });
-        return true;
-    }
-
     public synchronized List<Player> getPlayers() {
         return List.copyOf(players.values());
     }
