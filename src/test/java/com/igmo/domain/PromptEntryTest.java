@@ -50,6 +50,7 @@ class PromptEntryTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/images/prompt-1.png");
+            softly.assertThat(entry.isImageGenerated()).isTrue();
         });
     }
 
@@ -67,6 +68,7 @@ class PromptEntryTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(entry.getImageUrl()).isNull();
+            softly.assertThat(entry.isImageGenerated()).isFalse();
         });
     }
 }
