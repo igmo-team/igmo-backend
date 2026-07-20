@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.igmo.service.GameService;
+import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
@@ -132,6 +133,47 @@ class GameMessageControllerTest {
         verifyNoInteractions(gameService);
     }
 
+    @Test
+    @DisplayName("세션의 playerId로 추측 제출을 서비스에 위임한다.")
+    void submitGuess_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.submitGuess("ABCD", new GuessRequest("추측 프롬프트"), headerAccessor);
+
+        // then
+        verify(gameService).submitGuess("ABCD", "player-1", "추측 프롬프트");
+    }
+
+    @Test
+    @DisplayName("추측 제출 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void submitGuess_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.submitGuess("ABCD", new GuessRequest("추측 프롬프트"), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameService);
+    }
+
+    @Test
+    @DisplayName("추측 제출 요청의 guess가 null이면 검증에 실패한다.")
+    void submitGuess_guess가_null이면_검증에_실패한다() {
+        // when & then
+        assertGuessInvalid(new GuessRequest(null));
+    }
+
+    @Test
+    @DisplayName("추측 제출 요청의 guess가 공백이면 검증에 실패한다.")
+    void submitGuess_guess가_공백이면_검증에_실패한다() {
+        // when & then
+        assertGuessInvalid(new GuessRequest("   "));
+    }
+
     private SimpMessageHeaderAccessor headerAccessorWithPlayerId(String playerId) {
         Map<String, Object> sessionAttributes = new HashMap<>();
         sessionAttributes.put(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE, playerId);
@@ -144,5 +186,11 @@ class GameMessageControllerTest {
         org.assertj.core.api.Assertions.assertThat(validator.validate(request))
                 .extracting(violation -> violation.getMessage())
                 .containsExactly("프롬프트를 입력해주세요.");
+    }
+
+    private void assertGuessInvalid(GuessRequest request) {
+        org.assertj.core.api.Assertions.assertThat(validator.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("추측을 입력해주세요.");
     }
 }
