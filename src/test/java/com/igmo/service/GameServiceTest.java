@@ -13,11 +13,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
+import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.exception.DuplicateNicknameException;
@@ -25,8 +28,8 @@ import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
-import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.GeminiResponseException;
+import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -42,20 +45,20 @@ import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
-import org.junit.jupiter.api.AfterEach;
 import org.assertj.core.api.SoftAssertions;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.slf4j.LoggerFactory;
 
 class GameServiceTest {
 
@@ -64,6 +67,7 @@ class GameServiceTest {
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
     private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
+    private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
     private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
     private final Logger gameServiceLogger = (Logger) LoggerFactory.getLogger(GameService.class);
     private ListAppender<ILoggingEvent> imageGenerationLogAppender;
@@ -71,6 +75,7 @@ class GameServiceTest {
     private final Executor imageGenerationExecutor = command -> imageGenerationTask = command;
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final ScheduledFuture<?> scheduledPromptExpiration = mock(ScheduledFuture.class);
+    private final ScheduledFuture<?> scheduledPlayingTransition = mock(ScheduledFuture.class);
     private final GameService gameService =
             new GameService(
                     gameRegistry,
@@ -78,6 +83,7 @@ class GameServiceTest {
                     messagingTemplate,
                     disconnectGraceScheduler,
                     promptDeadlineScheduler,
+                    imageGenerationCompletionScheduler,
                     imageGenerationClient,
                     imageGenerationExecutor
             );
@@ -87,10 +93,13 @@ class GameServiceTest {
         imageGenerationTask = null;
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
         given(promptDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledPromptExpiration);
+        given(imageGenerationCompletionScheduler.schedule(any(Runnable.class), any(Instant.class)))
+                .willAnswer(invocation -> scheduledPlayingTransition);
         imageGenerationLogAppender = new ListAppender<>();
         imageGenerationLogAppender.start();
         gameServiceLogger.addAppender(imageGenerationLogAppender);
@@ -439,7 +448,7 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("방장이 시작하면 PROMPTING 단계로 진행한 스냅샷을 브로드캐스트한다.")
+    @DisplayName("방장이 시작하면 GENERATING 단계로 진행한 스냅샷을 브로드캐스트한다.")
     void startGame_방장이_시작하면_다음_단계_스냅샷을_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
@@ -503,8 +512,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("PROMPTING 단계에서 프롬프트를 제출하면 플레이어의 프롬프트 상태를 저장하고 스냅샷을 브로드캐스트한다.")
-    void submitPrompt_PROMPTING_단계이면_프롬프트를_저장하고_브로드캐스트한다() {
+    @DisplayName("GENERATING 단계에서 프롬프트를 제출하면 플레이어의 프롬프트 상태를 저장하고 스냅샷을 브로드캐스트한다.")
+    void submitPrompt_GENERATING_단계이면_프롬프트를_저장하고_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameService.createGame("호스트");
@@ -588,6 +597,170 @@ class GameServiceTest {
     }
 
     @Test
+    @DisplayName("마지막 이미지 생성 전에는 PLAYING 전환을 예약하지 않는다.")
+    void imageGeneration_마지막_이미지_생성_전에는_PLAYING_전환을_예약하지_않는다() {
+        // given
+        GameSession session = startGeneratingGame();
+
+        // when
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
+
+        // then
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("마지막 이미지 생성 시 3초 후 PLAYING 전환을 예약한다.")
+    void imageGeneration_마지막_이미지_생성시_3초_후_PLAYING_전환을_예약한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
+
+        // when
+        Instant before = Instant.now();
+        submitPromptAndCompleteImage(session.guest2().playerId(), "참가자2 프롬프트");
+        Instant after = Instant.now();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.GENERATING);
+        ArgumentCaptor<Instant> scheduledAt = ArgumentCaptor.forClass(Instant.class);
+        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), scheduledAt.capture());
+        assertThat(scheduledAt.getValue()).isBetween(before.plusSeconds(3), after.plusSeconds(3));
+    }
+
+    @Test
+    @DisplayName("예약된 PLAYING 전환 작업이 실행되면 phase를 PLAYING으로 변경한다.")
+    void imageGeneration_예약된_PLAYING_전환_작업이_실행되면_phase를_PLAYING으로_변경한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
+        submitPromptAndCompleteImage(session.guest2().playerId(), "참가자2 프롬프트");
+        Runnable transition = captureScheduledPlayingTransition();
+
+        // when
+        clearInvocations(messagingTemplate);
+        transition.run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.PLAYING);
+        verifyNoInteractions(messagingTemplate);
+    }
+
+    @Test
+    @DisplayName("진행 중 참가자가 정상 퇴장하면 방을 로비로 되돌린다.")
+    void leaveGame_진행_중_참가자가_나가면_로비로_되돌린다() {
+        // given
+        GameSession session = startGeneratingGame();
+        clearInvocations(messagingTemplate);
+
+        // when
+        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
+
+        // then
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        LobbySnapshot snapshot = captureLastLobbyBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPromptEntries()).isEmpty();
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(snapshot.players())
+                    .extracting(PlayerView::id, PlayerView::ready)
+                    .containsExactly(
+                            tuple(session.host().playerId(), false),
+                            tuple(session.guest1().playerId(), false)
+                    );
+        });
+        verify(scheduledPromptExpiration).cancel(false);
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("진행 중 참가자의 연결 종료가 확정되면 방을 로비로 되돌린다.")
+    void handleDisconnect_진행_중_참가자가_제거되면_로비로_되돌린다() {
+        // given
+        GameSession session = startGeneratingGame();
+        gameService.handleDisconnect("ABCD", session.guest2().playerId());
+        clearInvocations(messagingTemplate);
+
+        // when
+        captureScheduledRemoval().run();
+
+        // then
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        LobbySnapshot snapshot = captureLastLobbyBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPromptEntries()).isEmpty();
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
+        });
+        verify(scheduledPromptExpiration).cancel(false);
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("로비 복귀 후 완료된 이미지 생성 결과는 무시한다.")
+    void imageGeneration_로비_복귀_후_완료된_결과는_무시한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
+        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
+        clearInvocations(messagingTemplate);
+
+        // when
+        runImageGenerationTask();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.LOBBY);
+        verifyNoInteractions(messagingTemplate);
+    }
+
+    @Test
+    @DisplayName("마지막 이미지 생성 후 방이 삭제되면 PLAYING 전환 예약을 취소한다.")
+    void imageGeneration_방이_삭제되면_PLAYING_전환_예약을_취소한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate(any()))
+                .willReturn(
+                        "https://cdn.example.com/host.png",
+                        "https://cdn.example.com/guest-1.png",
+                        "https://cdn.example.com/guest-2.png");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        runImageGenerationTask();
+        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+        runImageGenerationTask();
+        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+        runImageGenerationTask();
+        Runnable transition = captureScheduledPlayingTransition();
+
+        // when
+        gameService.leaveGame("ABCD", created.playerId(), created.secret());
+        gameService.leaveGame("ABCD", guest1.playerId(), guest1.secret());
+        gameService.leaveGame("ABCD", guest2.playerId(), guest2.secret());
+        clearInvocations(messagingTemplate);
+        transition.run();
+
+        // then
+        verify(scheduledPlayingTransition).cancel(false);
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verifyNoInteractions(messagingTemplate);
+    }
+
+    @Test
     @DisplayName("이미지 생성이 실패하면 개인 실패 결과를 전송하고 전체 상태를 브로드캐스트한다.")
     void imageGeneration_실패하면_개인_실패_결과를_전송하고_전체_상태를_브로드캐스트한다() {
         // given
@@ -626,12 +799,43 @@ class GameServiceTest {
                     .contains("reason=Gemini 응답에 이미지 데이터가 없습니다.");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
         assertThat(snapshot.promptEntries())
                 .filteredOn(promptEntry -> promptEntry.player().id().equals(guest1.playerId()))
                 .singleElement()
                 .extracting(PromptEntryView::submitted)
                 .isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 시 미제출 참가자에게 자동 프롬프트를 제출하고 이미지 생성을 시작한다.")
+    void promptExpiration_미제출_참가자에게_자동_프롬프트를_제출하고_이미지_생성을_시작한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
+        gameService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        clearInvocations(messagingTemplate);
+
+        // when
+        captureScheduledPromptExpiration().run();
+
+        // then
+        PromptEntry autoSubmittedEntry = findPromptEntry("ABCD", session.guest2().playerId());
+        PromptSubmissionSnapshot expirationSnapshot = captureLastPromptSubmissionBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(autoSubmittedEntry.getPrompt()).isIn(autoPromptCandidates("참가자2"));
+            softly.assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(autoSubmittedEntry.getSubmittedAt()).isEqualTo(
+                    gameRegistry.find("ABCD").orElseThrow().getPromptDeadline());
+            softly.assertThat(findPromptEntryView(expirationSnapshot, session.guest2().playerId()).submitted()).isTrue();
+            softly.assertThat(imageGenerationTask).isNotNull();
+        });
+
+        runImageGenerationTask();
+
+        verify(imageGenerationClient).generate(autoSubmittedEntry.getPrompt());
+        assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.READY);
     }
 
     @Test
@@ -657,8 +861,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("PROMPTING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
-    void submitPrompt_PROMPTING_단계가_아니면_예외를_던진다() {
+    @DisplayName("GENERATING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
+    void submitPrompt_GENERATING_단계가_아니면_예외를_던진다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameService.createGame("호스트");
@@ -686,73 +890,6 @@ class GameServiceTest {
         assertThatThrownBy(() -> gameService.submitPrompt("ABCD", guest1.playerId(), "두 번째 프롬프트"))
                 .isInstanceOf(DuplicatePromptSubmissionException.class)
                 .hasMessage("이미 프롬프트를 제출했습니다.");
-    }
-
-    @Disabled
-    @Test
-    @DisplayName("모든 플레이어가 프롬프트를 제출하면 IMAGE_PREVIEW 단계로 전환하고 마감 작업을 취소한다.")
-    void submitPrompt_모든_플레이어가_제출하면_IMAGE_PREVIEW로_전환하고_마감_작업을_취소한다() {
-        // given
-        given(roomCodeGenerator.generate()).willReturn("ABCD");
-        CreateGameResponse created = gameService.createGame("호스트");
-        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
-        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
-        gameService.changeReady("ABCD", guest1.playerId(), true);
-        gameService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
-        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
-
-        // when
-        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
-
-        // then
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
-            softly.assertThat(snapshot.promptEntries())
-                    .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::submitted)
-                    .containsExactly(
-                            tuple(created.playerId(), true),
-                            tuple(guest1.playerId(), true),
-                            tuple(guest2.playerId(), true)
-                    );
-        });
-        verify(scheduledPromptExpiration).cancel(false);
-    }
-
-    @Disabled
-    @Test
-    @DisplayName("프롬프트 마감 작업이 실행되면 대기 중인 플레이어를 유지하고 IMAGE_PREVIEW 스냅샷을 브로드캐스트한다.")
-    void promptDeadline_마감_작업이_실행되면_대기_플레이어를_유지하고_IMAGE_PREVIEW로_전환한다() {
-        // given
-        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
-        given(roomCodeGenerator.generate()).willReturn("ABCD");
-        CreateGameResponse created = gameService.createGame("호스트");
-        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
-        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
-        gameService.changeReady("ABCD", guest1.playerId(), true);
-        gameService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        Runnable promptExpiration = captureScheduledPromptExpiration();
-
-        // when
-        promptExpiration.run();
-
-        // then
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
-            softly.assertThat(snapshot.promptEntries())
-                    .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::submitted)
-                    .containsExactly(
-                            tuple(created.playerId(), false),
-                            tuple(guest1.playerId(), false),
-                            tuple(guest2.playerId(), false)
-                    );
-        });
     }
 
     @Test
@@ -821,6 +958,27 @@ class GameServiceTest {
         return captor.getValue();
     }
 
+    private GameSession startGeneratingGame() {
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate(any()))
+                .willReturn(
+                        "https://cdn.example.com/host.png",
+                        "https://cdn.example.com/guest-1.png",
+                        "https://cdn.example.com/guest-2.png");
+        CreateGameResponse host = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", host.playerId());
+        return new GameSession(host, guest1, guest2);
+    }
+
+    private void submitPromptAndCompleteImage(String playerId, String prompt) {
+        gameService.submitPrompt("ABCD", playerId, prompt);
+        runImageGenerationTask();
+    }
+
     private void runImageGenerationTask() {
         assertThat(imageGenerationTask).isNotNull();
         imageGenerationTask.run();
@@ -829,6 +987,12 @@ class GameServiceTest {
     private Runnable captureScheduledPromptExpiration() {
         ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
         verify(promptDeadlineScheduler).schedule(captor.capture(), any(Instant.class));
+        return captor.getValue();
+    }
+
+    private Runnable captureScheduledPlayingTransition() {
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(imageGenerationCompletionScheduler).schedule(captor.capture(), any(Instant.class));
         return captor.getValue();
     }
 
@@ -892,6 +1056,13 @@ class GameServiceTest {
                 .getFormattedMessage();
     }
 
+    private record GameSession(
+            CreateGameResponse host,
+            JoinGameResponse guest1,
+            JoinGameResponse guest2
+    ) {
+    }
+
     private PromptEntry findPromptEntry(String code, String playerId) {
         return gameRegistry.find(code)
                 .orElseThrow()
@@ -906,5 +1077,11 @@ class GameServiceTest {
                 .filter(entry -> entry.player().id().equals(playerId))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private List<String> autoPromptCandidates(String nickname) {
+        return Arrays.stream(AutoPromptPrefix.values())
+                .map(prefix -> prefix.value() + " " + nickname)
+                .toList();
     }
 }
