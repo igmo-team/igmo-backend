@@ -20,6 +20,9 @@ import lombok.Getter;
 
 public class Round {
 
+    private static final int CORRECT_ANSWER_SCORE = 2;
+    private static final int QUESTIONER_SCORE_PER_CORRECT_VOTE = 2;
+
     @Getter
     private final int roundNumber;
     @Getter
@@ -29,6 +32,7 @@ public class Round {
     private final Map<String, GuessEntry> guessesByPlayerId = new LinkedHashMap<>();
     private final List<VoteOption> voteOptions = new ArrayList<>();
     private final Map<String, Vote> votesByVoterId = new LinkedHashMap<>();
+    private RoundResult result;
 
     private Round(int roundNumber, String questionerId, PromptEntry answerEntry) {
         this.roundNumber = roundNumber;
@@ -102,6 +106,20 @@ public class Round {
         return List.copyOf(votesByVoterId.values());
     }
 
+    // 결과는 한 번만 확정한다. 이미 확정된 결과는 다시 계산하지 않는다.
+    public void settleResult(Collection<String> participantIds) {
+        if (result != null) {
+            return;
+        }
+        Map<String, Integer> voteCounts = aggregateVotesByOption();
+        Map<String, Integer> roundScore = calculateRoundScore(participantIds, voteCounts);
+        result = RoundResult.of(answerEntry.getPromptId(), voteCounts, roundScore);
+    }
+
+    public RoundResult getResult() {
+        return result;
+    }
+
     private boolean hasVoteOption(String optionId) {
         return voteOptions.stream()
                 .anyMatch(option -> option.getOptionId().equals(optionId));
@@ -126,5 +144,66 @@ public class Round {
 
     private String normalize(String prompt) {
         return prompt.trim().replaceAll("\\s+", " ").toLowerCase();
+    }
+
+    private Map<String, Integer> aggregateVotesByOption() {
+        Map<String, Integer> voteCounts = new LinkedHashMap<>();
+        voteOptions.forEach(option -> voteCounts.put(option.getOptionId(), 0));
+        votesByVoterId.values().forEach(vote ->
+                voteCounts.merge(vote.getOptionId(), 1, Integer::sum));
+        return voteCounts;
+    }
+
+    private Map<String, Integer> calculateRoundScore(
+            Collection<String> participantIds,
+            Map<String, Integer> voteCounts
+    ) {
+        Map<String, Integer> roundScore = new LinkedHashMap<>();
+        participantIds.forEach(participantId -> roundScore.put(participantId, 0));
+
+        addCatchScore(roundScore, voteCounts);
+        addCorrectAnswerScore(roundScore);
+        addQuestionerScore(roundScore, participantIds, voteCounts);
+
+        return roundScore;
+    }
+
+    // 낚시 점수: 내 추측에 투표한 사람 수만큼 득점한다.
+    private void addCatchScore(Map<String, Integer> roundScore, Map<String, Integer> voteCounts) {
+        guessesByPlayerId.values().forEach(guess -> {
+            int catchScore = voteCounts.getOrDefault(guess.getGuessId(), 0);
+            roundScore.merge(guess.getPlayerId(), catchScore, Integer::sum);
+        });
+    }
+
+    // 정답 점수: 정답 프롬프트를 맞힌 사람은 각각 득점한다.
+    private void addCorrectAnswerScore(Map<String, Integer> roundScore) {
+        votesByVoterId.values().stream()
+                .filter(this::isCorrectVote)
+                .forEach(vote -> roundScore.merge(vote.getVoterId(), CORRECT_ANSWER_SCORE, Integer::sum));
+    }
+
+    // 출제자 점수: 정답 투표자가 1명 이상이고 전원이 아닐 때만 투표수에 비례해 득점한다.
+    private void addQuestionerScore(
+            Map<String, Integer> roundScore,
+            Collection<String> participantIds,
+            Map<String, Integer> voteCounts
+    ) {
+        int correctVoterCount = voteCounts.getOrDefault(answerEntry.getPromptId(), 0);
+        int questionerScore = isQuestionerRewarded(correctVoterCount, participantIds)
+                ? correctVoterCount * QUESTIONER_SCORE_PER_CORRECT_VOTE
+                : 0;
+        roundScore.merge(questionerId, questionerScore, Integer::sum);
+    }
+
+    private boolean isQuestionerRewarded(int correctVoterCount, Collection<String> participantIds) {
+        long eligibleVoterCount = participantIds.stream()
+                .filter(participantId -> !questionerId.equals(participantId))
+                .count();
+        return correctVoterCount > 0 && correctVoterCount < eligibleVoterCount;
+    }
+
+    private boolean isCorrectVote(Vote vote) {
+        return vote.getOptionId().equals(answerEntry.getPromptId());
     }
 }

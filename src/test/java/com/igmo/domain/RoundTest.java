@@ -290,6 +290,143 @@ class RoundTest {
         assertThat(round.hasAllVotes(participantIds)).isTrue();
     }
 
+    @Test
+    @DisplayName("아무도 정답을 맞히지 못하면 출제자 점수는 0점이다.")
+    void settleResult_아무도_정답을_맞히지_못하면_출제자_점수는_0점이다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        String guess1OptionId = round.getGuesses().get(0).getGuessId();
+        String guess2OptionId = round.getGuesses().get(1).getGuessId();
+        round.submitVote("guesser-1", guess2OptionId, SUBMITTED_AT);
+        round.submitVote("guesser-2", guess1OptionId, SUBMITTED_AT);
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result.getRoundScoreByPlayerId().get("questioner")).isZero();
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-1")).isEqualTo(1);
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-2")).isEqualTo(1);
+        });
+    }
+
+    @Test
+    @DisplayName("전원이 정답을 맞히면 출제자 점수는 0점이다.")
+    void settleResult_전원이_정답을_맞히면_출제자_점수는_0점이다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        round.submitVote("guesser-1", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT);
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result.getRoundScoreByPlayerId().get("questioner")).isZero();
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-1")).isEqualTo(2);
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-2")).isEqualTo(2);
+        });
+    }
+
+    @Test
+    @DisplayName("일부만 정답을 맞히면 출제자 점수는 정답 투표수의 2배다.")
+    void settleResult_일부만_정답을_맞히면_출제자_점수는_정답_투표수의_2배다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        String guess1OptionId = round.getGuesses().get(0).getGuessId();
+        round.submitVote("guesser-1", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-3", guess1OptionId, SUBMITTED_AT);
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result.getRoundScoreByPlayerId().get("questioner")).isEqualTo(4);
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-1")).isEqualTo(3);
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-2")).isEqualTo(2);
+            softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-3")).isZero();
+        });
+    }
+
+    @Test
+    @DisplayName("같은 추측에 여러 명이 투표하면 낚시 점수는 득표수만큼 누적된다.")
+    void settleResult_낚시_점수는_득표수만큼_누적된다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        String guess1OptionId = round.getGuesses().get(0).getGuessId();
+        round.submitVote("guesser-2", guess1OptionId, SUBMITTED_AT);
+        round.submitVote("guesser-3", guess1OptionId, SUBMITTED_AT);
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        assertThat(result.getRoundScoreByPlayerId().get("guesser-1")).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("투표하지 않은 기권자가 있어도 출제자 점수 기준인 전체 참가자 수는 줄어들지 않는다.")
+    void settleResult_기권자가_있어도_전체_참가자_수는_유지된다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        round.submitVote("guesser-1", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT);
+        // guesser-3는 기권(미투표)
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        assertThat(result.getRoundScoreByPlayerId().get("questioner")).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("결과가 이미 확정되면 다시 호출해도 동일한 결과를 유지한다.")
+    void settleResult_재호출해도_동일한_결과를_유지한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> answerOnlyParticipants = List.of("questioner", "guesser-1");
+        round.settleResult(answerOnlyParticipants);
+        RoundResult firstResult = round.getResult();
+
+        // when
+        round.settleResult(List.of("questioner", "guesser-1", "guesser-2", "guesser-3"));
+
+        // then
+        assertThat(round.getResult()).isSameAs(firstResult);
+    }
+
     private Round createRound(String questionerId, String answerPrompt) {
         return Round.create(1, questionerId, createAnswerEntry(questionerId, answerPrompt));
     }
