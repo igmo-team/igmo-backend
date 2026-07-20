@@ -4,9 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
+import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
+import com.igmo.domain.exception.InvalidVoteOptionException;
+import com.igmo.domain.exception.SelfVoteNotAllowedException;
+import com.igmo.domain.exception.VoteNotAllowedException;
 import java.time.Instant;
 import java.util.List;
 import org.assertj.core.api.SoftAssertions;
@@ -133,6 +137,157 @@ class RoundTest {
             softly.assertThat(round.getAnswerEntry()).isSameAs(answerEntry);
             softly.assertThat(round.getGuesses()).isEmpty();
         });
+    }
+
+    @Test
+    @DisplayName("투표를 열면 정답과 추측을 섞은 보기 목록을 고정한다.")
+    void openVoting_보기를_셔플해_고정한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+
+        // when
+        round.openVoting();
+
+        // then
+        List<VoteOption> options = round.getVoteOptions();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(options).hasSize(3);
+            softly.assertThat(options)
+                    .extracting(VoteOption::getText)
+                    .containsExactlyInAnyOrder(
+                            "고양이가 피아노를 치는 장면",
+                            "강아지가 기타를 치는 장면",
+                            "고양이가 드럼을 치는 장면"
+                    );
+            softly.assertThat(options)
+                    .extracting(VoteOption::getOptionId)
+                    .doesNotContainNull()
+                    .doesNotHaveDuplicates();
+        });
+    }
+
+    @Test
+    @DisplayName("투표를 다시 열어도 이미 고정된 보기 순서는 바뀌지 않는다.")
+    void openVoting_다시_열어도_보기_순서가_고정된다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<VoteOption> firstOpened = round.getVoteOptions();
+
+        // when
+        round.openVoting();
+
+        // then
+        assertThat(round.getVoteOptions()).containsExactlyElementsOf(firstOpened);
+    }
+
+    @Test
+    @DisplayName("보기에 투표하면 표를 저장한다.")
+    void submitVote_보기에_투표하면_표를_저장한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+
+        // when
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT.plusSeconds(1));
+
+        // then
+        List<Vote> votes = round.getVotes();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(votes).hasSize(1);
+            softly.assertThat(votes.get(0).getVoterId()).isEqualTo("guesser-2");
+            softly.assertThat(votes.get(0).getOptionId()).isEqualTo(answerOptionId);
+            softly.assertThat(votes.get(0).getVotedAt()).isEqualTo(SUBMITTED_AT.plusSeconds(1));
+        });
+    }
+
+    @Test
+    @DisplayName("출제자가 투표하면 VoteNotAllowedException을 던진다.")
+    void submitVote_출제자가_투표하면_예외를_던진다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+
+        // when & then
+        assertThatThrownBy(() -> round.submitVote("questioner", answerOptionId, SUBMITTED_AT))
+                .isInstanceOf(VoteNotAllowedException.class)
+                .hasMessage("출제자는 투표할 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("같은 플레이어가 두 번 투표하면 DuplicateVoteException을 던진다.")
+    void submitVote_중복_투표하면_예외를_던진다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT);
+
+        // when & then
+        assertThatThrownBy(() -> round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT))
+                .isInstanceOf(DuplicateVoteException.class)
+                .hasMessage("이미 투표했습니다.");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 보기에 투표하면 InvalidVoteOptionException을 던진다.")
+    void submitVote_없는_보기면_예외를_던진다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+
+        // when & then
+        assertThatThrownBy(() -> round.submitVote("guesser-2", "unknown-option", SUBMITTED_AT))
+                .isInstanceOf(InvalidVoteOptionException.class)
+                .hasMessage("존재하지 않는 투표 보기입니다.");
+    }
+
+    @Test
+    @DisplayName("자신이 제출한 추측에 투표하면 SelfVoteNotAllowedException을 던진다.")
+    void submitVote_자기_추측에_투표하면_예외를_던진다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        String ownGuessOptionId = round.getGuesses().get(0).getGuessId();
+
+        // when & then
+        assertThatThrownBy(() -> round.submitVote("guesser-1", ownGuessOptionId, SUBMITTED_AT))
+                .isInstanceOf(SelfVoteNotAllowedException.class)
+                .hasMessage("자신이 제출한 추측에는 투표할 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("추측을 제출하지 않은 참가자도 투표할 수 있고, 출제자를 제외한 전원이 투표하면 완료로 판단한다.")
+    void hasAllVotes_출제자_제외_전원이_투표하면_true를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        String guess1OptionId = round.getGuesses().get(0).getGuessId();
+
+        round.submitVote("guesser-1", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-2", guess1OptionId, SUBMITTED_AT);
+
+        // when & then
+        assertThat(round.hasAllVotes(participantIds)).isFalse();
+
+        round.submitVote("guesser-3", answerOptionId, SUBMITTED_AT);
+
+        assertThat(round.hasAllVotes(participantIds)).isTrue();
     }
 
     private Round createRound(String questionerId, String answerPrompt) {

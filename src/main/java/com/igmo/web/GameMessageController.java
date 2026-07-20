@@ -4,6 +4,7 @@ import com.igmo.service.GameService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
+import com.igmo.web.dto.VoteRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,14 @@ public class GameMessageController {
                             SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
         gameService.submitGuess(code, playerId, request.guess());
+    }
+
+    @MessageMapping("/rooms/{code}/votes")
+    public void submitVote(@DestinationVariable String code,
+                           @Valid VoteRequest request,
+                           SimpMessageHeaderAccessor headerAccessor) {
+        String playerId = requirePlayerId(headerAccessor);
+        gameService.submitVote(code, playerId, request.optionId());
     }
 
     private String requirePlayerId(SimpMessageHeaderAccessor headerAccessor) {
