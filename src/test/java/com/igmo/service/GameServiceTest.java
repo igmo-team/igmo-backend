@@ -831,6 +831,8 @@ class GameServiceTest {
 
         // then
         RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        verify(messagingTemplate, times(1))
+                .convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
             softly.assertThat(snapshot.roundNumber()).isEqualTo(1);

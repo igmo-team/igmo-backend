@@ -181,14 +181,13 @@ public class GameRoom {
                 .anyMatch(PromptEntry::isWaiting);
     }
 
-    //  READY 이미지 엔트리를 가진 플레이어들로 참여 순서대로 라운드 목록을 만들고 첫 라운드의 추측 마감 시각을 설정한다.
-    //  PLAYING이 아니거나 이미 라운드가 있거나 READY 엔트리가 없으면 RoundStartNotAllowedException을 던진다.
+    // 모든 현재 참여자의 READY 이미지로 참여 순서대로 라운드를 만들고 첫 라운드의 추측 마감 시각을 설정한다.
     public synchronized void startRounds(Instant startedAt, Duration guessDuration) {
         if (!isGuessing() || !rounds.isEmpty()) {
             throw new RoundStartNotAllowedException();
         }
         List<Round> preparedRounds = prepareRounds();
-        if (preparedRounds.isEmpty()) {
+        if (preparedRounds.size() != players.size()) {
             throw new RoundStartNotAllowedException();
         }
         rounds.addAll(preparedRounds);

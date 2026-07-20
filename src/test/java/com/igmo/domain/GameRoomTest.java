@@ -695,6 +695,27 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("현재 참여자 중 READY 이미지가 아닌 사람이 있으면 부분 라운드를 시작하지 않는다.")
+    void startRounds_READY_이미지가_일부만_있으면_부분_라운드를_시작하지_않는다() throws Exception {
+        // given
+        GameRoom room = createRoomWithGeneratedImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+        room.failImageGeneration(failedPlayerId);
+        setPhase(room, GamePhase.PLAYING);
+
+        // when & then
+        assertThatThrownBy(() -> room.startRounds(GUESS_STARTED_AT, GUESS_DURATION))
+                .isInstanceOf(RoundStartNotAllowedException.class)
+                .hasMessage("라운드를 시작할 수 없는 상태입니다.");
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getCurrentRound()).isNull();
+            softly.assertThat(room.getTotalRoundCount()).isZero();
+            softly.assertThat(room.getGuessDeadline()).isNull();
+        });
+    }
+
+    @Test
     @DisplayName("PLAYING 단계에서 추측을 제출하면 현재 라운드에 저장한다.")
     void submitGuess_PLAYING_단계이면_현재_라운드에_저장한다() throws Exception {
         // given

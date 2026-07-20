@@ -143,9 +143,7 @@ public class GameService {
     // PLAYING 전환 이후 라운드 초기화 진입점. 전환 흐름과의 호출 연결은 이미지 준비 담당 개발 완료 후 조정한다. (#69)
     public void startRounds(String code) {
         RoundSnapshot snapshot = withLockedRoom(code, room -> {
-            room.startRounds(Instant.now(), guessDuration);
-            scheduleGuessExpiration(code, room.getGuessDeadline());
-            return RoundSnapshot.from(room);
+            return initializeRounds(code, room, Instant.now());
         });
         broadcastRoundSnapshot(code, snapshot);
     }
@@ -221,6 +219,12 @@ public class GameService {
         if (future != null) {
             future.cancel(false);
         }
+    }
+
+    private RoundSnapshot initializeRounds(String code, GameRoom room, Instant startedAt) {
+        room.startRounds(startedAt, guessDuration);
+        scheduleGuessExpiration(code, room.getGuessDeadline());
+        return RoundSnapshot.from(room);
     }
 
     private void scheduleGuessExpiration(String code, Instant deadline) {
