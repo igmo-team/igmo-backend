@@ -56,6 +56,8 @@ public class GameService {
     private Duration guessDuration;
     @Value("${igmo.game.vote-duration}")
     private Duration voteDuration;
+    @Value("${igmo.game.result-duration}")
+    private Duration resultDuration;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
@@ -181,7 +183,7 @@ public class GameService {
             room.submitVote(playerId, optionId, submittedAt);
             if (room.hasAllCurrentRoundVotes()) {
                 cancelVoteExpiration(code);
-                room.completeVoting(submittedAt);
+                room.completeVoting(submittedAt, resultDuration);
             }
             return VoteSnapshot.from(room);
         });
@@ -297,7 +299,7 @@ public class GameService {
                     if (lockedRoom.isVoteExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.completeVoting(Instant.now());
+                    lockedRoom.completeVoting(Instant.now(), resultDuration);
                     return VoteSnapshot.from(lockedRoom);
                 }))
                 .ifPresent(snapshot -> broadcastVoteSnapshot(code, snapshot));

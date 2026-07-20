@@ -94,6 +94,7 @@ class GameServiceTest {
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofSeconds(60));
         ReflectionTestUtils.setField(gameService, "voteDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gameService, "resultDuration", Duration.ofSeconds(10));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
         given(promptDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))

@@ -15,12 +15,14 @@ import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.domain.exception.RoundAdvanceNotAllowedException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.domain.exception.VoteSubmissionExpiredException;
 import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +36,8 @@ class GameRoomTest {
     private static final Duration GUESS_DURATION = Duration.ofSeconds(60);
     private static final Instant VOTING_OPENED_AT = Instant.parse("2026-07-06T10:05:10Z");
     private static final Duration VOTE_DURATION = Duration.ofSeconds(30);
+    private static final Instant RESULTS_OPENED_AT = Instant.parse("2026-07-06T10:05:40Z");
+    private static final Duration RESULT_DURATION = Duration.ofSeconds(15);
 
     @Test
     @DisplayName("방을 생성하면 호스트가 첫 참가자로 등록되고 LOBBY 상태가 된다.")
@@ -891,7 +895,7 @@ class GameRoomTest {
         room.submitVote(guest2Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(2));
 
         // when
-        room.completeVoting(VOTING_OPENED_AT.plusSeconds(3));
+        room.completeVoting(VOTING_OPENED_AT.plusSeconds(3), RESULT_DURATION);
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -910,7 +914,7 @@ class GameRoomTest {
         room.submitVote(guest1Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
 
         // when
-        room.completeVoting(VOTING_OPENED_AT.plus(VOTE_DURATION).plusSeconds(1));
+        room.completeVoting(VOTING_OPENED_AT.plus(VOTE_DURATION).plusSeconds(1), RESULT_DURATION);
 
         // then
         assertThat(room.getPhase()).isEqualTo(GamePhase.RESULTS);
@@ -926,7 +930,7 @@ class GameRoomTest {
         room.submitVote(guest1Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
 
         // when
-        room.completeVoting(VOTING_OPENED_AT.plusSeconds(2));
+        room.completeVoting(VOTING_OPENED_AT.plusSeconds(2), RESULT_DURATION);
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -949,6 +953,115 @@ class GameRoomTest {
         });
     }
 
+    @Test
+    @DisplayName("RESULTS로 전환하면 라운드 점수를 플레이어에게 한 번만 반영한다.")
+    void completeVoting_RESULTS로_전환하면_점수를_한_번만_반영한다() throws Exception {
+        // given
+        GameRoom room = createRoomInVoting();
+        String hostId = room.getPlayers().get(0).getId();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        String answerOptionId = room.getCurrentRound().getAnswerEntry().getPromptId();
+        room.submitVote(guest1Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
+        room.submitVote(guest2Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(2));
+
+        // when
+        room.completeVoting(VOTING_OPENED_AT.plusSeconds(3), RESULT_DURATION);
+        room.completeVoting(VOTING_OPENED_AT.plusSeconds(4), RESULT_DURATION);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(scoreOf(room, hostId)).isZero();
+            softly.assertThat(scoreOf(room, guest1Id)).isEqualTo(2);
+            softly.assertThat(scoreOf(room, guest2Id)).isEqualTo(2);
+        });
+    }
+
+    @Test
+    @DisplayName("마지막 라운드가 아니면 결과 확인 후 다음 라운드로 넘어가고 추측 마감을 설정한다.")
+    void advanceRound_마지막_라운드가_아니면_다음_라운드로_넘어간다() throws Exception {
+        // given
+        GameRoom room = createRoomInResults();
+        String guest1Id = room.getPlayers().get(1).getId();
+        Instant nextGuessStartedAt = RESULTS_OPENED_AT.plus(RESULT_DURATION);
+
+        // when
+        room.advanceRound(nextGuessStartedAt, GUESS_DURATION);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(room.getCurrentRound().getRoundNumber()).isEqualTo(2);
+            softly.assertThat(room.getCurrentRound().getQuestionerId()).isEqualTo(guest1Id);
+            softly.assertThat(room.getCurrentRound().getAnswerEntry().getPrompt()).isEqualTo("참가자1 프롬프트");
+            softly.assertThat(room.getGuessDeadline()).isEqualTo(nextGuessStartedAt.plus(GUESS_DURATION));
+        });
+    }
+
+    @Test
+    @DisplayName("마지막 라운드의 결과 확인이 끝나면 ENDED 단계로 전환한다.")
+    void advanceRound_마지막_라운드면_ENDED로_전환한다() throws Exception {
+        // given
+        GameRoom room = createRoomInResults();
+        setField(room, "currentRoundIndex", room.getTotalRoundCount() - 1);
+
+        // when
+        room.advanceRound(RESULTS_OPENED_AT.plus(RESULT_DURATION), GUESS_DURATION);
+
+        // then
+        assertThat(room.getPhase()).isEqualTo(GamePhase.ENDED);
+    }
+
+    @Test
+    @DisplayName("RESULTS 단계가 아니면 라운드 진행 시 RoundAdvanceNotAllowedException을 던진다.")
+    void advanceRound_RESULTS_단계가_아니면_예외를_던진다() throws Exception {
+        // given
+        GameRoom room = createRoomInVoting();
+
+        // when & then
+        assertThatThrownBy(() -> room.advanceRound(VOTING_OPENED_AT, GUESS_DURATION))
+                .isInstanceOf(RoundAdvanceNotAllowedException.class)
+                .hasMessage("라운드를 진행할 수 없는 상태입니다.");
+    }
+
+    @Test
+    @DisplayName("결과 마감 시각이 예약 시점과 다르면 만료 작업을 무시하도록 stale로 판단한다.")
+    void isResultExpirationStale_마감_시각이_다르면_true를_반환한다() throws Exception {
+        // given
+        GameRoom room = createRoomInResults();
+        Instant deadline = RESULTS_OPENED_AT.plus(RESULT_DURATION);
+
+        // when & then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.isResultExpirationStale(deadline)).isFalse();
+            softly.assertThat(room.isResultExpirationStale(deadline.plusSeconds(1))).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("최종 순위는 누적 점수 내림차순으로 정렬한다.")
+    void getFinalRanking_점수_내림차순으로_정렬한다() throws Exception {
+        // given
+        GameRoom room = createRoomInVoting();
+        String hostId = room.getPlayers().get(0).getId();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        String answerOptionId = room.getCurrentRound().getAnswerEntry().getPromptId();
+        String guess1OptionId = room.getCurrentRound().getGuesses().get(0).getGuessId();
+        // guest1: 정답(+2) + guest2가 낚임(+1) = 3, host(출제자): 정답자 1명(+2) = 2, guest2: 오답 = 0
+        room.submitVote(guest1Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
+        room.submitVote(guest2Id, guess1OptionId, VOTING_OPENED_AT.plusSeconds(2));
+        room.completeVoting(VOTING_OPENED_AT.plusSeconds(3), RESULT_DURATION);
+
+        // when
+        List<Player> ranking = room.getFinalRanking();
+
+        // then
+        assertThat(ranking)
+                .extracting(Player::getId)
+                .containsExactly(guest1Id, hostId, guest2Id);
+    }
+
     private GameRoom createRoomInVoting() throws Exception {
         GameRoom room = createRoomInGuessing();
         String guest1Id = room.getPlayers().get(1).getId();
@@ -957,6 +1070,25 @@ class GameRoomTest {
         room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
         room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
         return room;
+    }
+
+    private GameRoom createRoomInResults() throws Exception {
+        GameRoom room = createRoomInVoting();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        String answerOptionId = room.getCurrentRound().getAnswerEntry().getPromptId();
+        room.submitVote(guest1Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
+        room.submitVote(guest2Id, answerOptionId, VOTING_OPENED_AT.plusSeconds(2));
+        room.completeVoting(RESULTS_OPENED_AT, RESULT_DURATION);
+        return room;
+    }
+
+    private int scoreOf(GameRoom room, String playerId) {
+        return room.getPlayers().stream()
+                .filter(player -> player.getId().equals(playerId))
+                .findFirst()
+                .orElseThrow()
+                .getScore();
     }
 
     private GameRoom createRoomWithGeneratedImages() {
@@ -986,9 +1118,13 @@ class GameRoomTest {
     }
 
     private void setPhase(GameRoom room, GamePhase phase) throws Exception {
-        Field field = GameRoom.class.getDeclaredField("phase");
+        setField(room, "phase", phase);
+    }
+
+    private void setField(GameRoom room, String name, Object value) throws Exception {
+        Field field = GameRoom.class.getDeclaredField(name);
         field.setAccessible(true);
-        field.set(room, phase);
+        field.set(room, value);
     }
 
     private PromptEntry findPromptEntry(GameRoom room, String playerId) {

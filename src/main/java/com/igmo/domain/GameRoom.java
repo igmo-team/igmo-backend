@@ -11,12 +11,14 @@ import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.domain.exception.RoundAdvanceNotAllowedException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.domain.exception.VoteSubmissionExpiredException;
 import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +44,8 @@ public class GameRoom {
     private Instant guessDeadline;
     @Getter
     private Instant voteDeadline;
+    @Getter
+    private Instant resultDeadline;
     private final Map<String, Player> players = new LinkedHashMap<>();
     private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
     private final List<Round> rounds = new ArrayList<>();
@@ -231,13 +235,33 @@ public class GameRoom {
         currentRound.submitVote(voterId, optionId, votedAt);
     }
 
-    public synchronized void completeVoting(Instant now) {
+    public synchronized void completeVoting(Instant now, Duration resultDuration) {
         if (!isVoting()) {
             return;
         }
         if (isVoteExpired(now) || hasAllCurrentRoundVotes()) {
-            phase = GamePhase.RESULTS;
+            openResults(now, resultDuration);
         }
+    }
+
+    // 결과 확인 시간이 지나면 다음 라운드로 넘어가고, 마지막 라운드였다면 게임을 종료한다.
+    public synchronized void advanceRound(Instant now, Duration guessDuration) {
+        if (!isResults()) {
+            throw new RoundAdvanceNotAllowedException();
+        }
+        if (isLastRound()) {
+            phase = GamePhase.ENDED;
+            return;
+        }
+        currentRoundIndex++;
+        phase = GamePhase.PLAYING;
+        guessDeadline = now.plus(guessDuration);
+    }
+
+    public synchronized List<Player> getFinalRanking() {
+        return players.values().stream()
+                .sorted(Comparator.comparingInt(Player::getScore).reversed())
+                .toList();
     }
 
     public synchronized boolean hasAllCurrentRoundVotes() {
@@ -247,6 +271,10 @@ public class GameRoom {
 
     public synchronized boolean isVoteExpirationStale(Instant deadline) {
         return voteDeadline == null || !voteDeadline.equals(deadline);
+    }
+
+    public synchronized boolean isResultExpirationStale(Instant deadline) {
+        return resultDeadline == null || !resultDeadline.equals(deadline);
     }
 
     public synchronized boolean hasAllCurrentRoundGuesses() {
@@ -300,6 +328,14 @@ public class GameRoom {
         return phase == GamePhase.VOTING;
     }
 
+    private boolean isResults() {
+        return phase == GamePhase.RESULTS;
+    }
+
+    private boolean isLastRound() {
+        return currentRoundIndex >= rounds.size() - 1;
+    }
+
     // VOTING 전환과 보기 확정, 투표 마감 설정은 함께 일어나야 하는 하나의 전이다.
     private void openVoting(Instant openedAt, Duration voteDuration) {
         Round currentRound = getCurrentRound();
@@ -309,6 +345,27 @@ public class GameRoom {
         phase = GamePhase.VOTING;
         currentRound.openVoting();
         voteDeadline = openedAt.plus(voteDuration);
+    }
+
+    // RESULTS 전환과 점수 확정, 점수 반영, 결과 마감 설정은 함께 일어나야 하는 하나의 전이다.
+    private void openResults(Instant openedAt, Duration resultDuration) {
+        Round currentRound = getCurrentRound();
+        if (currentRound == null) {
+            return;
+        }
+        phase = GamePhase.RESULTS;
+        currentRound.settleResult(players.keySet());
+        applyRoundScore(currentRound.getResult());
+        resultDeadline = openedAt.plus(resultDuration);
+    }
+
+    private void applyRoundScore(RoundResult result) {
+        result.getRoundScoreByPlayerId().forEach((playerId, score) -> {
+            Player player = players.get(playerId);
+            if (player != null) {
+                player.addScore(score);
+            }
+        });
     }
 
     private boolean isPromptExpired(Instant now) {
