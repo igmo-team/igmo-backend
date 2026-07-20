@@ -38,7 +38,6 @@ import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
-import com.igmo.web.dto.PlayingSnapshot;
 import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
@@ -93,7 +92,6 @@ class GameServiceTest {
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
-        ReflectionTestUtils.setField(gameService, "playingPromptDuration", Duration.ofSeconds(30));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
         given(promptDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
@@ -633,8 +631,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("예약된 PLAYING 전환 작업이 실행되면 phase를 PLAYING으로 변경하고 브로드캐스트한다.")
-    void imageGeneration_예약된_PLAYING_전환_작업이_실행되면_phase를_PLAYING으로_변경하고_브로드캐스트한다() {
+    @DisplayName("예약된 PLAYING 전환 작업이 실행되면 phase를 PLAYING으로 변경한다.")
+    void imageGeneration_예약된_PLAYING_전환_작업이_실행되면_phase를_PLAYING으로_변경한다() {
         // given
         GameSession session = startGeneratingGame();
         submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
@@ -650,99 +648,6 @@ class GameServiceTest {
         assertThat(gameRegistry.find("ABCD")).get()
                 .extracting(GameRoom::getPhase)
                 .isEqualTo(GamePhase.PLAYING);
-        PlayingSnapshot snapshot = capturePlayingBroadcast();
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
-            softly.assertThat(snapshot.round()).isEqualTo(1);
-            softly.assertThat(snapshot.imageOwner().id()).isEqualTo(session.host().playerId());
-            softly.assertThat(snapshot.imageUrl()).isEqualTo("https://cdn.example.com/host.png");
-            softly.assertThat(snapshot.promptDeadline()).isEqualTo(snapshot.promptStartedAt().plusSeconds(30));
-            softly.assertThat(snapshot.promptSubmissionOpen()).isTrue();
-        });
-    }
-
-    @Test
-    @DisplayName("PLAYING 단계에 진입하면 30초 후 프롬프트 입력 마감 작업을 예약한다.")
-    void playingPromptExpiration_PLAYING_단계에_진입하면_30초_후_마감_작업을_예약한다() {
-        // given
-        GameSession session = startGeneratingGame();
-        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
-        submitPromptAndCompleteImage(session.guest2().playerId(), "참가자2 프롬프트");
-        Runnable transition = captureScheduledPlayingTransition();
-
-        // when
-        Instant before = Instant.now();
-        transition.run();
-        Instant after = Instant.now();
-
-        // then
-        ArgumentCaptor<Instant> scheduledAt = ArgumentCaptor.forClass(Instant.class);
-        verify(promptDeadlineScheduler, times(2)).schedule(any(Runnable.class), scheduledAt.capture());
-        assertThat(scheduledAt.getAllValues().getLast())
-                .isBetween(before.plusSeconds(30), after.plusSeconds(30));
-    }
-
-    @Test
-    @DisplayName("PLAYING 프롬프트 시간이 만료되면 입력 상태를 닫고 브로드캐스트한다.")
-    void playingPromptExpiration_시간이_만료되면_입력_상태를_닫고_브로드캐스트한다() {
-        // given
-        GameSession session = startGeneratingGame();
-        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
-        submitPromptAndCompleteImage(session.guest2().playerId(), "참가자2 프롬프트");
-        captureScheduledPlayingTransition().run();
-        Runnable expiration = captureLatestScheduledPromptExpiration();
-
-        // when
-        clearInvocations(messagingTemplate);
-        expiration.run();
-
-        // then
-        assertThat(capturePlayingBroadcast().promptSubmissionOpen()).isFalse();
-    }
-
-    @Test
-    @DisplayName("이미 실행된 PLAYING 프롬프트 마감 작업은 다시 브로드캐스트하지 않는다.")
-    void playingPromptExpiration_이미_실행된_마감_작업은_다시_브로드캐스트하지_않는다() {
-        // given
-        GameSession session = startGeneratingGame();
-        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
-        submitPromptAndCompleteImage(session.guest2().playerId(), "참가자2 프롬프트");
-        captureScheduledPlayingTransition().run();
-        Runnable expiration = captureLatestScheduledPromptExpiration();
-        expiration.run();
-
-        // when
-        clearInvocations(messagingTemplate);
-        expiration.run();
-
-        // then
-        verifyNoInteractions(messagingTemplate);
-    }
-
-    @Test
-    @DisplayName("PLAYING 프롬프트 마감 전 방이 삭제되면 예약을 취소하고 브로드캐스트하지 않는다.")
-    void playingPromptExpiration_방이_삭제되면_예약을_취소하고_브로드캐스트하지_않는다() {
-        // given
-        GameSession session = startGeneratingGame();
-        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
-        submitPromptAndCompleteImage(session.guest2().playerId(), "참가자2 프롬프트");
-        captureScheduledPlayingTransition().run();
-        Runnable expiration = captureLatestScheduledPromptExpiration();
-        clearInvocations(scheduledPromptExpiration, messagingTemplate);
-
-        // when
-        gameService.leaveGame("ABCD", session.host().playerId(), session.host().secret());
-        gameService.leaveGame("ABCD", session.guest1().playerId(), session.guest1().secret());
-        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
-        clearInvocations(messagingTemplate);
-        expiration.run();
-
-        // then
-        verify(scheduledPromptExpiration).cancel(false);
         verifyNoInteractions(messagingTemplate);
     }
 
@@ -987,22 +892,6 @@ class GameServiceTest {
         ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
         verify(imageGenerationCompletionScheduler).schedule(captor.capture(), any(Instant.class));
         return captor.getValue();
-    }
-
-    private Runnable captureLatestScheduledPromptExpiration() {
-        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
-        verify(promptDeadlineScheduler, atLeastOnce()).schedule(captor.capture(), any(Instant.class));
-        return captor.getAllValues().getLast();
-    }
-
-    private PlayingSnapshot capturePlayingBroadcast() {
-        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
-        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
-        RoomMessage message = captor.getAllValues().stream()
-                .filter(value -> value.type() == RoomMessageType.PLAYING_SNAPSHOT)
-                .reduce((previous, current) -> current)
-                .orElseThrow();
-        return (PlayingSnapshot) message.payload();
     }
 
     private LobbySnapshot captureLastLobbyBroadcast() {

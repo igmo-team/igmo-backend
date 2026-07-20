@@ -33,14 +33,6 @@ public class GameRoom {
     private Instant promptStartedAt;
     @Getter
     private Instant promptDeadline;
-    @Getter
-    private int currentRound;
-    @Getter
-    private Instant playingPromptStartedAt;
-    @Getter
-    private Instant playingPromptDeadline;
-    @Getter
-    private boolean playingPromptSubmissionOpen;
     private final Map<String, Player> players = new LinkedHashMap<>();
     private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
 
@@ -164,27 +156,11 @@ public class GameRoom {
         entry.failImageGeneration();
     }
 
-    public synchronized void advanceToRound(Instant startedAt, Duration playingPromptDuration) {
+    public synchronized void advanceToPlaying() {
         if (!isGenerating() || !hasAllImagesGenerated()) {
             throw new ImagesNotReadyException();
         }
         phase = GamePhase.PLAYING;
-        currentRound = 1;
-        playingPromptStartedAt = startedAt;
-        playingPromptDeadline = startedAt.plus(playingPromptDuration);
-        playingPromptSubmissionOpen = true;
-    }
-
-    public synchronized PromptEntry getCurrentRoundPromptEntry() {
-        return List.copyOf(promptEntriesByPlayerId.values()).get(currentRound - 1);
-    }
-
-    public synchronized boolean closePlayingPromptSubmission(Instant deadline) {
-        if (isPlayingPromptExpirationStale(deadline)) {
-            return false;
-        }
-        playingPromptSubmissionOpen = false;
-        return true;
     }
 
     public synchronized boolean hasWaitingPrompt() {
@@ -200,13 +176,6 @@ public class GameRoom {
 
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
         return promptDeadline == null || !promptDeadline.equals(deadline);
-    }
-
-    private boolean isPlayingPromptExpirationStale(Instant deadline) {
-        return phase != GamePhase.PLAYING
-                || !playingPromptSubmissionOpen
-                || playingPromptDeadline == null
-                || !playingPromptDeadline.equals(deadline);
     }
 
     private boolean allOthersReady() {

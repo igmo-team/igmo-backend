@@ -9,7 +9,6 @@ igmo:
     disconnect-grace: 3s
     prompt-duration: 30s
     image-generation-completion-delay: 3s
-    playing-prompt-duration: 30s
   ai:
     gemini:
       api-key: ${GEMINI_API_KEY}
