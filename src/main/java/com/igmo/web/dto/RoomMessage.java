@@ -16,4 +16,8 @@ public record RoomMessage<T>(
     public static RoomMessage<RoundSnapshot> roundSnapshot(RoundSnapshot payload) {
         return new RoomMessage<>(RoomMessageType.ROUND_SNAPSHOT, payload);
     }
+
+    public static RoomMessage<VoteSnapshot> voteSnapshot(VoteSnapshot payload) {
+        return new RoomMessage<>(RoomMessageType.VOTE_SNAPSHOT, payload);
+    }
 }
