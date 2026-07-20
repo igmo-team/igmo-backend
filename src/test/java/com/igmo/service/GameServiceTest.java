@@ -35,6 +35,7 @@ import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
+import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.GuessEntryView;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
@@ -44,6 +45,7 @@ import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
+import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteEntryView;
 import com.igmo.web.dto.VoteSnapshot;
@@ -99,6 +101,7 @@ class GameServiceTest {
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofSeconds(60));
         ReflectionTestUtils.setField(gameService, "voteDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gameService, "resultDuration", Duration.ofSeconds(10));
         ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
@@ -674,8 +677,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("진행 중 참가자가 정상 퇴장하면 방을 로비로 되돌린다.")
-    void leaveGame_진행_중_참가자가_나가면_로비로_되돌린다() {
+    @DisplayName("진행 중 참가자가 정상 퇴장해도 방 상태와 타이머를 유지한다.")
+    void leaveGame_진행_중_참가자가_나가도_방_상태와_타이머를_유지한다() {
         // given
         GameSession session = startGeneratingGame();
         clearInvocations(messagingTemplate);
@@ -685,25 +688,18 @@ class GameServiceTest {
 
         // then
         GameRoom room = gameRegistry.find("ABCD").orElseThrow();
-        LobbySnapshot snapshot = captureLastLobbyBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
-            softly.assertThat(room.getPromptEntries()).isEmpty();
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
-            softly.assertThat(snapshot.players())
-                    .extracting(PlayerView::id, PlayerView::ready)
-                    .containsExactly(
-                            tuple(session.host().playerId(), false),
-                            tuple(session.guest1().playerId(), false)
-                    );
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+            softly.assertThat(room.hasPlayer(session.guest2().playerId())).isFalse();
+            softly.assertThat(room.getPromptEntries()).hasSize(2);
         });
-        verify(scheduledPromptExpiration).cancel(false);
-        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+        verify(scheduledPromptExpiration, never()).cancel(false);
+        verifyNoInteractions(messagingTemplate);
     }
 
     @Test
-    @DisplayName("진행 중 참가자의 연결 종료가 확정되면 방을 로비로 되돌린다.")
-    void handleDisconnect_진행_중_참가자가_제거되면_로비로_되돌린다() {
+    @DisplayName("진행 중 참가자의 연결 종료가 확정돼도 방 상태와 타이머를 유지한다.")
+    void handleDisconnect_진행_중_참가자가_제거돼도_방_상태와_타이머를_유지한다() {
         // given
         GameSession session = startGeneratingGame();
         gameService.handleDisconnect("ABCD", session.guest2().playerId());
@@ -714,32 +710,11 @@ class GameServiceTest {
 
         // then
         GameRoom room = gameRegistry.find("ABCD").orElseThrow();
-        LobbySnapshot snapshot = captureLastLobbyBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
-            softly.assertThat(room.getPromptEntries()).isEmpty();
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+            softly.assertThat(room.hasPlayer(session.guest2().playerId())).isFalse();
+            softly.assertThat(room.getPromptEntries()).hasSize(2);
         });
-        verify(scheduledPromptExpiration).cancel(false);
-        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
-    }
-
-    @Test
-    @DisplayName("로비 복귀 후 완료된 이미지 생성 결과는 무시한다.")
-    void imageGeneration_로비_복귀_후_완료된_결과는_무시한다() {
-        // given
-        GameSession session = startGeneratingGame();
-        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
-        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
-        clearInvocations(messagingTemplate);
-
-        // when
-        runImageGenerationTask();
-
-        // then
-        assertThat(gameRegistry.find("ABCD")).get()
-                .extracting(GameRoom::getPhase)
-                .isEqualTo(GamePhase.LOBBY);
         verifyNoInteractions(messagingTemplate);
     }
 
@@ -1107,7 +1082,7 @@ class GameServiceTest {
         gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
 
         // then
-        VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
+        RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
         assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
         verify(scheduledPromptExpiration, times(3)).cancel(false);
     }
@@ -1138,7 +1113,7 @@ class GameServiceTest {
         voteExpiration.run();
 
         // then
-        VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
+        RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
         assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
     }
 
@@ -1155,6 +1130,61 @@ class GameServiceTest {
 
         // when
         voteExpiration.run();
+
+        // then
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("결과 확인 마감 작업이 실행되면 다음 라운드 스냅샷을 브로드캐스트하고 추측 마감을 예약한다.")
+    void resultDeadline_마감_작업이_실행되면_다음_라운드로_넘어간다() {
+        // given
+        List<String> playerIds = setUpRoomInResults();
+        Runnable resultExpiration = captureLastScheduledDeadline(4);
+        clearInvocations(messagingTemplate);
+
+        // when
+        resultExpiration.run();
+
+        // then
+        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(snapshot.roundNumber()).isEqualTo(2);
+            softly.assertThat(snapshot.questioner().id()).isEqualTo(playerIds.get(1));
+        });
+        verify(promptDeadlineScheduler, times(5)).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("마지막 라운드의 결과 확인 마감 작업이 실행되면 게임 종료 스냅샷을 브로드캐스트한다.")
+    void resultDeadline_마지막_라운드면_게임_종료_스냅샷을_브로드캐스트한다() {
+        // given
+        setUpRoomInResults();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ReflectionTestUtils.setField(room, "currentRoundIndex", room.getTotalRoundCount() - 1);
+        Runnable resultExpiration = captureLastScheduledDeadline(4);
+        clearInvocations(messagingTemplate);
+
+        // when
+        resultExpiration.run();
+
+        // then
+        GameResultSnapshot snapshot = captureGameResultSnapshotBroadcast();
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.ENDED);
+    }
+
+    @Test
+    @DisplayName("취소된 결과 확인 마감 작업이 실행되면 아무것도 브로드캐스트하지 않는다.")
+    void resultDeadline_취소된_마감_작업이_실행되면_무시한다() {
+        // given
+        setUpRoomInResults();
+        Runnable resultExpiration = captureLastScheduledDeadline(4);
+        resultExpiration.run();
+        clearInvocations(messagingTemplate);
+
+        // when
+        resultExpiration.run();
 
         // then
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
@@ -1195,6 +1225,14 @@ class GameServiceTest {
         return playerIds;
     }
 
+    private List<String> setUpRoomInResults() {
+        List<String> playerIds = setUpRoomInVoting();
+        String answerOptionId = findAnswerOptionId("ABCD");
+        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
+        return playerIds;
+    }
+
     private String findAnswerOptionId(String code) {
         return gameRegistry.find(code)
                 .orElseThrow()
@@ -1221,6 +1259,26 @@ class GameServiceTest {
                 .reduce((previous, current) -> current)
                 .orElseThrow();
         return (VoteSnapshot) message.payload();
+    }
+
+    private RoundResultSnapshot captureRoundResultSnapshotBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.ROUND_RESULT_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (RoundResultSnapshot) message.payload();
+    }
+
+    private GameResultSnapshot captureGameResultSnapshotBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.GAME_RESULT_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (GameResultSnapshot) message.payload();
     }
 
     private Runnable captureLastScheduledDeadline(int expectedScheduleCount) {

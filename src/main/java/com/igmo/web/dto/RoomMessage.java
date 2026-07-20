@@ -20,4 +20,12 @@ public record RoomMessage<T>(
     public static RoomMessage<VoteSnapshot> voteSnapshot(VoteSnapshot payload) {
         return new RoomMessage<>(RoomMessageType.VOTE_SNAPSHOT, payload);
     }
+
+    public static RoomMessage<RoundResultSnapshot> roundResultSnapshot(RoundResultSnapshot payload) {
+        return new RoomMessage<>(RoomMessageType.ROUND_RESULT_SNAPSHOT, payload);
+    }
+
+    public static RoomMessage<GameResultSnapshot> gameResultSnapshot(GameResultSnapshot payload) {
+        return new RoomMessage<>(RoomMessageType.GAME_RESULT_SNAPSHOT, payload);
+    }
 }

@@ -24,4 +24,9 @@ public class Player {
     public void changeReady(boolean ready) {
         this.ready = ready;
     }
+
+    public void addScore(int delta) {
+        this.score += delta;
+    }
+
 }

@@ -13,11 +13,13 @@ import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
+import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
+import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
@@ -60,6 +62,8 @@ public class GameService {
     private Duration guessDuration;
     @Value("${igmo.game.vote-duration}")
     private Duration voteDuration;
+    @Value("${igmo.game.result-duration}")
+    private Duration resultDuration;
     @Value("${igmo.game.image-generation-completion-delay}")
     private Duration imageGenerationCompletionDelay;
 
@@ -67,6 +71,7 @@ public class GameService {
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingVoteExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingResultExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPlayingTransitions = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
@@ -171,7 +176,7 @@ public class GameService {
     }
 
     public void submitVote(String code, String playerId, String optionId) {
-        VoteSnapshot snapshot = withLockedRoom(code, room -> {
+        RoomMessage<?> message = withLockedRoom(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
@@ -179,11 +184,13 @@ public class GameService {
             room.submitVote(playerId, optionId, submittedAt);
             if (room.hasAllCurrentRoundVotes()) {
                 cancelVoteExpiration(code);
-                room.completeVoting(submittedAt);
+                room.completeVoting(submittedAt, resultDuration);
+                scheduleResultExpiration(code, room.getResultDeadline());
+                return RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room));
             }
-            return VoteSnapshot.from(room);
+            return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
         });
-        broadcastVoteSnapshot(code, snapshot);
+        broadcastRoomMessage(code, message);
     }
 
     public void handleDisconnect(String code, String playerId) {
@@ -301,14 +308,56 @@ public class GameService {
                     if (lockedRoom.isVoteExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.completeVoting(Instant.now());
-                    return VoteSnapshot.from(lockedRoom);
+                    lockedRoom.completeVoting(Instant.now(), resultDuration);
+                    scheduleResultExpiration(code, lockedRoom.getResultDeadline());
+                    return RoundResultSnapshot.from(lockedRoom);
                 }))
-                .ifPresent(snapshot -> broadcastVoteSnapshot(code, snapshot));
+                .ifPresent(snapshot -> broadcastRoundResultSnapshot(code, snapshot));
     }
 
     private void cancelVoteExpiration(String code) {
         ScheduledFuture<?> future = pendingVoteExpirations.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void scheduleResultExpiration(String code, Instant deadline) {
+        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
+                () -> runResultExpiration(code, deadline),
+                deadline);
+        ScheduledFuture<?> previous = pendingResultExpirations.put(code, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    // 결과 확인 시간이 지나면 다음 라운드로 넘어가거나 게임을 종료하고, 그 결과 스냅샷을 브로드캐스트한다.
+    private void runResultExpiration(String code, Instant deadline) {
+        if (pendingResultExpirations.remove(code) == null) {
+            return;
+        }
+        gameRegistry.find(code)
+                .map(room -> withLockedRoom(code, lockedRoom -> {
+                    if (lockedRoom.isResultExpirationStale(deadline)) {
+                        return null;
+                    }
+                    return advanceRoundAndPrepare(code, lockedRoom);
+                }))
+                .ifPresent(message -> broadcastRoomMessage(code, message));
+    }
+
+    private RoomMessage<?> advanceRoundAndPrepare(String code, GameRoom room) {
+        room.advanceRound(Instant.now(), guessDuration);
+        if (room.getPhase() == GamePhase.ENDED) {
+            return RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room));
+        }
+        scheduleGuessExpiration(code, room.getGuessDeadline());
+        return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
+    }
+
+    private void cancelResultExpiration(String code) {
+        ScheduledFuture<?> future = pendingResultExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
         }
@@ -469,21 +518,24 @@ public class GameService {
                 return;
             }
             if (room.isEmpty()) {
-                cancelPromptExpiration(room.getCode());
-                cancelGuessExpiration(room.getCode());
-                cancelVoteExpiration(room.getCode());
-                cancelPlayingTransition(room.getCode());
+                cancelRoomTimers(room.getCode());
                 gameRegistry.remove(room.getCode());
                 return;
             }
-            if (room.returnToLobby()) {
-                cancelPromptExpiration(room.getCode());
-                cancelGuessExpiration(room.getCode());
-                cancelVoteExpiration(room.getCode());
-                cancelPlayingTransition(room.getCode());
+            // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
+            if (room.getPhase() == GamePhase.LOBBY) {
+                broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
             }
-            broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
         }
+    }
+
+    // 방이 사라지면 진행 중이던 단계 타이머는 모두 의미를 잃는다.
+    private void cancelRoomTimers(String code) {
+        cancelPromptExpiration(code);
+        cancelGuessExpiration(code);
+        cancelVoteExpiration(code);
+        cancelResultExpiration(code);
+        cancelPlayingTransition(code);
     }
 
     private record PromptExpirationResult(
@@ -506,6 +558,10 @@ public class GameService {
 
     private void broadcastVoteSnapshot(String code, VoteSnapshot snapshot) {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.voteSnapshot(snapshot));
+    }
+
+    private void broadcastRoundResultSnapshot(String code, RoundResultSnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.roundResultSnapshot(snapshot));
     }
 
     private void broadcastRoomMessage(String code, RoomMessage<?> message) {
