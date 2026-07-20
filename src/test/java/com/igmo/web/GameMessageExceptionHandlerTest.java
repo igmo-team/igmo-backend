@@ -3,13 +3,19 @@ package com.igmo.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
+import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
+import com.igmo.domain.exception.InvalidVoteOptionException;
 import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
+import com.igmo.domain.exception.SelfVoteNotAllowedException;
+import com.igmo.domain.exception.VoteNotAllowedException;
+import com.igmo.domain.exception.VoteSubmissionExpiredException;
+import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import com.igmo.web.dto.ErrorResponse;
 import com.igmo.web.dto.PromptRequest;
 import java.lang.reflect.Method;
@@ -73,6 +79,32 @@ class GameMessageExceptionHandlerTest {
                     GuessNotAllowedException.class,
                     GuessMatchesAnswerException.class,
                     GuessMatchesOthersException.class
+            );
+        });
+    }
+
+    @Test
+    @DisplayName("투표 예외는 요청 세션의 오류 큐로 메시지를 반환하도록 핸들러에 등록된다.")
+    void handleGameException_투표_예외를_처리한다() throws NoSuchMethodException {
+        // given
+        SelfVoteNotAllowedException exception = new SelfVoteNotAllowedException();
+        Method handlerMethod = GameMessageExceptionHandler.class
+                .getDeclaredMethod("handleGameException", RuntimeException.class);
+
+        // when
+        ErrorResponse response = handler.handleGameException(exception);
+
+        // then
+        MessageExceptionHandler annotation = handlerMethod.getAnnotation(MessageExceptionHandler.class);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(response.message()).isEqualTo("자신이 제출한 추측에는 투표할 수 없습니다.");
+            softly.assertThat(annotation.value()).contains(
+                    VoteSubmissionNotAllowedException.class,
+                    VoteSubmissionExpiredException.class,
+                    DuplicateVoteException.class,
+                    VoteNotAllowedException.class,
+                    SelfVoteNotAllowedException.class,
+                    InvalidVoteOptionException.class
             );
         });
     }

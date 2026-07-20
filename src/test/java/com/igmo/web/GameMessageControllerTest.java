@@ -9,6 +9,7 @@ import com.igmo.service.GameService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
+import com.igmo.web.dto.VoteRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -174,6 +175,47 @@ class GameMessageControllerTest {
         assertGuessInvalid(new GuessRequest("   "));
     }
 
+    @Test
+    @DisplayName("세션의 playerId로 투표 제출을 서비스에 위임한다.")
+    void submitVote_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.submitVote("ABCD", new VoteRequest("option-1"), headerAccessor);
+
+        // then
+        verify(gameService).submitVote("ABCD", "player-1", "option-1");
+    }
+
+    @Test
+    @DisplayName("투표 제출 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void submitVote_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.submitVote("ABCD", new VoteRequest("option-1"), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameService);
+    }
+
+    @Test
+    @DisplayName("투표 제출 요청의 optionId가 null이면 검증에 실패한다.")
+    void submitVote_optionId가_null이면_검증에_실패한다() {
+        // when & then
+        assertVoteInvalid(new VoteRequest(null));
+    }
+
+    @Test
+    @DisplayName("투표 제출 요청의 optionId가 공백이면 검증에 실패한다.")
+    void submitVote_optionId가_공백이면_검증에_실패한다() {
+        // when & then
+        assertVoteInvalid(new VoteRequest("   "));
+    }
+
     private SimpMessageHeaderAccessor headerAccessorWithPlayerId(String playerId) {
         Map<String, Object> sessionAttributes = new HashMap<>();
         sessionAttributes.put(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE, playerId);
@@ -192,5 +234,11 @@ class GameMessageControllerTest {
         org.assertj.core.api.Assertions.assertThat(validator.validate(request))
                 .extracting(violation -> violation.getMessage())
                 .containsExactly("추측을 입력해주세요.");
+    }
+
+    private void assertVoteInvalid(VoteRequest request) {
+        org.assertj.core.api.Assertions.assertThat(validator.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("투표할 보기를 선택해주세요.");
     }
 }

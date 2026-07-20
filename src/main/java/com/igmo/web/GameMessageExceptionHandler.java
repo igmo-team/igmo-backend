@@ -2,6 +2,7 @@ package com.igmo.web;
 
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
+import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
@@ -9,11 +10,16 @@ import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
+import com.igmo.domain.exception.InvalidVoteOptionException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
+import com.igmo.domain.exception.SelfVoteNotAllowedException;
+import com.igmo.domain.exception.VoteNotAllowedException;
+import com.igmo.domain.exception.VoteSubmissionExpiredException;
+import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.web.dto.ErrorResponse;
@@ -46,7 +52,13 @@ public class GameMessageExceptionHandler {
             DuplicateGuessSubmissionException.class,
             GuessNotAllowedException.class,
             GuessMatchesAnswerException.class,
-            GuessMatchesOthersException.class
+            GuessMatchesOthersException.class,
+            VoteSubmissionNotAllowedException.class,
+            VoteSubmissionExpiredException.class,
+            DuplicateVoteException.class,
+            VoteNotAllowedException.class,
+            SelfVoteNotAllowedException.class,
+            InvalidVoteOptionException.class
     })
     @SendToUser(destinations = "/queue/errors", broadcast = false)
     public ErrorResponse handleGameException(RuntimeException exception) {
