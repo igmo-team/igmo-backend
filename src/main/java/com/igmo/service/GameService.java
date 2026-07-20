@@ -16,6 +16,7 @@ import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundSnapshot;
+import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -59,6 +60,7 @@ public class GameService {
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingVoteExpirations = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
                        RoomCodeGenerator roomCodeGenerator,
@@ -153,7 +155,7 @@ public class GameService {
     }
 
     public void submitGuess(String code, String playerId, String guess) {
-        RoundSnapshot snapshot = withLockedRoom(code, room -> {
+        RoomMessage<?> message = withLockedRoom(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
@@ -162,10 +164,28 @@ public class GameService {
             if (room.hasAllCurrentRoundGuesses()) {
                 cancelGuessExpiration(code);
                 room.completeGuessSubmission(submittedAt, voteDuration);
+                scheduleVoteExpiration(code, room.getVoteDeadline());
+                return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
             }
-            return RoundSnapshot.from(room);
+            return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
         });
-        broadcastRoundSnapshot(code, snapshot);
+        broadcastRoomMessage(code, message);
+    }
+
+    public void submitVote(String code, String playerId, String optionId) {
+        VoteSnapshot snapshot = withLockedRoom(code, room -> {
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            Instant submittedAt = Instant.now();
+            room.submitVote(playerId, optionId, submittedAt);
+            if (room.hasAllCurrentRoundVotes()) {
+                cancelVoteExpiration(code);
+                room.completeVoting(submittedAt);
+            }
+            return VoteSnapshot.from(room);
+        });
+        broadcastVoteSnapshot(code, snapshot);
     }
 
     public void handleDisconnect(String code, String playerId) {
@@ -245,13 +265,46 @@ public class GameService {
                         return null;
                     }
                     lockedRoom.completeGuessSubmission(Instant.now(), voteDuration);
-                    return RoundSnapshot.from(lockedRoom);
+                    scheduleVoteExpiration(code, lockedRoom.getVoteDeadline());
+                    return VoteSnapshot.from(lockedRoom);
                 }))
-                .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
+                .ifPresent(snapshot -> broadcastVoteSnapshot(code, snapshot));
     }
 
     private void cancelGuessExpiration(String code) {
         ScheduledFuture<?> future = pendingGuessExpirations.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void scheduleVoteExpiration(String code, Instant deadline) {
+        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
+                () -> runVoteExpiration(code, deadline),
+                deadline);
+        ScheduledFuture<?> previous = pendingVoteExpirations.put(code, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    private void runVoteExpiration(String code, Instant deadline) {
+        if (pendingVoteExpirations.remove(code) == null) {
+            return;
+        }
+        gameRegistry.find(code)
+                .map(room -> withLockedRoom(code, lockedRoom -> {
+                    if (lockedRoom.isVoteExpirationStale(deadline)) {
+                        return null;
+                    }
+                    lockedRoom.completeVoting(Instant.now());
+                    return VoteSnapshot.from(lockedRoom);
+                }))
+                .ifPresent(snapshot -> broadcastVoteSnapshot(code, snapshot));
+    }
+
+    private void cancelVoteExpiration(String code) {
+        ScheduledFuture<?> future = pendingVoteExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
         }
@@ -363,6 +416,7 @@ public class GameService {
         if (room.isEmpty()) {
             cancelPromptExpiration(room.getCode());
             cancelGuessExpiration(room.getCode());
+            cancelVoteExpiration(room.getCode());
             gameRegistry.remove(room.getCode());
             return;
         }
@@ -379,6 +433,14 @@ public class GameService {
 
     private void broadcastRoundSnapshot(String code, RoundSnapshot snapshot) {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.roundSnapshot(snapshot));
+    }
+
+    private void broadcastVoteSnapshot(String code, VoteSnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.voteSnapshot(snapshot));
+    }
+
+    private void broadcastRoomMessage(String code, RoomMessage<?> message) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, message);
     }
 
     private void sendImageGenerationResult(String playerId, ImageGenerationResult result) {

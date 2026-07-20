@@ -43,6 +43,8 @@ import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundSnapshot;
+import com.igmo.web.dto.VoteEntryView;
+import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -871,8 +873,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("출제자를 제외한 전원이 추측을 제출하면 VOTING으로 전환하고 마감 작업을 취소한다.")
-    void submitGuess_전원이_제출하면_VOTING으로_전환하고_마감_작업을_취소한다() {
+    @DisplayName("출제자를 제외한 전원이 추측을 제출하면 VOTING 스냅샷을 브로드캐스트하고 마감 작업을 취소한다.")
+    void submitGuess_전원이_제출하면_VOTING_스냅샷을_브로드캐스트하고_마감_작업을_취소한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
         gameService.startRounds("ABCD");
@@ -883,8 +885,13 @@ class GameServiceTest {
         gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
 
         // then
-        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
-        assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
+        VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(voteSnapshot.phase()).isEqualTo(GamePhase.VOTING);
+            softly.assertThat(voteSnapshot.voteOptions()).hasSize(3);
+            softly.assertThat(voteSnapshot.voteDeadline()).isNotNull();
+        });
+        verify(promptDeadlineScheduler, times(3)).schedule(any(Runnable.class), any(Instant.class));
         verify(scheduledPromptExpiration, times(2)).cancel(false);
     }
 
@@ -902,8 +909,8 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("추측 마감 작업이 실행되면 VOTING으로 전환한 스냅샷을 브로드캐스트한다.")
-    void guessDeadline_마감_작업이_실행되면_VOTING으로_전환한다() {
+    @DisplayName("추측 마감 작업이 실행되면 VOTING 스냅샷을 브로드캐스트한다.")
+    void guessDeadline_마감_작업이_실행되면_VOTING_스냅샷을_브로드캐스트한다() {
         // given
         setUpRoomInPlaying();
         ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofMillis(-1));
@@ -915,11 +922,12 @@ class GameServiceTest {
         guessExpiration.run();
 
         // then
-        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
-            softly.assertThat(snapshot.guessEntries())
-                    .extracting(GuessEntryView::submitted)
+            softly.assertThat(voteSnapshot.phase()).isEqualTo(GamePhase.VOTING);
+            softly.assertThat(voteSnapshot.voteOptions()).hasSize(1);
+            softly.assertThat(voteSnapshot.voteEntries())
+                    .extracting(VoteEntryView::voted)
                     .containsOnly(false);
         });
     }
@@ -930,13 +938,103 @@ class GameServiceTest {
         // given
         List<String> playerIds = setUpRoomInPlaying();
         gameService.startRounds("ABCD");
+        Runnable guessExpiration = captureLastScheduledDeadline(2);
         gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
         gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
-        Runnable guessExpiration = captureLastScheduledDeadline(2);
         clearInvocations(messagingTemplate);
 
         // when
         guessExpiration.run();
+
+        // then
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("투표를 제출하면 투표 현황 스냅샷을 브로드캐스트한다.")
+    void submitVote_투표를_제출하면_현황을_브로드캐스트한다() {
+        // given
+        List<String> playerIds = setUpRoomInVoting();
+        String answerOptionId = findAnswerOptionId("ABCD");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+
+        // then
+        VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
+            softly.assertThat(snapshot.voteEntries())
+                    .extracting(entry -> entry.player().id(), VoteEntryView::voted)
+                    .containsExactly(
+                            tuple(playerIds.get(1), true),
+                            tuple(playerIds.get(2), false)
+                    );
+        });
+    }
+
+    @Test
+    @DisplayName("출제자를 제외한 전원이 투표하면 RESULTS로 전환하고 마감 작업을 취소한다.")
+    void submitVote_전원이_투표하면_RESULTS로_전환하고_마감_작업을_취소한다() {
+        // given
+        List<String> playerIds = setUpRoomInVoting();
+        String answerOptionId = findAnswerOptionId("ABCD");
+        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        clearInvocations(messagingTemplate);
+
+        // when
+        gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
+
+        // then
+        VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
+        verify(scheduledPromptExpiration, times(3)).cancel(false);
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어가 투표를 제출하면 PlayerNotFoundException을 던진다.")
+    void submitVote_방에_없는_플레이어면_예외를_던진다() {
+        // given
+        setUpRoomInVoting();
+        String answerOptionId = findAnswerOptionId("ABCD");
+
+        // when & then
+        assertThatThrownBy(() -> gameService.submitVote("ABCD", "unknown-player", answerOptionId))
+                .isInstanceOf(PlayerNotFoundException.class)
+                .hasMessage("방에 없는 플레이어입니다.");
+    }
+
+    @Test
+    @DisplayName("투표 마감 작업이 실행되면 RESULTS로 전환한 스냅샷을 브로드캐스트한다.")
+    void voteDeadline_마감_작업이_실행되면_RESULTS로_전환한다() {
+        // given
+        ReflectionTestUtils.setField(gameService, "voteDuration", Duration.ofMillis(-1));
+        setUpRoomInVoting();
+        Runnable voteExpiration = captureLastScheduledDeadline(3);
+        clearInvocations(messagingTemplate);
+
+        // when
+        voteExpiration.run();
+
+        // then
+        VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
+    }
+
+    @Test
+    @DisplayName("취소된 투표 마감 작업이 실행되면 아무것도 브로드캐스트하지 않는다.")
+    void voteDeadline_취소된_마감_작업이_실행되면_무시한다() {
+        // given
+        List<String> playerIds = setUpRoomInVoting();
+        Runnable voteExpiration = captureLastScheduledDeadline(3);
+        String answerOptionId = findAnswerOptionId("ABCD");
+        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
+        clearInvocations(messagingTemplate);
+
+        // when
+        voteExpiration.run();
 
         // then
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
@@ -967,6 +1065,22 @@ class GameServiceTest {
         return List.of(created.playerId(), guest1.playerId(), guest2.playerId());
     }
 
+    private List<String> setUpRoomInVoting() {
+        List<String> playerIds = setUpRoomInPlaying();
+        gameService.startRounds("ABCD");
+        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        return playerIds;
+    }
+
+    private String findAnswerOptionId(String code) {
+        return gameRegistry.find(code)
+                .orElseThrow()
+                .getCurrentRound()
+                .getAnswerEntry()
+                .getPromptId();
+    }
+
     private RoundSnapshot captureRoundSnapshotBroadcast() {
         ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
         verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
@@ -975,6 +1089,16 @@ class GameServiceTest {
                 .reduce((previous, current) -> current)
                 .orElseThrow();
         return (RoundSnapshot) message.payload();
+    }
+
+    private VoteSnapshot captureVoteSnapshotBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.VOTE_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (VoteSnapshot) message.payload();
     }
 
     private Runnable captureLastScheduledDeadline(int expectedScheduleCount) {
