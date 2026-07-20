@@ -70,4 +70,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         scheduler.setThreadNamePrefix("prompt-deadline-");
         return scheduler;
     }
+
+    @Bean
+    public TaskScheduler imageGenerationCompletionScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("image-generation-completion-");
+        return scheduler;
+    }
 }

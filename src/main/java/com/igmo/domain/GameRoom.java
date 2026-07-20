@@ -5,6 +5,7 @@ import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
+import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
@@ -29,6 +30,7 @@ public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
     private static final int MIN_PLAYERS_TO_START = 3;
+    private static final AutoPromptPrefix[] AUTO_PROMPT_PREFIXES = AutoPromptPrefix.values();
 
     @Getter
     private final String code;
@@ -87,6 +89,26 @@ public class GameRoom {
         return true;
     }
 
+    public synchronized boolean returnToLobby() {
+        if (isInLobby()) {
+            return false;
+        }
+        phase = GamePhase.LOBBY;
+        promptStartedAt = null;
+        promptDeadline = null;
+        guessDeadline = null;
+        voteDeadline = null;
+        resultDeadline = null;
+        promptEntriesByPlayerId.clear();
+        rounds.clear();
+        currentRoundIndex = 0;
+        players.values().forEach(player -> {
+            player.changeReady(false);
+            player.resetScore();
+        });
+        return true;
+    }
+
     public synchronized List<Player> getPlayers() {
         return List.copyOf(players.values());
     }
@@ -139,7 +161,7 @@ public class GameRoom {
     }
 
     public synchronized void submitPrompt(String playerId, String prompt, Instant submittedAt) {
-        if (!isPrompting()) {
+        if (!isGenerating()) {
             throw new PromptSubmissionNotAllowedException();
         }
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
@@ -153,6 +175,25 @@ public class GameRoom {
             throw new PromptSubmissionExpiredException();
         }
         entry.submit(prompt, submittedAt);
+    }
+
+    public synchronized Map<String, String> autoSubmitPrompts(Instant submittedAt) {
+        if (!isGenerating()) {
+            return Map.of();
+        }
+
+        Map<String, String> autoSubmittedPrompts = new LinkedHashMap<>();
+        for (Player player : players.values()) {
+            PromptEntry entry = promptEntriesByPlayerId.get(player.getId());
+            if (entry == null || !entry.isWaiting()) {
+                continue;
+            }
+
+            String prompt = createAutoPrompt(player);
+            entry.submit(prompt, submittedAt);
+            autoSubmittedPrompts.put(player.getId(), prompt);
+        }
+        return Map.copyOf(autoSubmittedPrompts);
     }
 
     public synchronized void completeImageGeneration(String playerId, String imageUrl) {
@@ -171,17 +212,11 @@ public class GameRoom {
         entry.failImageGeneration();
     }
 
-    public synchronized void completePromptSubmission(Instant now) {
-        if (!isPrompting()) {
-            return;
+    public synchronized void advanceToPlaying() {
+        if (!isGenerating() || !hasAllImagesGenerated()) {
+            throw new ImagesNotReadyException();
         }
-        if (isPromptExpired(now)) {
-            phase = GamePhase.GENERATING; //TODO 임시 처리함 -> 변경 필요
-            return;
-        }
-        if (!hasWaitingPrompt()) {
-            phase = GamePhase.GENERATING; //TODO 임시 처리함 -> 변경 필요
-        }
+        phase = GamePhase.PLAYING;
     }
 
     public synchronized boolean hasWaitingPrompt() {
@@ -189,14 +224,19 @@ public class GameRoom {
                 .anyMatch(PromptEntry::isWaiting);
     }
 
-    //  READY 이미지 엔트리를 가진 플레이어들로 참여 순서대로 라운드 목록을 만들고 첫 라운드의 추측 마감 시각을 설정한다.
-    //  PLAYING이 아니거나 이미 라운드가 있거나 READY 엔트리가 없으면 RoundStartNotAllowedException을 던진다.
+    public synchronized boolean hasAllImagesGenerated() {
+        return !promptEntriesByPlayerId.isEmpty()
+                && promptEntriesByPlayerId.values().stream()
+                .allMatch(PromptEntry::isImageGenerated);
+    }
+
+    // 모든 현재 참여자의 READY 이미지로 참여 순서대로 라운드를 만들고 첫 라운드의 추측 마감 시각을 설정한다.
     public synchronized void startRounds(Instant startedAt, Duration guessDuration) {
         if (!isGuessing() || !rounds.isEmpty()) {
             throw new RoundStartNotAllowedException();
         }
         List<Round> preparedRounds = prepareRounds();
-        if (preparedRounds.isEmpty()) {
+        if (preparedRounds.size() != players.size()) {
             throw new RoundStartNotAllowedException();
         }
         rounds.addAll(preparedRounds);
@@ -312,11 +352,18 @@ public class GameRoom {
         hostId = remaining.get(ThreadLocalRandom.current().nextInt(remaining.size())).getId();
     }
 
+    private String createAutoPrompt(Player player) {
+        AutoPromptPrefix prefix = AUTO_PROMPT_PREFIXES[
+                ThreadLocalRandom.current().nextInt(AUTO_PROMPT_PREFIXES.length)
+        ];
+        return prefix.value() + " " + player.getNickname().value();
+    }
+
     private boolean isInLobby() {
         return phase == GamePhase.LOBBY;
     }
 
-    private boolean isPrompting() {
+    private boolean isGenerating() {
         return phase == GamePhase.GENERATING;
     }
 

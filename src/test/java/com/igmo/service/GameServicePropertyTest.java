@@ -30,6 +30,9 @@ class GameServicePropertyTest extends AbstractNonWebSpringBootTest {
     @MockitoBean(name = "promptDeadlineScheduler")
     private TaskScheduler promptDeadlineScheduler;
 
+    @MockitoBean(name = "imageGenerationCompletionScheduler")
+    private TaskScheduler imageGenerationCompletionScheduler;
+
     @Test
     @DisplayName("연결 끊김 유예 시간은 igmo.game.disconnect-grace 프로퍼티 값을 사용한다.")
     void handleDisconnect_프로퍼티의_유예_시간을_사용한다() {

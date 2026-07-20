@@ -28,4 +28,8 @@ public class Player {
     public void addScore(int delta) {
         this.score += delta;
     }
+
+    public void resetScore() {
+        this.score = 0;
+    }
 }
