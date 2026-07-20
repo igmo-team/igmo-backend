@@ -12,6 +12,8 @@ import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
+import com.igmo.domain.exception.VoteSubmissionExpiredException;
+import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -38,6 +40,8 @@ public class GameRoom {
     private Instant promptDeadline;
     @Getter
     private Instant guessDeadline;
+    @Getter
+    private Instant voteDeadline;
     private final Map<String, Player> players = new LinkedHashMap<>();
     private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
     private final List<Round> rounds = new ArrayList<>();
@@ -207,13 +211,42 @@ public class GameRoom {
         currentRound.submitGuess(playerId, guess, submittedAt);
     }
 
-    public synchronized void completeGuessSubmission(Instant now) {
+    public synchronized void completeGuessSubmission(Instant now, Duration voteDuration) {
         if (!isGuessing()) {
             return;
         }
         if (isGuessExpired(now) || hasAllCurrentRoundGuesses()) {
-            phase = GamePhase.VOTING;
+            openVoting(now, voteDuration);
         }
+    }
+
+    public synchronized void submitVote(String voterId, String optionId, Instant votedAt) {
+        Round currentRound = getCurrentRound();
+        if (!isVoting() || currentRound == null) {
+            throw new VoteSubmissionNotAllowedException();
+        }
+        if (isVoteExpired(votedAt)) {
+            throw new VoteSubmissionExpiredException();
+        }
+        currentRound.submitVote(voterId, optionId, votedAt);
+    }
+
+    public synchronized void completeVoting(Instant now) {
+        if (!isVoting()) {
+            return;
+        }
+        if (isVoteExpired(now) || hasAllCurrentRoundVotes()) {
+            phase = GamePhase.RESULTS;
+        }
+    }
+
+    public synchronized boolean hasAllCurrentRoundVotes() {
+        Round currentRound = getCurrentRound();
+        return currentRound != null && currentRound.hasAllVotes(players.keySet());
+    }
+
+    public synchronized boolean isVoteExpirationStale(Instant deadline) {
+        return voteDeadline == null || !voteDeadline.equals(deadline);
     }
 
     public synchronized boolean hasAllCurrentRoundGuesses() {
@@ -263,12 +296,31 @@ public class GameRoom {
         return phase == GamePhase.PLAYING;
     }
 
+    private boolean isVoting() {
+        return phase == GamePhase.VOTING;
+    }
+
+    // VOTING 전환과 보기 확정, 투표 마감 설정은 함께 일어나야 하는 하나의 전이다.
+    private void openVoting(Instant openedAt, Duration voteDuration) {
+        Round currentRound = getCurrentRound();
+        if (currentRound == null) {
+            return;
+        }
+        phase = GamePhase.VOTING;
+        currentRound.openVoting();
+        voteDeadline = openedAt.plus(voteDuration);
+    }
+
     private boolean isPromptExpired(Instant now) {
         return promptDeadline != null && now.isAfter(promptDeadline);
     }
 
     private boolean isGuessExpired(Instant now) {
         return guessDeadline != null && now.isAfter(guessDeadline);
+    }
+
+    private boolean isVoteExpired(Instant now) {
+        return voteDeadline != null && now.isAfter(voteDeadline);
     }
 
     private List<Round> prepareRounds() {

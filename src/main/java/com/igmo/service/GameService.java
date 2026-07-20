@@ -53,6 +53,8 @@ public class GameService {
     private Duration promptDuration;
     @Value("${igmo.game.guess-duration}")
     private Duration guessDuration;
+    @Value("${igmo.game.vote-duration}")
+    private Duration voteDuration;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
@@ -159,7 +161,7 @@ public class GameService {
             room.submitGuess(playerId, guess, submittedAt);
             if (room.hasAllCurrentRoundGuesses()) {
                 cancelGuessExpiration(code);
-                room.completeGuessSubmission(submittedAt);
+                room.completeGuessSubmission(submittedAt, voteDuration);
             }
             return RoundSnapshot.from(room);
         });
@@ -242,7 +244,7 @@ public class GameService {
                     if (lockedRoom.isGuessExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.completeGuessSubmission(Instant.now());
+                    lockedRoom.completeGuessSubmission(Instant.now(), voteDuration);
                     return RoundSnapshot.from(lockedRoom);
                 }))
                 .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
