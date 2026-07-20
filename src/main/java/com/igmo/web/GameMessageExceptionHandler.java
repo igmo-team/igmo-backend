@@ -1,12 +1,19 @@
 package com.igmo.web;
 
+import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.GuessMatchesAnswerException;
+import com.igmo.domain.exception.GuessMatchesOthersException;
+import com.igmo.domain.exception.GuessNotAllowedException;
+import com.igmo.domain.exception.GuessSubmissionExpiredException;
+import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
+import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.web.dto.ErrorResponse;
@@ -32,7 +39,14 @@ public class GameMessageExceptionHandler {
             DuplicatePromptSubmissionException.class,
             InsufficientPlayersException.class,
             NotHostException.class,
-            PlayersNotReadyException.class
+            PlayersNotReadyException.class,
+            RoundStartNotAllowedException.class,
+            GuessSubmissionNotAllowedException.class,
+            GuessSubmissionExpiredException.class,
+            DuplicateGuessSubmissionException.class,
+            GuessNotAllowedException.class,
+            GuessMatchesAnswerException.class,
+            GuessMatchesOthersException.class
     })
     @SendToUser(destinations = "/queue/errors", broadcast = false)
     public ErrorResponse handleGameException(RuntimeException exception) {

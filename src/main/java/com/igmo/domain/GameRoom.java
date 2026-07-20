@@ -3,6 +3,8 @@ package com.igmo.domain;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.GuessSubmissionExpiredException;
+import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
@@ -10,8 +12,10 @@ import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.domain.exception.RoundStartNotAllowedException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +38,12 @@ public class GameRoom {
     private Instant promptStartedAt;
     @Getter
     private Instant promptDeadline;
+    @Getter
+    private Instant guessDeadline;
     private final Map<String, Player> players = new LinkedHashMap<>();
     private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
+    private final List<Round> rounds = new ArrayList<>();
+    private int currentRoundIndex;
 
     private GameRoom(String code, Player host) {
         this.code = code;
@@ -80,7 +88,10 @@ public class GameRoom {
         phase = GamePhase.LOBBY;
         promptStartedAt = null;
         promptDeadline = null;
+        guessDeadline = null;
         promptEntriesByPlayerId.clear();
+        rounds.clear();
+        currentRoundIndex = 0;
         players.values().forEach(player -> player.changeReady(false));
         return true;
     }
@@ -206,6 +217,60 @@ public class GameRoom {
                 .allMatch(PromptEntry::isImageGenerated);
     }
 
+    // 모든 현재 참여자의 READY 이미지로 참여 순서대로 라운드를 만들고 첫 라운드의 추측 마감 시각을 설정한다.
+    public synchronized void startRounds(Instant startedAt, Duration guessDuration) {
+        if (!isGuessing() || !rounds.isEmpty()) {
+            throw new RoundStartNotAllowedException();
+        }
+        List<Round> preparedRounds = prepareRounds();
+        if (preparedRounds.size() != players.size()) {
+            throw new RoundStartNotAllowedException();
+        }
+        rounds.addAll(preparedRounds);
+        currentRoundIndex = 0;
+        guessDeadline = startedAt.plus(guessDuration);
+    }
+
+    public synchronized void submitGuess(String playerId, String guess, Instant submittedAt) {
+        Round currentRound = getCurrentRound();
+        if (!isGuessing() || currentRound == null) {
+            throw new GuessSubmissionNotAllowedException();
+        }
+        if (isGuessExpired(submittedAt)) {
+            throw new GuessSubmissionExpiredException();
+        }
+        currentRound.submitGuess(playerId, guess, submittedAt);
+    }
+
+    public synchronized void completeGuessSubmission(Instant now) {
+        if (!isGuessing()) {
+            return;
+        }
+        if (isGuessExpired(now) || hasAllCurrentRoundGuesses()) {
+            phase = GamePhase.VOTING;
+        }
+    }
+
+    public synchronized boolean hasAllCurrentRoundGuesses() {
+        Round currentRound = getCurrentRound();
+        return currentRound != null && currentRound.hasAllGuesses(players.keySet());
+    }
+
+    public synchronized boolean isGuessExpirationStale(Instant deadline) {
+        return guessDeadline == null || !guessDeadline.equals(deadline);
+    }
+
+    public synchronized Round getCurrentRound() {
+        if (rounds.isEmpty()) {
+            return null;
+        }
+        return rounds.get(currentRoundIndex);
+    }
+
+    public synchronized int getTotalRoundCount() {
+        return rounds.size();
+    }
+
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
         return promptDeadline == null || !promptDeadline.equals(deadline);
     }
@@ -236,8 +301,27 @@ public class GameRoom {
         return phase == GamePhase.GENERATING;
     }
 
+    private boolean isGuessing() {
+        return phase == GamePhase.PLAYING;
+    }
+
     private boolean isPromptExpired(Instant now) {
         return promptDeadline != null && now.isAfter(promptDeadline);
+    }
+
+    private boolean isGuessExpired(Instant now) {
+        return guessDeadline != null && now.isAfter(guessDeadline);
+    }
+
+    private List<Round> prepareRounds() {
+        List<Round> preparedRounds = new ArrayList<>();
+        for (Player player : players.values()) {
+            PromptEntry entry = promptEntriesByPlayerId.get(player.getId());
+            if (entry != null && entry.getStatus() == PromptEntryStatus.READY) {
+                preparedRounds.add(Round.create(preparedRounds.size() + 1, player.getId(), entry));
+            }
+        }
+        return preparedRounds;
     }
 
     private void initializePromptEntries() {

@@ -5,6 +5,7 @@ import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.exception.ImagesNotReadyException;
+import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.service.exception.ImageStorageException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
@@ -17,6 +18,7 @@ import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
+import com.igmo.web.dto.RoundSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -53,11 +55,14 @@ public class GameService {
     private Duration disconnectGrace;
     @Value("${igmo.game.prompt-duration}")
     private Duration promptDuration;
+    @Value("${igmo.game.guess-duration}")
+    private Duration guessDuration;
     @Value("${igmo.game.image-generation-completion-delay}")
     private Duration imageGenerationCompletionDelay;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPlayingTransitions = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
@@ -143,6 +148,22 @@ public class GameService {
         startImageGeneration(code, playerId, prompt);
     }
 
+    public void submitGuess(String code, String playerId, String guess) {
+        RoundSnapshot snapshot = withLockedRoom(code, room -> {
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            Instant submittedAt = Instant.now();
+            room.submitGuess(playerId, guess, submittedAt);
+            if (room.hasAllCurrentRoundGuesses()) {
+                cancelGuessExpiration(code);
+                room.completeGuessSubmission(submittedAt);
+            }
+            return RoundSnapshot.from(room);
+        });
+        broadcastRoundSnapshot(code, snapshot);
+    }
+
     public void handleDisconnect(String code, String playerId) {
         ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
                 () -> runScheduledRemoval(code, playerId),
@@ -161,7 +182,6 @@ public class GameService {
     }
 
     private void runScheduledRemoval(String code, String playerId) {
-        // 취소 측이 먼저 키를 지웠으면 경합에서 진 것이므로 제거하지 않는다.
         if (pendingRemovals.remove(removalKey(code, playerId)) == null) {
             return;
         }
@@ -202,6 +222,38 @@ public class GameService {
 
     private void cancelPromptExpiration(String code) {
         ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void scheduleGuessExpiration(String code, Instant deadline) {
+        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
+                () -> runGuessExpiration(code, deadline),
+                deadline);
+        ScheduledFuture<?> previous = pendingGuessExpirations.put(code, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    private void runGuessExpiration(String code, Instant deadline) {
+        if (pendingGuessExpirations.remove(code) == null) {
+            return;
+        }
+        gameRegistry.find(code)
+                .map(room -> withLockedRoom(code, lockedRoom -> {
+                    if (lockedRoom.isGuessExpirationStale(deadline)) {
+                        return null;
+                    }
+                    lockedRoom.completeGuessSubmission(Instant.now());
+                    return RoundSnapshot.from(lockedRoom);
+                }))
+                .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
+    }
+
+    private void cancelGuessExpiration(String code) {
+        ScheduledFuture<?> future = pendingGuessExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
         }
@@ -336,12 +388,20 @@ public class GameService {
         }
         try {
             gameRegistry.find(code)
-                    .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
+                    .map(room -> withLockedRoom(code, lockedRoom -> {
                         lockedRoom.advanceToPlaying();
-                    }));
-        } catch (RoomNotFoundException | ImagesNotReadyException ignored) {
+                        return initializeRounds(code, lockedRoom, Instant.now());
+                    }))
+                    .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
+        } catch (RoomNotFoundException | ImagesNotReadyException | RoundStartNotAllowedException ignored) {
             log.debug("이미지 생성 완료 전환 조건이 충족되지 않아 무시한다. roomCode={}", code);
         }
+    }
+
+    private RoundSnapshot initializeRounds(String code, GameRoom room, Instant startedAt) {
+        room.startRounds(startedAt, guessDuration);
+        scheduleGuessExpiration(code, room.getGuessDeadline());
+        return RoundSnapshot.from(room);
     }
 
     private static String removalKey(String code, String playerId) {
@@ -355,12 +415,14 @@ public class GameService {
             }
             if (room.isEmpty()) {
                 cancelPromptExpiration(room.getCode());
+                cancelGuessExpiration(room.getCode());
                 cancelPlayingTransition(room.getCode());
                 gameRegistry.remove(room.getCode());
                 return;
             }
             if (room.returnToLobby()) {
                 cancelPromptExpiration(room.getCode());
+                cancelGuessExpiration(room.getCode());
                 cancelPlayingTransition(room.getCode());
             }
             broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
@@ -379,6 +441,10 @@ public class GameService {
 
     private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
+    }
+
+    private void broadcastRoundSnapshot(String code, RoundSnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.roundSnapshot(snapshot));
     }
 
     private void sendImageGenerationResult(String playerId, ImageGenerationResult result) {

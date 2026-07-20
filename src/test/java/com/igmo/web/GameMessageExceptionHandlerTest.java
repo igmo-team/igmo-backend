@@ -2,10 +2,18 @@ package com.igmo.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.igmo.domain.exception.DuplicateGuessSubmissionException;
+import com.igmo.domain.exception.GuessMatchesAnswerException;
+import com.igmo.domain.exception.GuessMatchesOthersException;
+import com.igmo.domain.exception.GuessNotAllowedException;
+import com.igmo.domain.exception.GuessSubmissionExpiredException;
+import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.web.dto.ErrorResponse;
 import com.igmo.web.dto.PromptRequest;
 import java.lang.reflect.Method;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.core.MethodParameter;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
@@ -39,6 +47,33 @@ class GameMessageExceptionHandlerTest {
             softly.assertThat(response.message()).isEqualTo("모든 참가자가 준비되지 않았습니다.");
             softly.assertThat(sendToUser.destinations()).containsExactly("/queue/errors");
             softly.assertThat(sendToUser.broadcast()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("추측 제출 예외는 요청 세션의 오류 큐로 메시지를 반환하도록 핸들러에 등록된다.")
+    void handleGameException_추측_예외를_처리한다() throws NoSuchMethodException {
+        // given
+        GuessMatchesAnswerException exception = new GuessMatchesAnswerException();
+        Method handlerMethod = GameMessageExceptionHandler.class
+                .getDeclaredMethod("handleGameException", RuntimeException.class);
+
+        // when
+        ErrorResponse response = handler.handleGameException(exception);
+
+        // then
+        MessageExceptionHandler annotation = handlerMethod.getAnnotation(MessageExceptionHandler.class);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(response.message()).isEqualTo("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+            softly.assertThat(annotation.value()).contains(
+                    RoundStartNotAllowedException.class,
+                    GuessSubmissionNotAllowedException.class,
+                    GuessSubmissionExpiredException.class,
+                    DuplicateGuessSubmissionException.class,
+                    GuessNotAllowedException.class,
+                    GuessMatchesAnswerException.class,
+                    GuessMatchesOthersException.class
+            );
         });
     }
 

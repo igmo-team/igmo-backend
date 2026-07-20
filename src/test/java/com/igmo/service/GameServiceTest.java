@@ -35,6 +35,7 @@ import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.web.dto.CreateGameResponse;
+import com.igmo.web.dto.GuessEntryView;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
@@ -43,6 +44,7 @@ import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
+import com.igmo.web.dto.RoundSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
@@ -93,6 +95,7 @@ class GameServiceTest {
         imageGenerationTask = null;
         ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofSeconds(60));
         ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
@@ -647,10 +650,24 @@ class GameServiceTest {
         transition.run();
 
         // then
-        assertThat(gameRegistry.find("ABCD")).get()
-                .extracting(GameRoom::getPhase)
-                .isEqualTo(GamePhase.PLAYING);
-        verifyNoInteractions(messagingTemplate);
+        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(gameRegistry.find("ABCD")).get()
+                    .extracting(GameRoom::getPhase)
+                    .isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(snapshot.roundNumber()).isEqualTo(1);
+            softly.assertThat(snapshot.totalRoundCount()).isEqualTo(3);
+            softly.assertThat(snapshot.questioner().id()).isEqualTo(session.host().playerId());
+            softly.assertThat(snapshot.imageUrl()).isEqualTo("https://cdn.example.com/host.png");
+            softly.assertThat(snapshot.guessDeadline()).isNotNull();
+            softly.assertThat(snapshot.guessEntries())
+                    .extracting(GuessEntryView::submitted)
+                    .containsOnly(false);
+        });
+        verify(messagingTemplate, times(1))
+                .convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+        verify(promptDeadlineScheduler, times(2)).schedule(any(Runnable.class), any(Instant.class));
     }
 
     @Test
@@ -950,6 +967,142 @@ class GameServiceTest {
         // when & then
         assertThatCode(() -> gameService.cancelPendingRemoval("ABCD", "player-id"))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("추측을 제출하면 제출 현황이 담긴 라운드 스냅샷을 브로드캐스트한다.")
+    void submitGuess_추측을_제출하면_현황을_브로드캐스트한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        clearInvocations(messagingTemplate);
+
+        // when
+        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+
+        // then
+        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(snapshot.guessEntries())
+                    .extracting(entry -> entry.player().id(), GuessEntryView::submitted)
+                    .containsExactly(
+                            tuple(playerIds.get(1), true),
+                            tuple(playerIds.get(2), false)
+                    );
+        });
+    }
+
+    @Test
+    @DisplayName("출제자를 제외한 전원이 추측을 제출하면 VOTING으로 전환하고 마감 작업을 취소한다.")
+    void submitGuess_전원이_제출하면_VOTING으로_전환하고_마감_작업을_취소한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+
+        // then
+        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
+        verify(scheduledPromptExpiration, times(2)).cancel(false);
+    }
+
+    @Test
+    @DisplayName("방에 없는 플레이어가 추측을 제출하면 PlayerNotFoundException을 던진다.")
+    void submitGuess_방에_없는_플레이어면_예외를_던진다() {
+        // given
+        setUpRoomInPlaying();
+
+        // when & then
+        assertThatThrownBy(() -> gameService.submitGuess("ABCD", "unknown-player", "추측"))
+                .isInstanceOf(PlayerNotFoundException.class)
+                .hasMessage("방에 없는 플레이어입니다.");
+    }
+
+    @Test
+    @DisplayName("추측 마감 작업이 실행되면 VOTING으로 전환한 스냅샷을 브로드캐스트한다.")
+    void guessDeadline_마감_작업이_실행되면_VOTING으로_전환한다() {
+        // given
+        setUpRoomWithImagesReady();
+        ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofMillis(-1));
+        captureScheduledPlayingTransition().run();
+        Runnable guessExpiration = captureLastScheduledDeadline(2);
+        clearInvocations(messagingTemplate);
+
+        // when
+        guessExpiration.run();
+
+        // then
+        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
+            softly.assertThat(snapshot.guessEntries())
+                    .extracting(GuessEntryView::submitted)
+                    .containsOnly(false);
+        });
+    }
+
+    @Test
+    @DisplayName("취소된 추측 마감 작업이 실행되면 아무것도 브로드캐스트하지 않는다.")
+    void guessDeadline_취소된_마감_작업이_실행되면_무시한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        Runnable guessExpiration = captureLastScheduledDeadline(2);
+        clearInvocations(messagingTemplate);
+
+        // when
+        guessExpiration.run();
+
+        // then
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+    }
+
+    private List<String> setUpRoomInPlaying() {
+        List<String> playerIds = setUpRoomWithImagesReady();
+        captureScheduledPlayingTransition().run();
+        return playerIds;
+    }
+
+    private List<String> setUpRoomWithImagesReady() {
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate(any()))
+                .willReturn(
+                        "https://cdn.example.com/host.png",
+                        "https://cdn.example.com/guest-1.png",
+                        "https://cdn.example.com/guest-2.png");
+        CreateGameResponse created = gameService.createGame("호스트");
+        JoinGameResponse guest1 = gameService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameService.joinGame("ABCD", "참가자2");
+        gameService.changeReady("ABCD", guest1.playerId(), true);
+        gameService.changeReady("ABCD", guest2.playerId(), true);
+        gameService.startGame("ABCD", created.playerId());
+        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        runImageGenerationTask();
+        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+        runImageGenerationTask();
+        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+        runImageGenerationTask();
+        return List.of(created.playerId(), guest1.playerId(), guest2.playerId());
+    }
+
+    private RoundSnapshot captureRoundSnapshotBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.ROUND_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (RoundSnapshot) message.payload();
+    }
+
+    private Runnable captureLastScheduledDeadline(int expectedScheduleCount) {
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(promptDeadlineScheduler, times(expectedScheduleCount)).schedule(captor.capture(), any(Instant.class));
+        return captor.getAllValues().get(expectedScheduleCount - 1);
     }
 
     private Runnable captureScheduledRemoval() {

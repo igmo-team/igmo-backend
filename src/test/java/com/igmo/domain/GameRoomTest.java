@@ -7,6 +7,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
+import com.igmo.domain.exception.GuessSubmissionExpiredException;
+import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.NotHostException;
@@ -14,6 +16,7 @@ import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.domain.exception.RoundStartNotAllowedException;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
@@ -28,6 +31,8 @@ class GameRoomTest {
 
     private static final Instant PROMPT_STARTED_AT = Instant.parse("2026-07-06T10:00:00Z");
     private static final Duration PROMPT_DURATION = Duration.ofSeconds(30);
+    private static final Instant GUESS_STARTED_AT = Instant.parse("2026-07-06T10:05:00Z");
+    private static final Duration GUESS_DURATION = Duration.ofSeconds(60);
 
     @Test
     @DisplayName("방을 생성하면 호스트가 첫 참가자로 등록되고 LOBBY 상태가 된다.")
@@ -225,6 +230,25 @@ class GameRoomTest {
             softly.assertThat(room.getPlayers())
                     .extracting(Player::isReady)
                     .containsOnly(false);
+        });
+    }
+
+    @Test
+    @DisplayName("PLAYING 단계의 방을 로비로 되돌리면 라운드 상태를 초기화한다.")
+    void returnToLobby_PLAYING_단계이면_라운드_상태를_초기화한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+
+        // when
+        boolean returnedToLobby = room.returnToLobby();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(returnedToLobby).isTrue();
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getCurrentRound()).isNull();
+            softly.assertThat(room.getTotalRoundCount()).isZero();
+            softly.assertThat(room.getGuessDeadline()).isNull();
         });
     }
 
@@ -704,6 +728,233 @@ class GameRoomTest {
         assertThatThrownBy(() -> room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION))
                 .isInstanceOf(GameAlreadyStartedException.class)
                 .hasMessage("이미 시작된 게임입니다.");
+    }
+
+    @Test
+    @DisplayName("PLAYING 단계의 방에서 라운드를 시작하면 참여 순서대로 라운드를 만들고 첫 라운드의 추측 마감을 설정한다.")
+    void startRounds_PLAYING_단계이면_첫_라운드를_시작한다() throws Exception {
+        // given
+        GameRoom room = createRoomWithGeneratedImages();
+        setPhase(room, GamePhase.PLAYING);
+        String hostId = room.getPlayers().get(0).getId();
+
+        // when
+        room.startRounds(GUESS_STARTED_AT, GUESS_DURATION);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(room.getTotalRoundCount()).isEqualTo(3);
+            softly.assertThat(room.getCurrentRound().getRoundNumber()).isEqualTo(1);
+            softly.assertThat(room.getCurrentRound().getQuestionerId()).isEqualTo(hostId);
+            softly.assertThat(room.getCurrentRound().getAnswerEntry().getPrompt()).isEqualTo("호스트 프롬프트");
+            softly.assertThat(room.getGuessDeadline()).isEqualTo(GUESS_STARTED_AT.plus(GUESS_DURATION));
+        });
+    }
+
+    @Test
+    @DisplayName("PLAYING 단계가 아니면 라운드 시작 시 RoundStartNotAllowedException을 던진다.")
+    void startRounds_PLAYING_단계가_아니면_예외를_던진다() {
+        // given
+        GameRoom room = createRoomWithGeneratedImages();
+
+        // when & then
+        assertThatThrownBy(() -> room.startRounds(GUESS_STARTED_AT, GUESS_DURATION))
+                .isInstanceOf(RoundStartNotAllowedException.class)
+                .hasMessage("라운드를 시작할 수 없는 상태입니다.");
+    }
+
+    @Test
+    @DisplayName("이미 라운드가 시작된 방에서 다시 시작하면 RoundStartNotAllowedException을 던진다.")
+    void startRounds_이미_시작됐으면_예외를_던진다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+
+        // when & then
+        assertThatThrownBy(() -> room.startRounds(GUESS_STARTED_AT, GUESS_DURATION))
+                .isInstanceOf(RoundStartNotAllowedException.class)
+                .hasMessage("라운드를 시작할 수 없는 상태입니다.");
+    }
+
+    @Test
+    @DisplayName("READY 상태의 이미지가 하나도 없으면 라운드 시작 시 RoundStartNotAllowedException을 던진다.")
+    void startRounds_READY_이미지가_없으면_예외를_던진다() throws Exception {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        setPhase(room, GamePhase.PLAYING);
+
+        // when & then
+        assertThatThrownBy(() -> room.startRounds(GUESS_STARTED_AT, GUESS_DURATION))
+                .isInstanceOf(RoundStartNotAllowedException.class)
+                .hasMessage("라운드를 시작할 수 없는 상태입니다.");
+    }
+
+    @Test
+    @DisplayName("현재 참여자 중 READY 이미지가 아닌 사람이 있으면 부분 라운드를 시작하지 않는다.")
+    void startRounds_READY_이미지가_일부만_있으면_부분_라운드를_시작하지_않는다() throws Exception {
+        // given
+        GameRoom room = createRoomWithGeneratedImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+        room.failImageGeneration(failedPlayerId);
+        setPhase(room, GamePhase.PLAYING);
+
+        // when & then
+        assertThatThrownBy(() -> room.startRounds(GUESS_STARTED_AT, GUESS_DURATION))
+                .isInstanceOf(RoundStartNotAllowedException.class)
+                .hasMessage("라운드를 시작할 수 없는 상태입니다.");
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getCurrentRound()).isNull();
+            softly.assertThat(room.getTotalRoundCount()).isZero();
+            softly.assertThat(room.getGuessDeadline()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("PLAYING 단계에서 추측을 제출하면 현재 라운드에 저장한다.")
+    void submitGuess_PLAYING_단계이면_현재_라운드에_저장한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+
+        // when
+        room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getCurrentRound().getGuesses()).hasSize(1);
+            softly.assertThat(room.getCurrentRound().getGuesses().get(0).getPlayerId()).isEqualTo(guest1Id);
+            softly.assertThat(room.getCurrentRound().getGuesses().get(0).getGuess())
+                    .isEqualTo("강아지가 기타를 치는 장면");
+        });
+    }
+
+    @Test
+    @DisplayName("PLAYING 단계가 아니면 추측 제출 시 GuessSubmissionNotAllowedException을 던진다.")
+    void submitGuess_PLAYING_단계가_아니면_예외를_던진다() {
+        // given
+        GameRoom room = createRoomWithGeneratedImages();
+
+        // when & then
+        assertThatThrownBy(() -> room.submitGuess("player-id", "추측", GUESS_STARTED_AT))
+                .isInstanceOf(GuessSubmissionNotAllowedException.class)
+                .hasMessage("추측을 제출할 수 있는 단계가 아닙니다.");
+    }
+
+    @Test
+    @DisplayName("마감 시각 이후 추측을 제출하면 GuessSubmissionExpiredException을 던진다.")
+    void submitGuess_마감_이후이면_예외를_던진다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        Instant expiredAt = GUESS_STARTED_AT.plus(GUESS_DURATION).plusSeconds(1);
+
+        // when & then
+        assertThatThrownBy(() -> room.submitGuess(guest1Id, "늦은 추측", expiredAt))
+                .isInstanceOf(GuessSubmissionExpiredException.class)
+                .hasMessage("추측 제출 시간이 만료되었습니다.");
+        assertThat(room.getCurrentRound().getGuesses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("출제자를 제외한 전원이 추측을 제출하면 VOTING 단계로 전환한다.")
+    void completeGuessSubmission_전원이_제출하면_VOTING으로_전환한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
+        room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
+
+        // when
+        room.completeGuessSubmission(GUESS_STARTED_AT.plusSeconds(10));
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.hasAllCurrentRoundGuesses()).isTrue();
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.VOTING);
+        });
+    }
+
+    @Test
+    @DisplayName("마감 시각이 지나면 미제출자가 있어도 VOTING 단계로 전환한다.")
+    void completeGuessSubmission_마감_이후이면_VOTING으로_전환한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
+
+        // when
+        room.completeGuessSubmission(GUESS_STARTED_AT.plus(GUESS_DURATION).plusSeconds(1));
+
+        // then
+        assertThat(room.getPhase()).isEqualTo(GamePhase.VOTING);
+    }
+
+    @Test
+    @DisplayName("마감 전이고 미제출자가 있으면 추측 제출을 종료하지 않는다.")
+    void completeGuessSubmission_마감_전이고_미제출자가_있으면_전환하지_않는다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
+
+        // when
+        room.completeGuessSubmission(GUESS_STARTED_AT.plusSeconds(10));
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.hasAllCurrentRoundGuesses()).isFalse();
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
+        });
+    }
+
+    @Test
+    @DisplayName("추측 마감 시각이 예약 시점과 다르면 만료 작업을 무시하도록 stale로 판단한다.")
+    void isGuessExpirationStale_마감_시각이_다르면_true를_반환한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        Instant deadline = GUESS_STARTED_AT.plus(GUESS_DURATION);
+
+        // when & then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.isGuessExpirationStale(deadline)).isFalse();
+            softly.assertThat(room.isGuessExpirationStale(deadline.plusSeconds(1))).isTrue();
+        });
+    }
+
+    private GameRoom createRoomWithGeneratedImages() {
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
+        room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
+        return room;
+    }
+
+    private GameRoom createRoomInGuessing() throws Exception {
+        GameRoom room = createRoomWithGeneratedImages();
+        setPhase(room, GamePhase.PLAYING);
+        room.startRounds(GUESS_STARTED_AT, GUESS_DURATION);
+        return room;
     }
 
     private void setPhase(GameRoom room, GamePhase phase) throws Exception {

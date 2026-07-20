@@ -1,6 +1,7 @@
 package com.igmo.web;
 
 import com.igmo.service.GameService;
+import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
 import com.igmo.web.exception.PlayerSessionNotFoundException;
@@ -39,6 +40,14 @@ public class GameMessageController {
                              SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
         gameService.submitPrompt(code, playerId, request.prompt());
+    }
+
+    @MessageMapping("/rooms/{code}/guesses")
+    public void submitGuess(@DestinationVariable String code,
+                            @Valid GuessRequest request,
+                            SimpMessageHeaderAccessor headerAccessor) {
+        String playerId = requirePlayerId(headerAccessor);
+        gameService.submitGuess(code, playerId, request.guess());
     }
 
     private String requirePlayerId(SimpMessageHeaderAccessor headerAccessor) {

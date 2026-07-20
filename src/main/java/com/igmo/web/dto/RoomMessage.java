@@ -12,4 +12,8 @@ public record RoomMessage<T>(
     public static RoomMessage<PromptSubmissionSnapshot> promptSubmissionSnapshot(PromptSubmissionSnapshot payload) {
         return new RoomMessage<>(RoomMessageType.PROMPT_SUBMISSION_SNAPSHOT, payload);
     }
+
+    public static RoomMessage<RoundSnapshot> roundSnapshot(RoundSnapshot payload) {
+        return new RoomMessage<>(RoomMessageType.ROUND_SNAPSHOT, payload);
+    }
 }
