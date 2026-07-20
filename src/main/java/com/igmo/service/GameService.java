@@ -15,6 +15,7 @@ import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
+import com.igmo.web.dto.RoundSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -50,9 +51,12 @@ public class GameService {
     private Duration disconnectGrace;
     @Value("${igmo.game.prompt-duration}")
     private Duration promptDuration;
+    @Value("${igmo.game.guess-duration}")
+    private Duration guessDuration;
 
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
 
     public GameService(GameRegistry gameRegistry,
                        RoomCodeGenerator roomCodeGenerator,
@@ -136,6 +140,32 @@ public class GameService {
         startImageGeneration(code, playerId, prompt);
     }
 
+    // PLAYING 전환 이후 라운드 초기화 진입점. 전환 흐름과의 호출 연결은 이미지 준비 담당 개발 완료 후 조정한다. (#69)
+    public void startRounds(String code) {
+        RoundSnapshot snapshot = withLockedRoom(code, room -> {
+            room.startRounds(Instant.now(), guessDuration);
+            scheduleGuessExpiration(code, room.getGuessDeadline());
+            return RoundSnapshot.from(room);
+        });
+        broadcastRoundSnapshot(code, snapshot);
+    }
+
+    public void submitGuess(String code, String playerId, String guess) {
+        RoundSnapshot snapshot = withLockedRoom(code, room -> {
+            if (!room.hasPlayer(playerId)) {
+                throw new PlayerNotFoundException();
+            }
+            Instant submittedAt = Instant.now();
+            room.submitGuess(playerId, guess, submittedAt);
+            if (room.hasAllCurrentRoundGuesses()) {
+                cancelGuessExpiration(code);
+                room.completeGuessSubmission(submittedAt);
+            }
+            return RoundSnapshot.from(room);
+        });
+        broadcastRoundSnapshot(code, snapshot);
+    }
+
     public void handleDisconnect(String code, String playerId) {
         ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
                 () -> runScheduledRemoval(code, playerId),
@@ -188,6 +218,38 @@ public class GameService {
 
     private void cancelPromptExpiration(String code) {
         ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void scheduleGuessExpiration(String code, Instant deadline) {
+        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
+                () -> runGuessExpiration(code, deadline),
+                deadline);
+        ScheduledFuture<?> previous = pendingGuessExpirations.put(code, future);
+        if (previous != null) {
+            previous.cancel(false);
+        }
+    }
+
+    private void runGuessExpiration(String code, Instant deadline) {
+        if (pendingGuessExpirations.remove(code) == null) {
+            return;
+        }
+        gameRegistry.find(code)
+                .map(room -> withLockedRoom(code, lockedRoom -> {
+                    if (lockedRoom.isGuessExpirationStale(deadline)) {
+                        return null;
+                    }
+                    lockedRoom.completeGuessSubmission(Instant.now());
+                    return RoundSnapshot.from(lockedRoom);
+                }))
+                .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
+    }
+
+    private void cancelGuessExpiration(String code) {
+        ScheduledFuture<?> future = pendingGuessExpirations.remove(code);
         if (future != null) {
             future.cancel(false);
         }
@@ -298,6 +360,7 @@ public class GameService {
         }
         if (room.isEmpty()) {
             cancelPromptExpiration(room.getCode());
+            cancelGuessExpiration(room.getCode());
             gameRegistry.remove(room.getCode());
             return;
         }
@@ -310,6 +373,10 @@ public class GameService {
 
     private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.promptSubmissionSnapshot(snapshot));
+    }
+
+    private void broadcastRoundSnapshot(String code, RoundSnapshot snapshot) {
+        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.roundSnapshot(snapshot));
     }
 
     private void sendImageGenerationResult(String playerId, ImageGenerationResult result) {
