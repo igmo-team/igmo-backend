@@ -22,6 +22,7 @@ public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
     private static final int MIN_PLAYERS_TO_START = 3;
+    private static final AutoPromptPrefix[] AUTO_PROMPT_PREFIXES = AutoPromptPrefix.values();
 
     @Getter
     private final String code;
@@ -140,6 +141,25 @@ public class GameRoom {
         entry.submit(prompt, submittedAt);
     }
 
+    public synchronized Map<String, String> autoSubmitPrompts(Instant submittedAt) {
+        if (!isGenerating()) {
+            return Map.of();
+        }
+
+        Map<String, String> autoSubmittedPrompts = new LinkedHashMap<>();
+        for (Player player : players.values()) {
+            PromptEntry entry = promptEntriesByPlayerId.get(player.getId());
+            if (entry == null || !entry.isWaiting()) {
+                continue;
+            }
+
+            String prompt = createAutoPrompt(player);
+            entry.submit(prompt, submittedAt);
+            autoSubmittedPrompts.put(player.getId(), prompt);
+        }
+        return Map.copyOf(autoSubmittedPrompts);
+    }
+
     public synchronized void completeImageGeneration(String playerId, String imageUrl) {
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
         if (entry == null || !entry.isSubmitted()) {
@@ -187,6 +207,13 @@ public class GameRoom {
     private void assignRandomHost() {
         List<Player> remaining = List.copyOf(players.values());
         hostId = remaining.get(ThreadLocalRandom.current().nextInt(remaining.size())).getId();
+    }
+
+    private String createAutoPrompt(Player player) {
+        AutoPromptPrefix prefix = AUTO_PROMPT_PREFIXES[
+                ThreadLocalRandom.current().nextInt(AUTO_PROMPT_PREFIXES.length)
+        ];
+        return prefix.value() + " " + player.getNickname().value();
     }
 
     private boolean isInLobby() {

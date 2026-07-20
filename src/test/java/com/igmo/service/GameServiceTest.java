@@ -652,6 +652,45 @@ class GameServiceTest {
     }
 
     @Test
+    @DisplayName("미제출 참가자가 정상 퇴장해 남은 이미지가 모두 준비되면 PLAYING 전환을 예약한다.")
+    void leaveGame_미제출_참가자가_나가면_PLAYING_전환을_예약한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
+
+        // when
+        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
+        Runnable transition = captureScheduledPlayingTransition();
+        transition.run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.PLAYING);
+    }
+
+    @Test
+    @DisplayName("미제출 참가자의 연결 종료가 확정돼 남은 이미지가 모두 준비되면 PLAYING 전환을 예약한다.")
+    void handleDisconnect_미제출_참가자가_제거되면_PLAYING_전환을_예약한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
+        gameService.handleDisconnect("ABCD", session.guest2().playerId());
+
+        // when
+        captureScheduledRemoval().run();
+        Runnable transition = captureScheduledPlayingTransition();
+        transition.run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .extracting(GameRoom::getPhase)
+                .isEqualTo(GamePhase.PLAYING);
+    }
+
+    @Test
     @DisplayName("마지막 이미지 생성 후 방이 삭제되면 PLAYING 전환 예약을 취소한다.")
     void imageGeneration_방이_삭제되면_PLAYING_전환_예약을_취소한다() {
         // given
@@ -734,6 +773,37 @@ class GameServiceTest {
                 .singleElement()
                 .extracting(PromptEntryView::submitted)
                 .isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 시 미제출 참가자에게 자동 프롬프트를 제출하고 이미지 생성을 시작한다.")
+    void promptExpiration_미제출_참가자에게_자동_프롬프트를_제출하고_이미지_생성을_시작한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
+        gameService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        clearInvocations(messagingTemplate);
+
+        // when
+        captureScheduledPromptExpiration().run();
+
+        // then
+        PromptEntry autoSubmittedEntry = findPromptEntry("ABCD", session.guest2().playerId());
+        PromptSubmissionSnapshot expirationSnapshot = captureLastPromptSubmissionBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(autoSubmittedEntry.getPrompt()).isIn(
+                    "망설이는 참가자2", "우유부단한 참가자2", "바보 같은 참가자2");
+            softly.assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(autoSubmittedEntry.getSubmittedAt()).isEqualTo(
+                    gameRegistry.find("ABCD").orElseThrow().getPromptDeadline());
+            softly.assertThat(findPromptEntryView(expirationSnapshot, session.guest2().playerId()).submitted()).isTrue();
+            softly.assertThat(imageGenerationTask).isNotNull();
+        });
+
+        runImageGenerationTask();
+
+        verify(imageGenerationClient).generate(autoSubmittedEntry.getPrompt());
+        assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.READY);
     }
 
     @Test

@@ -186,9 +186,17 @@ public class GameService {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
                         return null;
                     }
-                    return PromptSubmissionSnapshot.from(lockedRoom);
+                    Map<String, String> autoSubmittedPrompts = lockedRoom.autoSubmitPrompts(deadline);
+                    return new PromptExpirationResult(
+                            PromptSubmissionSnapshot.from(lockedRoom),
+                            autoSubmittedPrompts
+                    );
                 }))
-                .ifPresent(snapshot -> broadcastPromptSubmissionSnapshot(code, snapshot));
+                .ifPresent(result -> {
+                    broadcastPromptSubmissionSnapshot(code, result.snapshot());
+                    result.autoSubmittedPrompts()
+                            .forEach((playerId, prompt) -> startImageGeneration(code, playerId, prompt));
+                });
     }
 
     private void cancelPromptExpiration(String code) {
@@ -337,16 +345,33 @@ public class GameService {
     }
 
     private void removePlayerAndBroadcast(GameRoom room, String playerId) {
-        if (!room.removePlayer(playerId)) {
-            return;
+        boolean shouldSchedulePlayingTransition;
+        synchronized (room) {
+            boolean wasAllImagesGenerated = room.hasAllImagesGenerated();
+            if (!room.removePlayer(playerId)) {
+                return;
+            }
+            if (room.isEmpty()) {
+                cancelPromptExpiration(room.getCode());
+                cancelPlayingTransition(room.getCode());
+                gameRegistry.remove(room.getCode());
+                return;
+            }
+            if (!room.hasWaitingPrompt()) {
+                cancelPromptExpiration(room.getCode());
+            }
+            broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
+            shouldSchedulePlayingTransition = !wasAllImagesGenerated && room.hasAllImagesGenerated();
         }
-        if (room.isEmpty()) {
-            cancelPromptExpiration(room.getCode());
-            cancelPlayingTransition(room.getCode());
-            gameRegistry.remove(room.getCode());
-            return;
+        if (shouldSchedulePlayingTransition) {
+            schedulePlayingTransition(room.getCode());
         }
-        broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
+    }
+
+    private record PromptExpirationResult(
+            PromptSubmissionSnapshot snapshot,
+            Map<String, String> autoSubmittedPrompts
+    ) {
     }
 
     private void broadcastLobbySnapshot(String code, LobbySnapshot snapshot) {

@@ -17,6 +17,7 @@ import com.igmo.domain.exception.RoomFullException;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -333,6 +334,43 @@ class GameRoomTest {
             softly.assertThat(entry.getPrompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(entry.getSubmittedAt()).isEqualTo(submittedAt);
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+        });
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 시 대기 중인 모든 참가자에게 닉네임 기반 프롬프트를 자동 제출한다.")
+    void autoSubmitPrompts_대기_중인_모든_참가자에게_자동_프롬프트를_제출한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "직접 제출한 프롬프트", PROMPT_STARTED_AT);
+        Instant deadline = room.getPromptDeadline();
+
+        // when
+        Map<String, String> autoSubmittedPrompts = room.autoSubmitPrompts(deadline);
+
+        // then
+        PromptEntry guest1Entry = findPromptEntry(room, guest1.getId());
+        PromptEntry guest2Entry = findPromptEntry(room, guest2.getId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(autoSubmittedPrompts).containsOnlyKeys(guest1.getId(), guest2.getId());
+            softly.assertThat(guest1Entry.getPrompt()).isIn(
+                    "망설이는 참가자1", "우유부단한 참가자1", "바보 같은 참가자1");
+            softly.assertThat(guest2Entry.getPrompt()).isIn(
+                    "망설이는 참가자2", "우유부단한 참가자2", "바보 같은 참가자2");
+            softly.assertThat(guest1Entry.getSubmittedAt()).isEqualTo(deadline);
+            softly.assertThat(guest2Entry.getSubmittedAt()).isEqualTo(deadline);
+            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(guest2Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(findPromptEntry(room, host.getId()).getPrompt()).isEqualTo("직접 제출한 프롬프트");
+            softly.assertThat(room.hasWaitingPrompt()).isFalse();
         });
     }
 
