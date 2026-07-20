@@ -148,13 +148,6 @@ public class GameService {
         startImageGeneration(code, playerId, prompt);
     }
 
-    public void startRounds(String code) {
-        RoundSnapshot snapshot = withLockedRoom(code, room -> {
-            return initializeRounds(code, room, Instant.now());
-        });
-        broadcastRoundSnapshot(code, snapshot);
-    }
-
     public void submitGuess(String code, String playerId, String guess) {
         RoundSnapshot snapshot = withLockedRoom(code, room -> {
             if (!room.hasPlayer(playerId)) {
@@ -232,12 +225,6 @@ public class GameService {
         if (future != null) {
             future.cancel(false);
         }
-    }
-
-    private RoundSnapshot initializeRounds(String code, GameRoom room, Instant startedAt) {
-        room.startRounds(startedAt, guessDuration);
-        scheduleGuessExpiration(code, room.getGuessDeadline());
-        return RoundSnapshot.from(room);
     }
 
     private void scheduleGuessExpiration(String code, Instant deadline) {
@@ -401,13 +388,20 @@ public class GameService {
         }
         try {
             gameRegistry.find(code)
-                    .ifPresent(room -> withLockedRoom(code, lockedRoom -> {
+                    .map(room -> withLockedRoom(code, lockedRoom -> {
                         lockedRoom.advanceToPlaying();
-                        startRounds(code);
-                    }));
+                        return initializeRounds(code, lockedRoom, Instant.now());
+                    }))
+                    .ifPresent(snapshot -> broadcastRoundSnapshot(code, snapshot));
         } catch (RoomNotFoundException | ImagesNotReadyException | RoundStartNotAllowedException ignored) {
             log.debug("이미지 생성 완료 전환 조건이 충족되지 않아 무시한다. roomCode={}", code);
         }
+    }
+
+    private RoundSnapshot initializeRounds(String code, GameRoom room, Instant startedAt) {
+        room.startRounds(startedAt, guessDuration);
+        scheduleGuessExpiration(code, room.getGuessDeadline());
+        return RoundSnapshot.from(room);
     }
 
     private static String removalKey(String code, String playerId) {

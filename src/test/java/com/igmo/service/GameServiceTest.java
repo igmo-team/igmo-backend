@@ -658,7 +658,12 @@ class GameServiceTest {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
             softly.assertThat(snapshot.roundNumber()).isEqualTo(1);
             softly.assertThat(snapshot.totalRoundCount()).isEqualTo(3);
+            softly.assertThat(snapshot.questioner().id()).isEqualTo(session.host().playerId());
+            softly.assertThat(snapshot.imageUrl()).isEqualTo("https://cdn.example.com/host.png");
             softly.assertThat(snapshot.guessDeadline()).isNotNull();
+            softly.assertThat(snapshot.guessEntries())
+                    .extracting(GuessEntryView::submitted)
+                    .containsOnly(false);
         });
         verify(messagingTemplate, times(1))
                 .convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
@@ -965,39 +970,10 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("라운드를 시작하면 첫 라운드 스냅샷을 브로드캐스트하고 추측 마감을 예약한다.")
-    void startRounds_라운드를_시작하면_스냅샷을_브로드캐스트하고_마감을_예약한다() {
-        // given
-        List<String> playerIds = setUpRoomInPlaying();
-        clearInvocations(messagingTemplate);
-
-        // when
-        gameService.startRounds("ABCD");
-
-        // then
-        RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
-        verify(messagingTemplate, times(1))
-                .convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
-        SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
-            softly.assertThat(snapshot.roundNumber()).isEqualTo(1);
-            softly.assertThat(snapshot.totalRoundCount()).isEqualTo(3);
-            softly.assertThat(snapshot.questioner().id()).isEqualTo(playerIds.get(0));
-            softly.assertThat(snapshot.imageUrl()).isEqualTo("https://cdn.example.com/host.png");
-            softly.assertThat(snapshot.guessDeadline()).isNotNull();
-            softly.assertThat(snapshot.guessEntries())
-                    .extracting(GuessEntryView::submitted)
-                    .containsOnly(false);
-        });
-        verify(promptDeadlineScheduler, times(2)).schedule(any(Runnable.class), any(Instant.class));
-    }
-
-    @Test
     @DisplayName("추측을 제출하면 제출 현황이 담긴 라운드 스냅샷을 브로드캐스트한다.")
     void submitGuess_추측을_제출하면_현황을_브로드캐스트한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gameService.startRounds("ABCD");
         clearInvocations(messagingTemplate);
 
         // when
@@ -1021,7 +997,6 @@ class GameServiceTest {
     void submitGuess_전원이_제출하면_VOTING으로_전환하고_마감_작업을_취소한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gameService.startRounds("ABCD");
         gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
         clearInvocations(messagingTemplate);
 
@@ -1039,7 +1014,6 @@ class GameServiceTest {
     void submitGuess_방에_없는_플레이어면_예외를_던진다() {
         // given
         setUpRoomInPlaying();
-        gameService.startRounds("ABCD");
 
         // when & then
         assertThatThrownBy(() -> gameService.submitGuess("ABCD", "unknown-player", "추측"))
@@ -1051,9 +1025,9 @@ class GameServiceTest {
     @DisplayName("추측 마감 작업이 실행되면 VOTING으로 전환한 스냅샷을 브로드캐스트한다.")
     void guessDeadline_마감_작업이_실행되면_VOTING으로_전환한다() {
         // given
-        setUpRoomInPlaying();
+        setUpRoomWithImagesReady();
         ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofMillis(-1));
-        gameService.startRounds("ABCD");
+        captureScheduledPlayingTransition().run();
         Runnable guessExpiration = captureLastScheduledDeadline(2);
         clearInvocations(messagingTemplate);
 
@@ -1075,7 +1049,6 @@ class GameServiceTest {
     void guessDeadline_취소된_마감_작업이_실행되면_무시한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gameService.startRounds("ABCD");
         gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
         gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
         Runnable guessExpiration = captureLastScheduledDeadline(2);
@@ -1089,6 +1062,12 @@ class GameServiceTest {
     }
 
     private List<String> setUpRoomInPlaying() {
+        List<String> playerIds = setUpRoomWithImagesReady();
+        captureScheduledPlayingTransition().run();
+        return playerIds;
+    }
+
+    private List<String> setUpRoomWithImagesReady() {
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate(any()))
                 .willReturn(
@@ -1107,9 +1086,6 @@ class GameServiceTest {
         runImageGenerationTask();
         gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
         runImageGenerationTask();
-        // PLAYING 전환은 팀 백엔드의 이미지 준비 흐름 담당이므로 테스트에서는 직접 전환한다.
-        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
-        ReflectionTestUtils.setField(room, "phase", GamePhase.PLAYING);
         return List.of(created.playerId(), guest1.playerId(), guest2.playerId());
     }
 
