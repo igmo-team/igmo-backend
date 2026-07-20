@@ -3,7 +3,7 @@ package com.igmo.domain;
 public enum AutoPromptPrefix {
     HESITATING("망설이는"),
     INDECISIVE("우유부단한"),
-    FOOLISH("바보같은"),
+    FOOLISH("바보 같은"),
     SLUGGISH("거북이족인"),
     TIMEOVER("시간 초과된"),
     CLUELESS("갈팡질팡하는"),

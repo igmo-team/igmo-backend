@@ -1,5 +1,6 @@
 package com.igmo.service;
 
+import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
@@ -297,6 +298,9 @@ public class GameService {
         try {
             boolean shouldSchedulePlayingTransition = gameRegistry.find(code)
                     .map(room -> withLockedRoom(code, lockedRoom -> {
+                        if (lockedRoom.getPhase() != GamePhase.GENERATING) {
+                            return false;
+                        }
                         boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
                         operation.accept(lockedRoom);
 
@@ -345,9 +349,7 @@ public class GameService {
     }
 
     private void removePlayerAndBroadcast(GameRoom room, String playerId) {
-        boolean shouldSchedulePlayingTransition;
         synchronized (room) {
-            boolean wasAllImagesGenerated = room.hasAllImagesGenerated();
             if (!room.removePlayer(playerId)) {
                 return;
             }
@@ -357,14 +359,11 @@ public class GameService {
                 gameRegistry.remove(room.getCode());
                 return;
             }
-            if (!room.hasWaitingPrompt()) {
+            if (room.returnToLobby()) {
                 cancelPromptExpiration(room.getCode());
+                cancelPlayingTransition(room.getCode());
             }
             broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
-            shouldSchedulePlayingTransition = !wasAllImagesGenerated && room.hasAllImagesGenerated();
-        }
-        if (shouldSchedulePlayingTransition) {
-            schedulePlayingTransition(room.getCode());
         }
     }
 

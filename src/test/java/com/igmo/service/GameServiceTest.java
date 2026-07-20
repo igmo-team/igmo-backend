@@ -18,6 +18,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntry;
@@ -44,6 +45,7 @@ import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
@@ -652,42 +654,73 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("미제출 참가자가 정상 퇴장해 남은 이미지가 모두 준비되면 PLAYING 전환을 예약한다.")
-    void leaveGame_미제출_참가자가_나가면_PLAYING_전환을_예약한다() {
+    @DisplayName("진행 중 참가자가 정상 퇴장하면 방을 로비로 되돌린다.")
+    void leaveGame_진행_중_참가자가_나가면_로비로_되돌린다() {
         // given
         GameSession session = startGeneratingGame();
-        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
+        clearInvocations(messagingTemplate);
 
         // when
         gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
-        Runnable transition = captureScheduledPlayingTransition();
-        transition.run();
 
         // then
-        assertThat(gameRegistry.find("ABCD")).get()
-                .extracting(GameRoom::getPhase)
-                .isEqualTo(GamePhase.PLAYING);
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        LobbySnapshot snapshot = captureLastLobbyBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPromptEntries()).isEmpty();
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(snapshot.players())
+                    .extracting(PlayerView::id, PlayerView::ready)
+                    .containsExactly(
+                            tuple(session.host().playerId(), false),
+                            tuple(session.guest1().playerId(), false)
+                    );
+        });
+        verify(scheduledPromptExpiration).cancel(false);
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
     }
 
     @Test
-    @DisplayName("미제출 참가자의 연결 종료가 확정돼 남은 이미지가 모두 준비되면 PLAYING 전환을 예약한다.")
-    void handleDisconnect_미제출_참가자가_제거되면_PLAYING_전환을_예약한다() {
+    @DisplayName("진행 중 참가자의 연결 종료가 확정되면 방을 로비로 되돌린다.")
+    void handleDisconnect_진행_중_참가자가_제거되면_로비로_되돌린다() {
         // given
         GameSession session = startGeneratingGame();
-        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        submitPromptAndCompleteImage(session.guest1().playerId(), "참가자1 프롬프트");
         gameService.handleDisconnect("ABCD", session.guest2().playerId());
+        clearInvocations(messagingTemplate);
 
         // when
         captureScheduledRemoval().run();
-        Runnable transition = captureScheduledPlayingTransition();
-        transition.run();
+
+        // then
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        LobbySnapshot snapshot = captureLastLobbyBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPromptEntries()).isEmpty();
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.LOBBY);
+        });
+        verify(scheduledPromptExpiration).cancel(false);
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("로비 복귀 후 완료된 이미지 생성 결과는 무시한다.")
+    void imageGeneration_로비_복귀_후_완료된_결과는_무시한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
+        gameService.leaveGame("ABCD", session.guest2().playerId(), session.guest2().secret());
+        clearInvocations(messagingTemplate);
+
+        // when
+        runImageGenerationTask();
 
         // then
         assertThat(gameRegistry.find("ABCD")).get()
                 .extracting(GameRoom::getPhase)
-                .isEqualTo(GamePhase.PLAYING);
+                .isEqualTo(GamePhase.LOBBY);
+        verifyNoInteractions(messagingTemplate);
     }
 
     @Test
@@ -791,8 +824,7 @@ class GameServiceTest {
         PromptEntry autoSubmittedEntry = findPromptEntry("ABCD", session.guest2().playerId());
         PromptSubmissionSnapshot expirationSnapshot = captureLastPromptSubmissionBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(autoSubmittedEntry.getPrompt()).isIn(
-                    "망설이는 참가자2", "우유부단한 참가자2", "바보 같은 참가자2");
+            softly.assertThat(autoSubmittedEntry.getPrompt()).isIn(autoPromptCandidates("참가자2"));
             softly.assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
             softly.assertThat(autoSubmittedEntry.getSubmittedAt()).isEqualTo(
                     gameRegistry.find("ABCD").orElseThrow().getPromptDeadline());
@@ -1045,5 +1077,11 @@ class GameServiceTest {
                 .filter(entry -> entry.player().id().equals(playerId))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private List<String> autoPromptCandidates(String nickname) {
+        return Arrays.stream(AutoPromptPrefix.values())
+                .map(prefix -> prefix.value() + " " + nickname)
+                .toList();
     }
 }

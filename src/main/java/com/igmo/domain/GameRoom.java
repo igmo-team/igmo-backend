@@ -73,6 +73,18 @@ public class GameRoom {
         return true;
     }
 
+    public synchronized boolean returnToLobby() {
+        if (isInLobby()) {
+            return false;
+        }
+        phase = GamePhase.LOBBY;
+        promptStartedAt = null;
+        promptDeadline = null;
+        promptEntriesByPlayerId.clear();
+        players.values().forEach(player -> player.changeReady(false));
+        return true;
+    }
+
     public synchronized List<Player> getPlayers() {
         return List.copyOf(players.values());
     }

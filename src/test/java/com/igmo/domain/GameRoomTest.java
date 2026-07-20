@@ -17,6 +17,8 @@ import com.igmo.domain.exception.RoomFullException;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
@@ -195,6 +197,38 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("진행 중인 방을 로비로 되돌리면 프롬프트와 준비 상태를 초기화한다.")
+    void returnToLobby_진행_중인_방이면_프롬프트와_준비_상태를_초기화한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(host.getId(), true);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+
+        // when
+        boolean returnedToLobby = room.returnToLobby();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(returnedToLobby).isTrue();
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.LOBBY);
+            softly.assertThat(room.getPromptStartedAt()).isNull();
+            softly.assertThat(room.getPromptDeadline()).isNull();
+            softly.assertThat(room.getPromptEntries()).isEmpty();
+            softly.assertThat(room.getPlayers())
+                    .extracting(Player::isReady)
+                    .containsOnly(false);
+        });
+    }
+
+    @Test
     @DisplayName("참가자의 준비 상태를 변경하면 해당 참가자에게 반영된다.")
     void changePlayerReady_준비_상태를_변경하면_반영된다() {
         // given
@@ -361,10 +395,8 @@ class GameRoomTest {
         PromptEntry guest2Entry = findPromptEntry(room, guest2.getId());
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(autoSubmittedPrompts).containsOnlyKeys(guest1.getId(), guest2.getId());
-            softly.assertThat(guest1Entry.getPrompt()).isIn(
-                    "망설이는 참가자1", "우유부단한 참가자1", "바보 같은 참가자1");
-            softly.assertThat(guest2Entry.getPrompt()).isIn(
-                    "망설이는 참가자2", "우유부단한 참가자2", "바보 같은 참가자2");
+            softly.assertThat(guest1Entry.getPrompt()).isIn(autoPromptCandidates("참가자1"));
+            softly.assertThat(guest2Entry.getPrompt()).isIn(autoPromptCandidates("참가자2"));
             softly.assertThat(guest1Entry.getSubmittedAt()).isEqualTo(deadline);
             softly.assertThat(guest2Entry.getSubmittedAt()).isEqualTo(deadline);
             softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
@@ -685,5 +717,11 @@ class GameRoomTest {
                 .filter(entry -> entry.getPlayerId().equals(playerId))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private List<String> autoPromptCandidates(String nickname) {
+        return Arrays.stream(AutoPromptPrefix.values())
+                .map(prefix -> prefix.value() + " " + nickname)
+                .toList();
     }
 }
