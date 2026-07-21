@@ -2,21 +2,15 @@ package com.igmo.service;
 
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
-import com.igmo.domain.Player;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.service.exception.ImageStorageException;
 import com.igmo.service.exception.PlayerNotFoundException;
-import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
-import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
-import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.ImageGenerationResult;
-import com.igmo.web.dto.JoinGameResponse;
-import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
@@ -25,16 +19,13 @@ import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ScheduledFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -43,19 +34,13 @@ public class GameService {
 
     private static final String ROOM_TOPIC_PREFIX = "/topic/rooms/";
     private static final String IMAGE_GENERATION_QUEUE = "/queue/image-generation";
-    private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
 
     private final GameRegistry gameRegistry;
-    private final RoomCodeGenerator roomCodeGenerator;
     private final SimpMessagingTemplate messagingTemplate;
-    private final TaskScheduler disconnectGraceScheduler;
-    private final TaskScheduler promptDeadlineScheduler;
-    private final TaskScheduler imageGenerationCompletionScheduler;
+    private final GamePhaseScheduler gamePhaseScheduler;
     private final ImageGenerationClient imageGenerationClient;
     private final Executor imageGenerationExecutor;
 
-    @Value("${igmo.game.disconnect-grace}")
-    private Duration disconnectGrace;
     @Value("${igmo.game.prompt-duration}")
     private Duration promptDuration;
     @Value("${igmo.game.guess-duration}")
@@ -67,68 +52,18 @@ public class GameService {
     @Value("${igmo.game.image-generation-completion-delay}")
     private Duration imageGenerationCompletionDelay;
 
-    private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledFuture<?>> pendingVoteExpirations = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledFuture<?>> pendingResultExpirations = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledFuture<?>> pendingPlayingTransitions = new ConcurrentHashMap<>();
-
-    public GameService(GameRegistry gameRegistry,
-                       RoomCodeGenerator roomCodeGenerator,
-                       SimpMessagingTemplate messagingTemplate,
-                       @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
-                       @Qualifier("promptDeadlineScheduler") TaskScheduler promptDeadlineScheduler,
-                       @Qualifier("imageGenerationCompletionScheduler") TaskScheduler imageGenerationCompletionScheduler,
-                       ImageGenerationClient imageGenerationClient,
-                       @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor) {
+    public GameService(
+            GameRegistry gameRegistry,
+            SimpMessagingTemplate messagingTemplate,
+            GamePhaseScheduler gamePhaseScheduler,
+            ImageGenerationClient imageGenerationClient,
+            @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor
+    ) {
         this.gameRegistry = gameRegistry;
-        this.roomCodeGenerator = roomCodeGenerator;
         this.messagingTemplate = messagingTemplate;
-        this.disconnectGraceScheduler = disconnectGraceScheduler;
-        this.promptDeadlineScheduler = promptDeadlineScheduler;
-        this.imageGenerationCompletionScheduler = imageGenerationCompletionScheduler;
+        this.gamePhaseScheduler = gamePhaseScheduler;
         this.imageGenerationClient = imageGenerationClient;
         this.imageGenerationExecutor = imageGenerationExecutor;
-    }
-
-    public CreateGameResponse createGame(String nickname) {
-        Player host = new Player(nickname);
-        GameRoom room = createRoomWithUniqueCode(host);
-        return new CreateGameResponse(room.getCode(), host.getId(), host.getSecret(), LobbySnapshot.from(room));
-    }
-
-    public JoinGameResponse joinGame(String code, String nickname) {
-        return withLockedRoom(code, room -> {
-            Player player = new Player(nickname);
-            room.addPlayer(player);
-            LobbySnapshot snapshot = LobbySnapshot.from(room);
-            broadcastLobbySnapshot(code, snapshot);
-            return new JoinGameResponse(player.getId(), player.getSecret(), snapshot);
-        });
-    }
-
-    public void leaveGame(String code, String playerId, String secret) {
-        withLockedRoom(code, room -> {
-            if (!room.hasPlayer(playerId)) {
-                throw new PlayerNotFoundException();
-            }
-            if (!room.isSecretValid(playerId, secret)) {
-                throw new UnauthorizedPlayerException();
-            }
-            cancelPendingRemoval(code, playerId);
-            removePlayerAndBroadcast(room, playerId);
-        });
-    }
-
-    public void changeReady(String code, String playerId, boolean ready) {
-        withLockedRoom(code, room -> {
-            if (!room.hasPlayer(playerId)) {
-                throw new PlayerNotFoundException();
-            }
-            room.changePlayerReady(playerId, ready);
-            broadcastLobbySnapshot(code, LobbySnapshot.from(room));
-        });
     }
 
     public void startGame(String code, String playerId) {
@@ -149,7 +84,7 @@ public class GameService {
             Instant submittedAt = Instant.now();
             room.submitPrompt(playerId, prompt, submittedAt);
             if (!room.hasWaitingPrompt()) {
-                cancelPromptExpiration(code);
+                gamePhaseScheduler.cancelPrompt(code);
             }
             return PromptSubmissionSnapshot.from(room);
         });
@@ -165,7 +100,7 @@ public class GameService {
             Instant submittedAt = Instant.now();
             room.submitGuess(playerId, guess, submittedAt);
             if (room.hasAllCurrentRoundGuesses()) {
-                cancelGuessExpiration(code);
+                gamePhaseScheduler.cancelGuess(code);
                 room.completeGuessSubmission(submittedAt, voteDuration);
                 scheduleVoteExpiration(code, room.getVoteDeadline());
                 return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
@@ -183,7 +118,7 @@ public class GameService {
             Instant submittedAt = Instant.now();
             room.submitVote(playerId, optionId, submittedAt);
             if (room.hasAllCurrentRoundVotes()) {
-                cancelVoteExpiration(code);
+                gamePhaseScheduler.cancelVote(code);
                 room.completeVoting(submittedAt, resultDuration);
                 scheduleResultExpiration(code, room.getResultDeadline());
                 return RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room));
@@ -193,44 +128,11 @@ public class GameService {
         broadcastRoomMessage(code, message);
     }
 
-    public void handleDisconnect(String code, String playerId) {
-        ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
-                () -> runScheduledRemoval(code, playerId),
-                Instant.now().plus(disconnectGrace));
-        ScheduledFuture<?> previous = pendingRemovals.put(removalKey(code, playerId), future);
-        if (previous != null) {
-            previous.cancel(false);
-        }
-    }
-
-    public void cancelPendingRemoval(String code, String playerId) {
-        ScheduledFuture<?> future = pendingRemovals.remove(removalKey(code, playerId));
-        if (future != null) {
-            future.cancel(false);
-        }
-    }
-
-    private void runScheduledRemoval(String code, String playerId) {
-        if (pendingRemovals.remove(removalKey(code, playerId)) == null) {
-            return;
-        }
-        gameRegistry.find(code).ifPresent(room -> removePlayerAndBroadcast(room, playerId));
-    }
-
     private void schedulePromptExpiration(String code, Instant deadline) {
-        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
-                () -> runPromptExpiration(code, deadline),
-                deadline);
-        ScheduledFuture<?> previous = pendingPromptExpirations.put(code, future);
-        if (previous != null) {
-            previous.cancel(false);
-        }
+        gamePhaseScheduler.schedulePrompt(code, deadline, () -> runPromptExpiration(code, deadline));
     }
 
     private void runPromptExpiration(String code, Instant deadline) {
-        if (pendingPromptExpirations.remove(code) == null) {
-            return;
-        }
         gameRegistry.find(code)
                 .map(room -> withLockedRoom(code, lockedRoom -> {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
@@ -239,8 +141,7 @@ public class GameService {
                     Map<String, String> autoSubmittedPrompts = lockedRoom.autoSubmitPrompts(deadline);
                     return new PromptExpirationResult(
                             PromptSubmissionSnapshot.from(lockedRoom),
-                            autoSubmittedPrompts
-                    );
+                            autoSubmittedPrompts);
                 }))
                 .ifPresent(result -> {
                     broadcastPromptSubmissionSnapshot(code, result.snapshot());
@@ -249,27 +150,11 @@ public class GameService {
                 });
     }
 
-    private void cancelPromptExpiration(String code) {
-        ScheduledFuture<?> future = pendingPromptExpirations.remove(code);
-        if (future != null) {
-            future.cancel(false);
-        }
-    }
-
     private void scheduleGuessExpiration(String code, Instant deadline) {
-        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
-                () -> runGuessExpiration(code, deadline),
-                deadline);
-        ScheduledFuture<?> previous = pendingGuessExpirations.put(code, future);
-        if (previous != null) {
-            previous.cancel(false);
-        }
+        gamePhaseScheduler.scheduleGuess(code, deadline, () -> runGuessExpiration(code, deadline));
     }
 
     private void runGuessExpiration(String code, Instant deadline) {
-        if (pendingGuessExpirations.remove(code) == null) {
-            return;
-        }
         gameRegistry.find(code)
                 .map(room -> withLockedRoom(code, lockedRoom -> {
                     if (lockedRoom.isGuessExpirationStale(deadline)) {
@@ -282,27 +167,11 @@ public class GameService {
                 .ifPresent(snapshot -> broadcastVoteSnapshot(code, snapshot));
     }
 
-    private void cancelGuessExpiration(String code) {
-        ScheduledFuture<?> future = pendingGuessExpirations.remove(code);
-        if (future != null) {
-            future.cancel(false);
-        }
-    }
-
     private void scheduleVoteExpiration(String code, Instant deadline) {
-        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
-                () -> runVoteExpiration(code, deadline),
-                deadline);
-        ScheduledFuture<?> previous = pendingVoteExpirations.put(code, future);
-        if (previous != null) {
-            previous.cancel(false);
-        }
+        gamePhaseScheduler.scheduleVote(code, deadline, () -> runVoteExpiration(code, deadline));
     }
 
     private void runVoteExpiration(String code, Instant deadline) {
-        if (pendingVoteExpirations.remove(code) == null) {
-            return;
-        }
         gameRegistry.find(code)
                 .map(room -> withLockedRoom(code, lockedRoom -> {
                     if (lockedRoom.isVoteExpirationStale(deadline)) {
@@ -315,28 +184,11 @@ public class GameService {
                 .ifPresent(snapshot -> broadcastRoundResultSnapshot(code, snapshot));
     }
 
-    private void cancelVoteExpiration(String code) {
-        ScheduledFuture<?> future = pendingVoteExpirations.remove(code);
-        if (future != null) {
-            future.cancel(false);
-        }
-    }
-
     private void scheduleResultExpiration(String code, Instant deadline) {
-        ScheduledFuture<?> future = promptDeadlineScheduler.schedule(
-                () -> runResultExpiration(code, deadline),
-                deadline);
-        ScheduledFuture<?> previous = pendingResultExpirations.put(code, future);
-        if (previous != null) {
-            previous.cancel(false);
-        }
+        gamePhaseScheduler.scheduleResult(code, deadline, () -> runResultExpiration(code, deadline));
     }
 
-    // 결과 확인 시간이 지나면 다음 라운드로 넘어가거나 게임을 종료하고, 그 결과 스냅샷을 브로드캐스트한다.
     private void runResultExpiration(String code, Instant deadline) {
-        if (pendingResultExpirations.remove(code) == null) {
-            return;
-        }
         gameRegistry.find(code)
                 .map(room -> withLockedRoom(code, lockedRoom -> {
                     if (lockedRoom.isResultExpirationStale(deadline)) {
@@ -354,13 +206,6 @@ public class GameService {
         }
         scheduleGuessExpiration(code, room.getGuessDeadline());
         return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
-    }
-
-    private void cancelResultExpiration(String code) {
-        ScheduledFuture<?> future = pendingResultExpirations.remove(code);
-        if (future != null) {
-            future.cancel(false);
-        }
     }
 
     private void startImageGeneration(String code, String playerId, String prompt) {
@@ -407,7 +252,13 @@ public class GameService {
             Exception exception
     ) {
         logImageGenerationFailure(code, playerId, startedAt, exception);
-        failImageGeneration(code, playerId, submittedPrompt);
+        updateImageGenerationResult(
+                code,
+                playerId,
+                room -> room.failImageGeneration(playerId),
+                PromptEntryStatus.FAILED,
+                submittedPrompt,
+                null);
     }
 
     private void logImageGenerationFailure(String code, String playerId, long startedAt, Exception exception) {
@@ -430,16 +281,6 @@ public class GameService {
                 exception);
     }
 
-    private void failImageGeneration(String code, String playerId, String submittedPrompt) {
-        updateImageGenerationResult(
-                code,
-                playerId,
-                room -> room.failImageGeneration(playerId),
-                PromptEntryStatus.FAILED,
-                submittedPrompt,
-                null);
-    }
-
     private long elapsedMillis(long startedAt) {
         return (System.nanoTime() - startedAt) / 1_000_000;
     }
@@ -450,7 +291,8 @@ public class GameService {
             Consumer<GameRoom> operation,
             PromptEntryStatus status,
             String submittedPrompt,
-            String imageUrl) {
+            String imageUrl
+    ) {
         try {
             boolean shouldSchedulePlayingTransition = gameRegistry.find(code)
                     .map(room -> withLockedRoom(code, lockedRoom -> {
@@ -459,11 +301,9 @@ public class GameService {
                         }
                         boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
                         operation.accept(lockedRoom);
-
                         sendImageGenerationResult(
                                 playerId,
-                                new ImageGenerationResult(code, status, submittedPrompt, imageUrl)
-                        );
+                                new ImageGenerationResult(code, status, submittedPrompt, imageUrl));
                         broadcastPromptSubmissionSnapshot(code, PromptSubmissionSnapshot.from(lockedRoom));
                         return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
                     }))
@@ -477,19 +317,13 @@ public class GameService {
     }
 
     private void schedulePlayingTransition(String code) {
-        ScheduledFuture<?> future = imageGenerationCompletionScheduler.schedule(
-                () -> runPlayingTransition(code),
-                Instant.now().plus(imageGenerationCompletionDelay));
-        ScheduledFuture<?> existing = pendingPlayingTransitions.putIfAbsent(code, future);
-        if (existing != null) {
-            future.cancel(false);
-        }
+        gamePhaseScheduler.schedulePlayingTransition(
+                code,
+                Instant.now().plus(imageGenerationCompletionDelay),
+                () -> runPlayingTransition(code));
     }
 
     private void runPlayingTransition(String code) {
-        if (pendingPlayingTransitions.remove(code) == null) {
-            return;
-        }
         try {
             gameRegistry.find(code)
                     .map(room -> withLockedRoom(code, lockedRoom -> {
@@ -508,44 +342,10 @@ public class GameService {
         return RoundSnapshot.from(room);
     }
 
-    private static String removalKey(String code, String playerId) {
-        return code + "::" + playerId;
-    }
-
-    private void removePlayerAndBroadcast(GameRoom room, String playerId) {
-        synchronized (room) {
-            if (!room.removePlayer(playerId)) {
-                return;
-            }
-            if (room.isEmpty()) {
-                cancelRoomTimers(room.getCode());
-                gameRegistry.remove(room.getCode());
-                return;
-            }
-            // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
-            if (room.getPhase() == GamePhase.LOBBY) {
-                broadcastLobbySnapshot(room.getCode(), LobbySnapshot.from(room));
-            }
-        }
-    }
-
-    // 방이 사라지면 진행 중이던 단계 타이머는 모두 의미를 잃는다.
-    private void cancelRoomTimers(String code) {
-        cancelPromptExpiration(code);
-        cancelGuessExpiration(code);
-        cancelVoteExpiration(code);
-        cancelResultExpiration(code);
-        cancelPlayingTransition(code);
-    }
-
     private record PromptExpirationResult(
             PromptSubmissionSnapshot snapshot,
             Map<String, String> autoSubmittedPrompts
     ) {
-    }
-
-    private void broadcastLobbySnapshot(String code, LobbySnapshot snapshot) {
-        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, RoomMessage.lobbySnapshot(snapshot));
     }
 
     private void broadcastPromptSubmissionSnapshot(String code, PromptSubmissionSnapshot snapshot) {
@@ -572,13 +372,6 @@ public class GameService {
         messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, result);
     }
 
-    private void cancelPlayingTransition(String code) {
-        ScheduledFuture<?> future = pendingPlayingTransitions.remove(code);
-        if (future != null) {
-            future.cancel(false);
-        }
-    }
-
     private void withLockedRoom(String code, Consumer<GameRoom> operation) {
         withLockedRoom(code, room -> {
             operation.accept(room);
@@ -599,15 +392,5 @@ public class GameService {
 
     private boolean isDetached(String code, GameRoom room) {
         return gameRegistry.find(code).orElse(null) != room;
-    }
-
-    private GameRoom createRoomWithUniqueCode(Player host) {
-        for (int attempt = 0; attempt < MAX_ROOM_CODE_ATTEMPTS; attempt++) {
-            GameRoom room = GameRoom.create(roomCodeGenerator.generate(), host);
-            if (gameRegistry.saveIfAbsent(room)) {
-                return room;
-            }
-        }
-        throw new RoomCodeGenerationFailedException();
     }
 }
