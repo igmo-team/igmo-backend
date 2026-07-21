@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.GameRoom;
 import com.igmo.store.GameRegistry;
+import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.JoinGameResponse;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,33 +28,38 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 
-class GameServiceConcurrencyTest {
+class PlayerPresenceServiceConcurrencyTest {
 
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler disconnectGraceScheduler = mock(TaskScheduler.class);
-    private final TaskScheduler promptDeadlineScheduler = mock(TaskScheduler.class);
+    private final TaskScheduler gamePhaseDeadlineScheduler = mock(TaskScheduler.class);
     private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
-    private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
+    private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
+    private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate);
+    private final GamePhaseScheduler gamePhaseScheduler =
+            new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
+    private final GameLobbyService gameLobbyService =
+            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher);
+    private final PlayerPresenceService playerPresenceService =
+            new PlayerPresenceService(
+                    gameRoomRepository,
+                    gamePhaseScheduler,
+                    eventPublisher,
+                    disconnectGraceScheduler);
     private final GameService gameService =
             new GameService(
                     gameRegistry,
-                    roomCodeGenerator,
                     messagingTemplate,
-                    disconnectGraceScheduler,
-                    promptDeadlineScheduler,
-                    imageGenerationCompletionScheduler,
-                    imageGenerationClient,
-                    Runnable::run
-            );
+                    gamePhaseScheduler,
+                    mock(ImageGenerationClient.class),
+                    Runnable::run);
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
-        ReflectionTestUtils.setField(gameService, "disconnectGrace", Duration.ofSeconds(3));
-        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
-        ReflectionTestUtils.setField(gameService, "imageGenerationCompletionDelay", Duration.ofSeconds(3));
+        ReflectionTestUtils.setField(playerPresenceService, "disconnectGrace", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
     }
@@ -63,9 +69,9 @@ class GameServiceConcurrencyTest {
     void pendingRemoval_만료와_취소가_경합해도_일관된_상태로_수렴한다() throws Exception {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        gameService.createGame("호스트");
-        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
-        gameService.handleDisconnect("ABCD", joined.playerId());
+        gameLobbyService.createGame("호스트");
+        JoinGameResponse joined = gameLobbyService.joinGame("ABCD", "참가자");
+        playerPresenceService.handleDisconnect("ABCD", joined.playerId());
         Runnable removal = captureScheduledRemoval();
         AtomicBoolean canceled = new AtomicBoolean();
         given(scheduledRemoval.cancel(false)).willAnswer(invocation -> {
@@ -82,7 +88,7 @@ class GameServiceConcurrencyTest {
         });
         Future<?> cancellationTask = executor.submit(() -> {
             await(start);
-            gameService.cancelPendingRemoval("ABCD", joined.playerId());
+            playerPresenceService.cancelPendingRemoval("ABCD", joined.playerId());
         });
         start.countDown();
         try {
@@ -105,9 +111,9 @@ class GameServiceConcurrencyTest {
     void pendingRemoval_취소가_선점하면_플레이어를_유지한다() throws Exception {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        gameService.createGame("호스트");
-        JoinGameResponse joined = gameService.joinGame("ABCD", "참가자");
-        gameService.handleDisconnect("ABCD", joined.playerId());
+        gameLobbyService.createGame("호스트");
+        JoinGameResponse joined = gameLobbyService.joinGame("ABCD", "참가자");
+        playerPresenceService.handleDisconnect("ABCD", joined.playerId());
         Runnable removal = captureScheduledRemoval();
         CountDownLatch cancellationStarted = new CountDownLatch(1);
         CountDownLatch finishCancellation = new CountDownLatch(1);
@@ -118,7 +124,7 @@ class GameServiceConcurrencyTest {
         });
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> cancellationTask =
-                executor.submit(() -> gameService.cancelPendingRemoval("ABCD", joined.playerId()));
+                executor.submit(() -> playerPresenceService.cancelPendingRemoval("ABCD", joined.playerId()));
 
         // when
         try {

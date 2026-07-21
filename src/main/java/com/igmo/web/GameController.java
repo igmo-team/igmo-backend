@@ -1,7 +1,7 @@
 package com.igmo.web;
 
 import com.igmo.service.GameLobbyService;
-import com.igmo.service.GameService;
+import com.igmo.service.PlayerPresenceService;
 import com.igmo.web.dto.CreateGameRequest;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameRequest;
@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class GameController {
 
     private final GameLobbyService gameLobbyService;
-    private final GameService gameService;
+    private final PlayerPresenceService playerPresenceService;
 
     @PostMapping
     public ResponseEntity<CreateGameResponse> createGame(@Valid @RequestBody CreateGameRequest request) {
@@ -45,7 +45,7 @@ public class GameController {
             @PathVariable String code,
             @PathVariable String playerId,
             @RequestHeader("X-Player-Secret") String secret) {
-        gameService.leaveGame(code, playerId, secret);
+        playerPresenceService.leaveGame(code, playerId, secret);
         return ResponseEntity.noContent().build();
     }
 }

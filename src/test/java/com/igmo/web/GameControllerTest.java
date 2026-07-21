@@ -22,7 +22,7 @@ import com.igmo.domain.GamePhase;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.RoomFullException;
 import com.igmo.service.GameLobbyService;
-import com.igmo.service.GameService;
+import com.igmo.service.PlayerPresenceService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -52,7 +52,7 @@ class GameControllerTest {
     private GameLobbyService gameLobbyService;
 
     @MockitoBean
-    private GameService gameService;
+    private PlayerPresenceService playerPresenceService;
 
     @Test
     @DisplayName("게임 생성에 성공하면 201과 방 코드, playerId, 초기 로비 스냅샷을 반환한다.")
@@ -245,7 +245,7 @@ class GameControllerTest {
     void leaveGame_secret이_일치하지_않으면_403을_반환한다() throws Exception {
         // given
         willThrow(new UnauthorizedPlayerException())
-                .given(gameService).leaveGame("ABCD", "guest-id", "wrong-secret");
+                .given(playerPresenceService).leaveGame("ABCD", "guest-id", "wrong-secret");
 
         // when & then
         mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "guest-id")
@@ -270,7 +270,7 @@ class GameControllerTest {
     @DisplayName("존재하지 않는 방에서 나가면 404를 반환한다.")
     void leaveGame_없는_방이면_404를_반환한다() throws Exception {
         // given
-        willThrow(new RoomNotFoundException()).given(gameService).leaveGame("ZZZZ", "guest-id", "guest-secret");
+        willThrow(new RoomNotFoundException()).given(playerPresenceService).leaveGame("ZZZZ", "guest-id", "guest-secret");
 
         // when & then
         mockMvc.perform(delete("/games/{code}/players/{playerId}", "ZZZZ", "guest-id")
@@ -295,7 +295,7 @@ class GameControllerTest {
     @DisplayName("방에 없는 플레이어가 나가면 404를 반환한다.")
     void leaveGame_방에_없는_플레이어면_404를_반환한다() throws Exception {
         // given
-        willThrow(new PlayerNotFoundException()).given(gameService).leaveGame("ABCD", "unknown-id", "guest-secret");
+        willThrow(new PlayerNotFoundException()).given(playerPresenceService).leaveGame("ABCD", "unknown-id", "guest-secret");
 
         // when & then
         mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "unknown-id")
