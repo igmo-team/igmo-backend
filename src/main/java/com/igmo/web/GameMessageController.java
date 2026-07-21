@@ -1,5 +1,6 @@
 package com.igmo.web;
 
+import com.igmo.service.GameLobbyService;
 import com.igmo.service.GameService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Controller;
 @RequiredArgsConstructor
 public class GameMessageController {
 
+    private final GameLobbyService gameLobbyService;
     private final GameService gameService;
     private final PlayerSessionResolver playerSessionResolver;
 
@@ -25,7 +27,7 @@ public class GameMessageController {
                             ReadyRequest request,
                             SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gameService.changeReady(code, playerId, request.ready());
+        gameLobbyService.changeReady(code, playerId, request.ready());
     }
 
     @MessageMapping("/rooms/{code}/start")

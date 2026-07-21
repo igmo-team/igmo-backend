@@ -21,6 +21,7 @@ import com.epages.restdocs.apispec.ResourceSnippetParameters;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.RoomFullException;
+import com.igmo.service.GameLobbyService;
 import com.igmo.service.GameService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -48,6 +49,9 @@ class GameControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
+    private GameLobbyService gameLobbyService;
+
+    @MockitoBean
     private GameService gameService;
 
     @Test
@@ -56,7 +60,7 @@ class GameControllerTest {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
                 List.of(new PlayerView("host-id", "host", 0, false)));
-        given(gameService.createGame("host"))
+        given(gameLobbyService.createGame("host"))
                 .willReturn(new CreateGameResponse("ABCD", "host-id", "host-secret", snapshot));
 
         // when & then
@@ -106,7 +110,7 @@ class GameControllerTest {
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
                 List.of(new PlayerView("host-id", "host", 0, false),
                         new PlayerView("guest-id", "guest", 0, false)));
-        given(gameService.joinGame("ABCD", "guest"))
+        given(gameLobbyService.joinGame("ABCD", "guest"))
                 .willReturn(new JoinGameResponse("guest-id", "guest-secret", snapshot));
 
         // when & then
@@ -133,7 +137,7 @@ class GameControllerTest {
     @DisplayName("존재하지 않는 방에 참여하면 404를 반환한다.")
     void joinGame_없는_방이면_404를_반환한다() throws Exception {
         // given
-        given(gameService.joinGame("ZZZZ", "guest")).willThrow(new RoomNotFoundException());
+        given(gameLobbyService.joinGame("ZZZZ", "guest")).willThrow(new RoomNotFoundException());
 
         // when & then
         mockMvc.perform(post("/games/{code}/players", "ZZZZ")
@@ -156,7 +160,7 @@ class GameControllerTest {
     @DisplayName("정원이 가득 찬 방에 참여하면 403을 반환한다.")
     void joinGame_정원이_가득_차면_403을_반환한다() throws Exception {
         // given
-        given(gameService.joinGame("ABCD", "guest")).willThrow(new RoomFullException());
+        given(gameLobbyService.joinGame("ABCD", "guest")).willThrow(new RoomFullException());
 
         // when & then
         mockMvc.perform(post("/games/{code}/players", "ABCD")
@@ -179,7 +183,7 @@ class GameControllerTest {
     @DisplayName("닉네임이 중복되면 409를 반환한다.")
     void joinGame_닉네임이_중복되면_409를_반환한다() throws Exception {
         // given
-        given(gameService.joinGame("ABCD", "host")).willThrow(new DuplicateNicknameException());
+        given(gameLobbyService.joinGame("ABCD", "host")).willThrow(new DuplicateNicknameException());
 
         // when & then
         mockMvc.perform(post("/games/{code}/players", "ABCD")

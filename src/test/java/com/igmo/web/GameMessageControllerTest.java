@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.igmo.service.GameLobbyService;
 import com.igmo.service.GameService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
@@ -23,9 +24,13 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 
 class GameMessageControllerTest {
 
+    private final GameLobbyService gameLobbyService = mock(GameLobbyService.class);
     private final GameService gameService = mock(GameService.class);
     private final GameMessageController controller =
-            new GameMessageController(gameService, new PlayerSessionResolver());
+            new GameMessageController(
+                    gameLobbyService,
+                    gameService,
+                    new PlayerSessionResolver());
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
     @Test
@@ -38,7 +43,7 @@ class GameMessageControllerTest {
         controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor);
 
         // then
-        verify(gameService).changeReady("ABCD", "player-1", true);
+        verify(gameLobbyService).changeReady("ABCD", "player-1", true);
     }
 
     @Test
@@ -52,7 +57,7 @@ class GameMessageControllerTest {
         assertThatThrownBy(() -> controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(gameLobbyService, gameService);
     }
 
     @Test
@@ -65,7 +70,7 @@ class GameMessageControllerTest {
         assertThatThrownBy(() -> controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(gameLobbyService, gameService);
     }
 
     @Test
@@ -105,7 +110,7 @@ class GameMessageControllerTest {
         assertThatThrownBy(() -> controller.submitPrompt("ABCD", new PromptRequest("프롬프트"), headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(gameLobbyService, gameService);
     }
 
     @Test
@@ -133,7 +138,7 @@ class GameMessageControllerTest {
         assertThatThrownBy(() -> controller.startGame("ABCD", headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(gameLobbyService, gameService);
     }
 
     @Test
@@ -160,7 +165,7 @@ class GameMessageControllerTest {
         assertThatThrownBy(() -> controller.submitGuess("ABCD", new GuessRequest("추측 프롬프트"), headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(gameLobbyService, gameService);
     }
 
     @Test
@@ -201,7 +206,7 @@ class GameMessageControllerTest {
         assertThatThrownBy(() -> controller.submitVote("ABCD", new VoteRequest("option-1"), headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(gameLobbyService, gameService);
     }
 
     @Test

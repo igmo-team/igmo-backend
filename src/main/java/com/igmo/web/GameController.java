@@ -1,5 +1,6 @@
 package com.igmo.web;
 
+import com.igmo.service.GameLobbyService;
 import com.igmo.service.GameService;
 import com.igmo.web.dto.CreateGameRequest;
 import com.igmo.web.dto.CreateGameResponse;
@@ -22,11 +23,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class GameController {
 
+    private final GameLobbyService gameLobbyService;
     private final GameService gameService;
 
     @PostMapping
     public ResponseEntity<CreateGameResponse> createGame(@Valid @RequestBody CreateGameRequest request) {
-        CreateGameResponse response = gameService.createGame(request.nickname());
+        CreateGameResponse response = gameLobbyService.createGame(request.nickname());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -34,7 +36,7 @@ public class GameController {
     public ResponseEntity<JoinGameResponse> joinGame(
             @PathVariable String code,
             @Valid @RequestBody JoinGameRequest request) {
-        JoinGameResponse response = gameService.joinGame(code, request.nickname());
+        JoinGameResponse response = gameLobbyService.joinGame(code, request.nickname());
         return ResponseEntity.ok(response);
     }
 
