@@ -19,16 +19,19 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @TestPropertySource(properties = "igmo.game.disconnect-grace=17s")
-class GameServicePropertyTest extends AbstractNonWebSpringBootTest {
+class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
 
     @Autowired
-    private GameService gameService;
+    private GameLobbyService gameLobbyService;
+
+    @Autowired
+    private PlayerPresenceService playerPresenceService;
 
     @MockitoBean(name = "disconnectGraceScheduler")
     private TaskScheduler disconnectGraceScheduler;
 
-    @MockitoBean(name = "promptDeadlineScheduler")
-    private TaskScheduler promptDeadlineScheduler;
+    @MockitoBean(name = "gamePhaseDeadlineScheduler")
+    private TaskScheduler gamePhaseDeadlineScheduler;
 
     @MockitoBean(name = "imageGenerationCompletionScheduler")
     private TaskScheduler imageGenerationCompletionScheduler;
@@ -40,11 +43,11 @@ class GameServicePropertyTest extends AbstractNonWebSpringBootTest {
         ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
-        CreateGameResponse created = gameService.createGame("호스트");
+        CreateGameResponse created = gameLobbyService.createGame("호스트");
         Instant before = Instant.now();
 
         // when
-        gameService.handleDisconnect(created.roomCode(), created.playerId());
+        playerPresenceService.handleDisconnect(created.roomCode(), created.playerId());
 
         // then
         Instant after = Instant.now();

@@ -21,7 +21,8 @@ import com.epages.restdocs.apispec.ResourceSnippetParameters;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.RoomFullException;
-import com.igmo.service.GameService;
+import com.igmo.service.GameLobbyService;
+import com.igmo.service.PlayerPresenceService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -48,7 +49,10 @@ class GameControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private GameService gameService;
+    private GameLobbyService gameLobbyService;
+
+    @MockitoBean
+    private PlayerPresenceService playerPresenceService;
 
     @Test
     @DisplayName("게임 생성에 성공하면 201과 방 코드, playerId, 초기 로비 스냅샷을 반환한다.")
@@ -56,7 +60,7 @@ class GameControllerTest {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
                 List.of(new PlayerView("host-id", "host", 0, false)));
-        given(gameService.createGame("host"))
+        given(gameLobbyService.createGame("host"))
                 .willReturn(new CreateGameResponse("ABCD", "host-id", "host-secret", snapshot));
 
         // when & then
@@ -106,7 +110,7 @@ class GameControllerTest {
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
                 List.of(new PlayerView("host-id", "host", 0, false),
                         new PlayerView("guest-id", "guest", 0, false)));
-        given(gameService.joinGame("ABCD", "guest"))
+        given(gameLobbyService.joinGame("ABCD", "guest"))
                 .willReturn(new JoinGameResponse("guest-id", "guest-secret", snapshot));
 
         // when & then
@@ -133,7 +137,7 @@ class GameControllerTest {
     @DisplayName("존재하지 않는 방에 참여하면 404를 반환한다.")
     void joinGame_없는_방이면_404를_반환한다() throws Exception {
         // given
-        given(gameService.joinGame("ZZZZ", "guest")).willThrow(new RoomNotFoundException());
+        given(gameLobbyService.joinGame("ZZZZ", "guest")).willThrow(new RoomNotFoundException());
 
         // when & then
         mockMvc.perform(post("/games/{code}/players", "ZZZZ")
@@ -156,7 +160,7 @@ class GameControllerTest {
     @DisplayName("정원이 가득 찬 방에 참여하면 403을 반환한다.")
     void joinGame_정원이_가득_차면_403을_반환한다() throws Exception {
         // given
-        given(gameService.joinGame("ABCD", "guest")).willThrow(new RoomFullException());
+        given(gameLobbyService.joinGame("ABCD", "guest")).willThrow(new RoomFullException());
 
         // when & then
         mockMvc.perform(post("/games/{code}/players", "ABCD")
@@ -179,7 +183,7 @@ class GameControllerTest {
     @DisplayName("닉네임이 중복되면 409를 반환한다.")
     void joinGame_닉네임이_중복되면_409를_반환한다() throws Exception {
         // given
-        given(gameService.joinGame("ABCD", "host")).willThrow(new DuplicateNicknameException());
+        given(gameLobbyService.joinGame("ABCD", "host")).willThrow(new DuplicateNicknameException());
 
         // when & then
         mockMvc.perform(post("/games/{code}/players", "ABCD")
@@ -241,7 +245,7 @@ class GameControllerTest {
     void leaveGame_secret이_일치하지_않으면_403을_반환한다() throws Exception {
         // given
         willThrow(new UnauthorizedPlayerException())
-                .given(gameService).leaveGame("ABCD", "guest-id", "wrong-secret");
+                .given(playerPresenceService).leaveGame("ABCD", "guest-id", "wrong-secret");
 
         // when & then
         mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "guest-id")
@@ -266,7 +270,7 @@ class GameControllerTest {
     @DisplayName("존재하지 않는 방에서 나가면 404를 반환한다.")
     void leaveGame_없는_방이면_404를_반환한다() throws Exception {
         // given
-        willThrow(new RoomNotFoundException()).given(gameService).leaveGame("ZZZZ", "guest-id", "guest-secret");
+        willThrow(new RoomNotFoundException()).given(playerPresenceService).leaveGame("ZZZZ", "guest-id", "guest-secret");
 
         // when & then
         mockMvc.perform(delete("/games/{code}/players/{playerId}", "ZZZZ", "guest-id")
@@ -291,7 +295,7 @@ class GameControllerTest {
     @DisplayName("방에 없는 플레이어가 나가면 404를 반환한다.")
     void leaveGame_방에_없는_플레이어면_404를_반환한다() throws Exception {
         // given
-        willThrow(new PlayerNotFoundException()).given(gameService).leaveGame("ABCD", "unknown-id", "guest-secret");
+        willThrow(new PlayerNotFoundException()).given(playerPresenceService).leaveGame("ABCD", "unknown-id", "guest-secret");
 
         // when & then
         mockMvc.perform(delete("/games/{code}/players/{playerId}", "ABCD", "unknown-id")

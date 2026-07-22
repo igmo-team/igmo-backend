@@ -64,10 +64,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     }
 
     @Bean
-    public TaskScheduler promptDeadlineScheduler() {
+    public TaskScheduler gamePhaseDeadlineScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(1);
-        scheduler.setThreadNamePrefix("prompt-deadline-");
+        scheduler.setThreadNamePrefix("game-phase-deadline-");
         return scheduler;
     }
 

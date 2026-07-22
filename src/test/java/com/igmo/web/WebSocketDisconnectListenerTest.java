@@ -7,7 +7,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.igmo.service.GameService;
+import com.igmo.service.PlayerPresenceService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
@@ -19,8 +19,8 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 class WebSocketDisconnectListenerTest {
 
-    private final GameService gameService = mock(GameService.class);
-    private final WebSocketDisconnectListener listener = new WebSocketDisconnectListener(gameService);
+    private final PlayerPresenceService playerPresenceService = mock(PlayerPresenceService.class);
+    private final WebSocketDisconnectListener listener = new WebSocketDisconnectListener(playerPresenceService);
 
     @Test
     @DisplayName("세션에 방/플레이어 식별 정보가 있으면 연결 끊김 퇴장 처리를 호출한다.")
@@ -35,7 +35,7 @@ class WebSocketDisconnectListenerTest {
         listener.handleSessionDisconnect(event);
 
         // then
-        verify(gameService).handleDisconnect("ABCD", "player-1");
+        verify(playerPresenceService).handleDisconnect("ABCD", "player-1");
     }
 
     @Test
@@ -48,7 +48,7 @@ class WebSocketDisconnectListenerTest {
         listener.handleSessionDisconnect(event);
 
         // then
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(playerPresenceService);
     }
 
     @Test
@@ -61,7 +61,7 @@ class WebSocketDisconnectListenerTest {
         listener.handleSessionDisconnect(event);
 
         // then
-        verifyNoInteractions(gameService);
+        verifyNoInteractions(playerPresenceService);
     }
 
     private SessionDisconnectEvent disconnectEvent(Map<String, Object> sessionAttributes) {
