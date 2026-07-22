@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,8 +123,7 @@ public class Round {
             return;
         }
         Map<String, Integer> voteCounts = aggregateVotesByOption();
-        Map<String, Integer> roundScore = calculateRoundScore(participantIds, voteCounts);
-        result = RoundResult.of(answerEntry.getPromptId(), voteCounts, roundScore);
+        result = RoundResult.of(calculateScoreDetails(participantIds, voteCounts));
     }
 
     public RoundResult getResult() {
@@ -171,46 +171,53 @@ public class Round {
         return voteCounts;
     }
 
-    private Map<String, Integer> calculateRoundScore(
+    // 플레이어별 점수를 유형(낚시/정답/출제자)으로 나눠 계산한다. 얻은 점수가 없는 유형은 담지 않는다.
+    private Map<String, Map<ScoreReason, Integer>> calculateScoreDetails(
             Collection<String> participantIds,
             Map<String, Integer> voteCounts
     ) {
-        Map<String, Integer> roundScore = new LinkedHashMap<>();
-        participantIds.forEach(participantId -> roundScore.put(participantId, 0));
+        Map<String, Map<ScoreReason, Integer>> scoreDetails = new LinkedHashMap<>();
+        participantIds.forEach(participantId -> scoreDetails.put(participantId, new EnumMap<>(ScoreReason.class)));
 
-        addCatchScore(roundScore, voteCounts);
-        addCorrectAnswerScore(roundScore);
-        addQuestionerScore(roundScore, participantIds, voteCounts);
+        addCatchScore(scoreDetails, voteCounts);
+        addCorrectAnswerScore(scoreDetails);
+        addQuestionerScore(scoreDetails, participantIds, voteCounts);
 
-        return roundScore;
+        return scoreDetails;
     }
 
     // 낚시 점수: 내 추측에 투표한 사람 수만큼 득점한다.
-    private void addCatchScore(Map<String, Integer> roundScore, Map<String, Integer> voteCounts) {
+    private void addCatchScore(
+            Map<String, Map<ScoreReason, Integer>> scoreDetails,
+            Map<String, Integer> voteCounts
+    ) {
         guessesByPlayerId.values().forEach(guess -> {
             int catchScore = voteCounts.getOrDefault(guess.getGuessId(), 0);
-            roundScore.merge(guess.getPlayerId(), catchScore, Integer::sum);
+            if (catchScore > 0) {
+                scoreDetails.get(guess.getPlayerId()).merge(ScoreReason.FOOLED_PLAYER, catchScore, Integer::sum);
+            }
         });
     }
 
     // 정답 점수: 정답 프롬프트를 맞힌 사람은 각각 득점한다.
-    private void addCorrectAnswerScore(Map<String, Integer> roundScore) {
+    private void addCorrectAnswerScore(Map<String, Map<ScoreReason, Integer>> scoreDetails) {
         votesByVoterId.values().stream()
                 .filter(this::isCorrectVote)
-                .forEach(vote -> roundScore.merge(vote.getVoterId(), CORRECT_ANSWER_SCORE, Integer::sum));
+                .forEach(vote -> scoreDetails.get(vote.getVoterId())
+                        .merge(ScoreReason.CORRECT_ANSWER, CORRECT_ANSWER_SCORE, Integer::sum));
     }
 
     // 출제자 점수: 정답 투표자가 1명 이상이고 전원이 아닐 때만 투표수에 비례해 득점한다.
     private void addQuestionerScore(
-            Map<String, Integer> roundScore,
+            Map<String, Map<ScoreReason, Integer>> scoreDetails,
             Collection<String> participantIds,
             Map<String, Integer> voteCounts
     ) {
         int correctVoterCount = voteCounts.getOrDefault(answerEntry.getPromptId(), 0);
-        int questionerScore = isQuestionerRewarded(correctVoterCount, participantIds)
-                ? correctVoterCount * QUESTIONER_SCORE_PER_CORRECT_VOTE
-                : 0;
-        roundScore.merge(questionerId, questionerScore, Integer::sum);
+        if (isQuestionerRewarded(correctVoterCount, participantIds)) {
+            scoreDetails.get(questionerId)
+                    .merge(ScoreReason.QUESTIONER, correctVoterCount * QUESTIONER_SCORE_PER_CORRECT_VOTE, Integer::sum);
+        }
     }
 
     private boolean isQuestionerRewarded(int correctVoterCount, Collection<String> participantIds) {
