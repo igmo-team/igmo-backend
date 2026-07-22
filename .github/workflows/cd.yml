@@ -5,6 +5,12 @@ on:
     branches:
       - prod
   workflow_dispatch:
+    inputs:
+      deploy_only:
+        description: "기존 이미지를 새 런타임 환경변수로 재배포합니다. 코드 또는 Dockerfile, OPENAPI_SERVER_URL 변경에는 사용하지 마세요."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -69,13 +75,23 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Verify existing image for deploy-only
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_only }}
+        run: |
+          aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$DEPLOY_SHA" >/dev/null
+
       - name: Set up QEMU
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
         uses: docker/setup-buildx-action@v4
 
       - name: Build and push ARM64 image
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
         uses: docker/build-push-action@v7
         with:
           context: .
