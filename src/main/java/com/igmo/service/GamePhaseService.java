@@ -16,7 +16,6 @@ import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -125,16 +124,9 @@ public class GamePhaseService {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
                         return null;
                     }
-                    Map<String, String> autoSubmittedPrompts = lockedRoom.autoSubmitPrompts(deadline);
-                    return new PromptExpirationResult(
-                            PromptSubmissionSnapshot.from(lockedRoom),
-                            autoSubmittedPrompts);
+                    return PromptSubmissionSnapshot.from(lockedRoom);
                 })
-                .ifPresent(result -> {
-                    eventPublisher.publishPromptSubmission(code, result.snapshot());
-                    result.autoSubmittedPrompts()
-                            .forEach((playerId, prompt) -> startImageGeneration(code, playerId, prompt));
-                });
+                .ifPresent(snapshot -> eventPublisher.publishPromptSubmission(code, snapshot));
     }
 
     private void scheduleGuessExpiration(String code, Instant deadline) {
@@ -146,7 +138,9 @@ public class GamePhaseService {
                     if (lockedRoom.isGuessExpirationStale(deadline)) {
                         return null;
                     }
-                    lockedRoom.completeGuessSubmission(Instant.now(), voteDuration);
+                    Instant expiredAt = Instant.now();
+                    lockedRoom.autoSubmitGuesses(expiredAt);
+                    lockedRoom.completeGuessSubmission(expiredAt, voteDuration);
                     scheduleVoteExpiration(code, lockedRoom.getVoteDeadline());
                     return VoteSnapshot.from(lockedRoom);
                 })
@@ -262,11 +256,5 @@ public class GamePhaseService {
         room.startRounds(startedAt, guessDuration);
         scheduleGuessExpiration(code, room.getGuessDeadline());
         return RoundSnapshot.from(room);
-    }
-
-    private record PromptExpirationResult(
-            PromptSubmissionSnapshot snapshot,
-            Map<String, String> autoSubmittedPrompts
-    ) {
     }
 }

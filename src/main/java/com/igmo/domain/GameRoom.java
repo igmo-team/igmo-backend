@@ -19,6 +19,7 @@ import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -157,25 +158,6 @@ public class GameRoom {
         entry.submit(prompt, submittedAt);
     }
 
-    public synchronized Map<String, String> autoSubmitPrompts(Instant submittedAt) {
-        if (!isGenerating()) {
-            return Map.of();
-        }
-
-        Map<String, String> autoSubmittedPrompts = new LinkedHashMap<>();
-        for (Player player : players.values()) {
-            PromptEntry entry = promptEntriesByPlayerId.get(player.getId());
-            if (entry == null || !entry.isWaiting()) {
-                continue;
-            }
-
-            String prompt = createAutoPrompt(player);
-            entry.submit(prompt, submittedAt);
-            autoSubmittedPrompts.put(player.getId(), prompt);
-        }
-        return Map.copyOf(autoSubmittedPrompts);
-    }
-
     public synchronized void completeImageGeneration(String playerId, String imageUrl) {
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
         if (entry == null || !entry.isSubmitted()) {
@@ -233,6 +215,24 @@ public class GameRoom {
             throw new GuessSubmissionExpiredException();
         }
         currentRound.submitGuess(playerId, guess, submittedAt);
+    }
+
+    // 추측 마감 시 미제출자(출제자 제외)에게 닉네임 기반 자동 추측을 채워 넣어 투표 보기 수를 확보한다.
+    public synchronized void autoSubmitGuesses(Instant submittedAt) {
+        if (!isGuessing()) {
+            return;
+        }
+        Round currentRound = getCurrentRound();
+        if (currentRound == null) {
+            return;
+        }
+        for (Player player : players.values()) {
+            if (player.getId().equals(currentRound.getQuestionerId())
+                    || currentRound.hasGuess(player.getId())) {
+                continue;
+            }
+            currentRound.submitGuess(player.getId(), createAutoGuess(player, currentRound), submittedAt);
+        }
     }
 
     public synchronized void completeGuessSubmission(Instant now, Duration voteDuration) {
@@ -332,11 +332,18 @@ public class GameRoom {
         hostId = remaining.get(ThreadLocalRandom.current().nextInt(remaining.size())).getId();
     }
 
-    private String createAutoPrompt(Player player) {
-        AutoPromptPrefix prefix = AUTO_PROMPT_PREFIXES[
-                ThreadLocalRandom.current().nextInt(AUTO_PROMPT_PREFIXES.length)
-        ];
-        return prefix.value() + " " + player.getNickname().value();
+    // 자동 추측이 정답이나 다른 추측과 겹치면 전치사를 다시 뽑아 중복을 회피한다.
+    private String createAutoGuess(Player player, Round round) {
+        List<AutoPromptPrefix> shuffledPrefixes = new ArrayList<>(List.of(AUTO_PROMPT_PREFIXES));
+        Collections.shuffle(shuffledPrefixes, ThreadLocalRandom.current());
+        String nickname = player.getNickname().value();
+        for (AutoPromptPrefix prefix : shuffledPrefixes) {
+            String candidate = prefix.value() + " " + nickname;
+            if (!round.hasMatchingGuess(candidate)) {
+                return candidate;
+            }
+        }
+        return shuffledPrefixes.get(0).value() + " " + nickname;
     }
 
     private boolean isInLobby() {
