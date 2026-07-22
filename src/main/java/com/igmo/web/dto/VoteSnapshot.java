@@ -15,6 +15,7 @@ public record VoteSnapshot(
         GamePhase phase,
         int roundNumber,
         List<VoteOptionView> voteOptions,
+        Instant voteStartedAt,
         Instant voteDeadline,
         List<VoteEntryView> voteEntries
 ) {
@@ -38,6 +39,7 @@ public record VoteSnapshot(
                 room.getPhase(),
                 round.getRoundNumber(),
                 voteOptions,
+                room.getVoteStartedAt(),
                 room.getVoteDeadline(),
                 voteEntries
         );

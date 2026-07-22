@@ -42,6 +42,7 @@ class VoteSnapshotTest {
             softly.assertThat(snapshot.roomCode()).isEqualTo("ABCD");
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
             softly.assertThat(snapshot.roundNumber()).isEqualTo(1);
+            softly.assertThat(snapshot.voteStartedAt()).isEqualTo(VOTING_OPENED_AT);
             softly.assertThat(snapshot.voteDeadline()).isEqualTo(VOTING_OPENED_AT.plus(VOTE_DURATION));
             softly.assertThat(snapshot.voteOptions())
                     .extracting(VoteOptionView::optionId, VoteOptionView::text)

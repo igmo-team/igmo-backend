@@ -709,6 +709,7 @@ class GameRoomTest {
             softly.assertThat(room.getCurrentRound().getRoundNumber()).isEqualTo(1);
             softly.assertThat(room.getCurrentRound().getQuestionerId()).isEqualTo(hostId);
             softly.assertThat(room.getCurrentRound().getAnswerEntry().getPrompt()).isEqualTo("호스트 프롬프트");
+            softly.assertThat(room.getGuessStartedAt()).isEqualTo(GUESS_STARTED_AT);
             softly.assertThat(room.getGuessDeadline()).isEqualTo(GUESS_STARTED_AT.plus(GUESS_DURATION));
         });
     }
@@ -909,6 +910,7 @@ class GameRoomTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(room.getPhase()).isEqualTo(GamePhase.VOTING);
             softly.assertThat(room.getCurrentRound().getVoteOptions()).hasSize(3);
+            softly.assertThat(room.getVoteStartedAt()).isEqualTo(VOTING_OPENED_AT);
             softly.assertThat(room.getVoteDeadline()).isEqualTo(VOTING_OPENED_AT.plus(VOTE_DURATION));
         });
     }
@@ -978,6 +980,7 @@ class GameRoomTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(room.hasAllCurrentRoundVotes()).isTrue();
             softly.assertThat(room.getPhase()).isEqualTo(GamePhase.RESULTS);
+            softly.assertThat(room.getResultStartedAt()).isEqualTo(VOTING_OPENED_AT.plusSeconds(3));
         });
     }
 
@@ -1071,6 +1074,7 @@ class GameRoomTest {
             softly.assertThat(room.getCurrentRound().getRoundNumber()).isEqualTo(2);
             softly.assertThat(room.getCurrentRound().getQuestionerId()).isEqualTo(guest1Id);
             softly.assertThat(room.getCurrentRound().getAnswerEntry().getPrompt()).isEqualTo("참가자1 프롬프트");
+            softly.assertThat(room.getGuessStartedAt()).isEqualTo(nextGuessStartedAt);
             softly.assertThat(room.getGuessDeadline()).isEqualTo(nextGuessStartedAt.plus(GUESS_DURATION));
         });
     }

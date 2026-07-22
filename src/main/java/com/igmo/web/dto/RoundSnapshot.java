@@ -18,6 +18,7 @@ public record RoundSnapshot(
         int totalRoundCount,
         PlayerView questioner,
         String imageUrl,
+        Instant guessStartedAt,
         Instant guessDeadline,
         List<GuessEntryView> guessEntries
 ) {
@@ -41,6 +42,7 @@ public record RoundSnapshot(
                 room.getTotalRoundCount(),
                 PlayerView.from(questioner),
                 round.getAnswerEntry().getImageUrl(),
+                room.getGuessStartedAt(),
                 room.getGuessDeadline(),
                 guessEntries
         );
