@@ -2,7 +2,7 @@ package com.igmo.web;
 
 import java.util.Map;
 
-import com.igmo.service.GameService;
+import com.igmo.service.PlayerPresenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -13,7 +13,7 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 @RequiredArgsConstructor
 public class WebSocketDisconnectListener {
 
-    private final GameService gameService;
+    private final PlayerPresenceService playerPresenceService;
 
     @EventListener
     public void handleSessionDisconnect(SessionDisconnectEvent event) {
@@ -27,6 +27,6 @@ public class WebSocketDisconnectListener {
         if (roomCode == null || playerId == null) {
             return;
         }
-        gameService.handleDisconnect(roomCode, playerId);
+        playerPresenceService.handleDisconnect(roomCode, playerId);
     }
 }

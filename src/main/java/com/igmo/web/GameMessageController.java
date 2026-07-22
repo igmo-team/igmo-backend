@@ -1,6 +1,7 @@
 package com.igmo.web;
 
-import com.igmo.service.GameService;
+import com.igmo.service.GameLobbyService;
+import com.igmo.service.GamePhaseService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
@@ -17,7 +18,8 @@ import org.springframework.stereotype.Controller;
 @RequiredArgsConstructor
 public class GameMessageController {
 
-    private final GameService gameService;
+    private final GameLobbyService gameLobbyService;
+    private final GamePhaseService gamePhaseService;
     private final PlayerSessionResolver playerSessionResolver;
 
     @MessageMapping("/rooms/{code}/ready")
@@ -25,14 +27,14 @@ public class GameMessageController {
                             ReadyRequest request,
                             SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gameService.changeReady(code, playerId, request.ready());
+        gameLobbyService.changeReady(code, playerId, request.ready());
     }
 
     @MessageMapping("/rooms/{code}/start")
     public void startGame(@DestinationVariable String code,
                           SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gameService.startGame(code, playerId);
+        gamePhaseService.startGame(code, playerId);
     }
 
     @MessageMapping("/rooms/{code}/prompts")
@@ -40,7 +42,7 @@ public class GameMessageController {
                              @Valid PromptRequest request,
                              SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gameService.submitPrompt(code, playerId, request.prompt());
+        gamePhaseService.submitPrompt(code, playerId, request.prompt());
     }
 
     @MessageMapping("/rooms/{code}/guesses")
@@ -48,7 +50,7 @@ public class GameMessageController {
                             @Valid GuessRequest request,
                             SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gameService.submitGuess(code, playerId, request.guess());
+        gamePhaseService.submitGuess(code, playerId, request.guess());
     }
 
     @MessageMapping("/rooms/{code}/votes")
@@ -56,7 +58,7 @@ public class GameMessageController {
                            @Valid VoteRequest request,
                            SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gameService.submitVote(code, playerId, request.optionId());
+        gamePhaseService.submitVote(code, playerId, request.optionId());
     }
 
     private String requirePlayerId(SimpMessageHeaderAccessor headerAccessor) {

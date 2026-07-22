@@ -1,6 +1,6 @@
 package com.igmo.web;
 
-import com.igmo.service.GameService;
+import com.igmo.service.PlayerPresenceService;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
@@ -12,7 +12,7 @@ import org.springframework.web.socket.messaging.SessionConnectEvent;
 @RequiredArgsConstructor
 public class WebSocketConnectListener {
 
-    private final GameService gameService;
+    private final PlayerPresenceService playerPresenceService;
 
     @EventListener
     public void handleSessionConnect(SessionConnectEvent event) {
@@ -26,6 +26,6 @@ public class WebSocketConnectListener {
         if (roomCode == null || playerId == null) {
             return;
         }
-        gameService.cancelPendingRemoval(roomCode, playerId);
+        playerPresenceService.cancelPendingRemoval(roomCode, playerId);
     }
 }
