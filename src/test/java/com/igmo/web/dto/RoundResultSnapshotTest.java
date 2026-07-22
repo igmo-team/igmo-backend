@@ -43,6 +43,7 @@ class RoundResultSnapshotTest {
             softly.assertThat(snapshot.totalRoundCount()).isEqualTo(3);
             softly.assertThat(snapshot.questioner().id()).isEqualTo(hostId);
             softly.assertThat(snapshot.answerText()).isEqualTo("호스트 프롬프트");
+            softly.assertThat(snapshot.startedAt()).isEqualTo(RESULTS_OPENED_AT);
             softly.assertThat(snapshot.resultDeadline()).isEqualTo(RESULTS_OPENED_AT.plus(RESULT_DURATION));
             softly.assertThat(snapshot.results())
                     .extracting(view -> view.player().id(), RoundResultView::isAnswer, RoundResultView::roundScore)

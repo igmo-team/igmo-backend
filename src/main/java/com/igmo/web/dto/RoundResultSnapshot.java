@@ -23,6 +23,7 @@ public record RoundResultSnapshot(
         int totalRoundCount,
         PlayerView questioner,
         String answerText,
+        Instant startedAt,
         Instant resultDeadline,
         List<RoundResultView> results,
         List<PlayerView> players
@@ -50,6 +51,7 @@ public record RoundResultSnapshot(
                 room.getTotalRoundCount(),
                 PlayerView.from(playersById.get(round.getQuestionerId())),
                 round.getAnswerEntry().getPrompt(),
+                room.getResultStartedAt(),
                 room.getResultDeadline(),
                 results,
                 players

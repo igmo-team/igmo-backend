@@ -44,9 +44,15 @@ public class GameRoom {
     @Getter
     private Instant promptDeadline;
     @Getter
+    private Instant guessStartedAt;
+    @Getter
     private Instant guessDeadline;
     @Getter
+    private Instant voteStartedAt;
+    @Getter
     private Instant voteDeadline;
+    @Getter
+    private Instant resultStartedAt;
     @Getter
     private Instant resultDeadline;
     private final Map<String, Player> players = new LinkedHashMap<>();
@@ -203,6 +209,7 @@ public class GameRoom {
         }
         rounds.addAll(preparedRounds);
         currentRoundIndex = 0;
+        guessStartedAt = startedAt;
         guessDeadline = startedAt.plus(guessDuration);
     }
 
@@ -275,6 +282,7 @@ public class GameRoom {
         }
         currentRoundIndex++;
         phase = GamePhase.PLAYING;
+        guessStartedAt = now;
         guessDeadline = now.plus(guessDuration);
     }
 
@@ -378,6 +386,7 @@ public class GameRoom {
         }
         phase = GamePhase.VOTING;
         currentRound.openVoting();
+        voteStartedAt = openedAt;
         voteDeadline = openedAt.plus(voteDuration);
     }
 
@@ -390,6 +399,7 @@ public class GameRoom {
         phase = GamePhase.RESULTS;
         currentRound.settleResult(players.keySet());
         applyRoundScore(currentRound.getResult());
+        resultStartedAt = openedAt;
         resultDeadline = openedAt.plus(resultDuration);
     }
 
