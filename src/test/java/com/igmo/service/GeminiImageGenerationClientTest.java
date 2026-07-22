@@ -64,6 +64,10 @@ class GeminiImageGenerationClientTest {
         assertThat(input).hasSize(1);
         assertThat(input.get(0).path("type").asText()).isEqualTo("text");
         assertThat(input.get(0).path("text").asText()).isEqualTo("동굴 벽화 스타일의 바나나");
+        assertThat(body.path("system_instruction").asText())
+                .contains("너는 이미지 생성 전용 모델이다.")
+                .contains("응답으로 이미지 정확히 1장만 생성한다.")
+                .contains("대화형 텍스트는 출력하지 않는다.");
         assertThat(body.path("response_format").path("type").asText()).isEqualTo("image");
         assertThat(body.path("response_format").path("mime_type").asText()).isEqualTo("image/jpeg");
         assertThat(body.path("response_format").path("image_size").asText()).isEqualTo("2K");
