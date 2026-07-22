@@ -18,7 +18,7 @@ public record RoundSnapshot(
         int totalRoundCount,
         PlayerView questioner,
         String imageUrl,
-        Instant startedAt,
+        Instant guessStartedAt,
         Instant guessDeadline,
         List<GuessEntryView> guessEntries
 ) {

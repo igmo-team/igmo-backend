@@ -23,7 +23,7 @@ public record RoundResultSnapshot(
         int totalRoundCount,
         PlayerView questioner,
         String answerText,
-        Instant startedAt,
+        Instant resultStartedAt,
         Instant resultDeadline,
         List<RoundResultView> results,
         List<PlayerView> players

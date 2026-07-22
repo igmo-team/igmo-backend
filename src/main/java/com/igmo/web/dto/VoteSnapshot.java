@@ -15,7 +15,7 @@ public record VoteSnapshot(
         GamePhase phase,
         int roundNumber,
         List<VoteOptionView> voteOptions,
-        Instant startedAt,
+        Instant voteStartedAt,
         Instant voteDeadline,
         List<VoteEntryView> voteEntries
 ) {

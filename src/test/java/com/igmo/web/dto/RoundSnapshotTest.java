@@ -40,7 +40,7 @@ class RoundSnapshotTest {
             softly.assertThat(snapshot.totalRoundCount()).isEqualTo(3);
             softly.assertThat(snapshot.questioner().id()).isEqualTo(hostId);
             softly.assertThat(snapshot.imageUrl()).isEqualTo("https://cdn.example.com/host.png");
-            softly.assertThat(snapshot.startedAt()).isEqualTo(GUESS_STARTED_AT);
+            softly.assertThat(snapshot.guessStartedAt()).isEqualTo(GUESS_STARTED_AT);
             softly.assertThat(snapshot.guessDeadline()).isEqualTo(GUESS_STARTED_AT.plus(GUESS_DURATION));
             softly.assertThat(snapshot.guessEntries())
                     .extracting(entry -> entry.player().id(), GuessEntryView::submitted)
