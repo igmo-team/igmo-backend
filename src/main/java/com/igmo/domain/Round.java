@@ -61,6 +61,16 @@ public class Round {
                 .allMatch(guessesByPlayerId::containsKey);
     }
 
+    public boolean hasGuess(String playerId) {
+        return guessesByPlayerId.containsKey(playerId);
+    }
+
+    // 자동 추측 생성 시 정답이나 기존 추측과 겹치는지 검사한다.
+    public boolean hasMatchingGuess(String guess) {
+        String normalizedGuess = normalize(guess);
+        return matchesAnswer(normalizedGuess) || matchesOtherGuess(normalizedGuess);
+    }
+
     public List<GuessEntry> getGuesses() {
         return List.copyOf(guessesByPlayerId.values());
     }
@@ -132,14 +142,21 @@ public class Round {
 
     private void rejectMatchingGuess(String guess) {
         String normalizedGuess = normalize(guess);
-        if (normalizedGuess.equals(normalize(answerEntry.getPrompt()))) {
+        if (matchesAnswer(normalizedGuess)) {
             throw new GuessMatchesAnswerException();
         }
-        boolean matchesOthers = guessesByPlayerId.values().stream()
-                .anyMatch(entry -> normalize(entry.getGuess()).equals(normalizedGuess));
-        if (matchesOthers) {
+        if (matchesOtherGuess(normalizedGuess)) {
             throw new GuessMatchesOthersException();
         }
+    }
+
+    private boolean matchesAnswer(String normalizedGuess) {
+        return normalizedGuess.equals(normalize(answerEntry.getPrompt()));
+    }
+
+    private boolean matchesOtherGuess(String normalizedGuess) {
+        return guessesByPlayerId.values().stream()
+                .anyMatch(entry -> normalize(entry.getGuess()).equals(normalizedGuess));
     }
 
     private String normalize(String prompt) {

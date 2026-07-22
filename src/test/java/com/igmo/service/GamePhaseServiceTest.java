@@ -39,6 +39,7 @@ import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteEntryView;
+import com.igmo.web.dto.VoteOptionView;
 import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
@@ -361,33 +362,28 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("프롬프트 마감 시 미제출 참가자에게 자동 프롬프트를 제출하고 이미지 생성을 시작한다.")
-    void promptExpiration_미제출_참가자에게_자동_프롬프트를_제출하고_이미지_생성을_시작한다() {
+    @DisplayName("프롬프트 마감 작업이 실행되면 자동 제출 없이 현황 스냅샷만 브로드캐스트한다.")
+    void promptExpiration_자동_제출_없이_현황_스냅샷만_브로드캐스트한다() {
         // given
         GameSession session = startGeneratingGame();
         gamePhaseService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
         gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
         clearInvocations(messagingTemplate);
+        imageGenerationTask = null;
 
         // when
         captureScheduledPromptExpiration().run();
 
         // then
-        PromptEntry autoSubmittedEntry = findPromptEntry("ABCD", session.guest2().playerId());
+        PromptEntry notSubmittedEntry = findPromptEntry("ABCD", session.guest2().playerId());
         PromptSubmissionSnapshot expirationSnapshot = captureLastPromptSubmissionBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(autoSubmittedEntry.getPrompt()).isIn(autoPromptCandidates("참가자2"));
-            softly.assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
-            softly.assertThat(autoSubmittedEntry.getSubmittedAt()).isEqualTo(
-                    gameRegistry.find("ABCD").orElseThrow().getPromptDeadline());
-            softly.assertThat(findPromptEntryView(expirationSnapshot, session.guest2().playerId()).submitted()).isTrue();
-            softly.assertThat(imageGenerationTask).isNotNull();
+            softly.assertThat(notSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.WAITING);
+            softly.assertThat(notSubmittedEntry.getPrompt()).isNull();
+            softly.assertThat(findPromptEntryView(expirationSnapshot, session.guest2().playerId()).submitted())
+                    .isFalse();
+            softly.assertThat(imageGenerationTask).isNull();
         });
-
-        runImageGenerationTask();
-
-        verify(imageGenerationClient).generate(autoSubmittedEntry.getPrompt());
-        assertThat(autoSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.READY);
     }
 
     @Test
@@ -522,11 +518,10 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("추측 마감 작업이 실행되면 VOTING 스냅샷을 브로드캐스트한다.")
-    void guessDeadline_마감_작업이_실행되면_VOTING_스냅샷을_브로드캐스트한다() {
+    @DisplayName("추측 마감 작업이 실행되면 미제출자에게 자동 추측을 채워 VOTING 스냅샷을 브로드캐스트한다.")
+    void guessDeadline_마감_작업이_실행되면_자동_추측을_채워_VOTING_스냅샷을_브로드캐스트한다() {
         // given
         setUpRoomWithImagesReady();
-        ReflectionTestUtils.setField(gamePhaseService, "guessDuration", Duration.ofMillis(-1));
         captureScheduledPlayingTransition().run();
         Runnable guessExpiration = captureLastScheduledDeadline(2);
         clearInvocations(messagingTemplate);
@@ -536,9 +531,14 @@ class GamePhaseServiceTest {
 
         // then
         VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
+        List<String> optionTexts = voteSnapshot.voteOptions().stream()
+                .map(VoteOptionView::text)
+                .toList();
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(voteSnapshot.phase()).isEqualTo(GamePhase.VOTING);
-            softly.assertThat(voteSnapshot.voteOptions()).hasSize(1);
+            softly.assertThat(voteSnapshot.voteOptions()).hasSize(3);
+            softly.assertThat(optionTexts).anyMatch(text -> autoPromptCandidates("참가자1").contains(text));
+            softly.assertThat(optionTexts).anyMatch(text -> autoPromptCandidates("참가자2").contains(text));
             softly.assertThat(voteSnapshot.voteEntries())
                     .extracting(VoteEntryView::voted)
                     .containsOnly(false);

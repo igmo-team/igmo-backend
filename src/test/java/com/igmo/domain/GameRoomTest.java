@@ -25,7 +25,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -352,38 +351,44 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("프롬프트 마감 시 대기 중인 모든 참가자에게 닉네임 기반 프롬프트를 자동 제출한다.")
-    void autoSubmitPrompts_대기_중인_모든_참가자에게_자동_프롬프트를_제출한다() {
+    @DisplayName("추측 마감 시 미제출 참가자에게 닉네임 기반 추측을 자동 제출한다.")
+    void autoSubmitGuesses_미제출_참가자에게_자동_추측을_제출한다() throws Exception {
         // given
-        Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
-        Player guest1 = new Player("참가자1");
-        Player guest2 = new Player("참가자2");
-        room.addPlayer(guest1);
-        room.addPlayer(guest2);
-        room.changePlayerReady(guest1.getId(), true);
-        room.changePlayerReady(guest2.getId(), true);
-        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
-        room.submitPrompt(host.getId(), "직접 제출한 프롬프트", PROMPT_STARTED_AT);
-        Instant deadline = room.getPromptDeadline();
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
+        Instant deadline = room.getGuessDeadline();
 
         // when
-        Map<String, String> autoSubmittedPrompts = room.autoSubmitPrompts(deadline);
+        room.autoSubmitGuesses(deadline);
 
         // then
-        PromptEntry guest1Entry = findPromptEntry(room, guest1.getId());
-        PromptEntry guest2Entry = findPromptEntry(room, guest2.getId());
+        List<GuessEntry> guesses = room.getCurrentRound().getGuesses();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(autoSubmittedPrompts).containsOnlyKeys(guest1.getId(), guest2.getId());
-            softly.assertThat(guest1Entry.getPrompt()).isIn(autoPromptCandidates("참가자1"));
-            softly.assertThat(guest2Entry.getPrompt()).isIn(autoPromptCandidates("참가자2"));
-            softly.assertThat(guest1Entry.getSubmittedAt()).isEqualTo(deadline);
-            softly.assertThat(guest2Entry.getSubmittedAt()).isEqualTo(deadline);
-            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
-            softly.assertThat(guest2Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
-            softly.assertThat(findPromptEntry(room, host.getId()).getPrompt()).isEqualTo("직접 제출한 프롬프트");
-            softly.assertThat(room.hasWaitingPrompt()).isFalse();
+            softly.assertThat(room.hasAllCurrentRoundGuesses()).isTrue();
+            softly.assertThat(guesses).extracting(GuessEntry::getPlayerId)
+                    .containsExactlyInAnyOrder(guest1Id, guest2Id);
+            softly.assertThat(guessOf(guesses, guest1Id).getGuess()).isEqualTo("강아지가 기타를 치는 장면");
+            softly.assertThat(guessOf(guesses, guest2Id).getGuess()).isIn(autoPromptCandidates("참가자2"));
+            softly.assertThat(guessOf(guesses, guest2Id).getSubmittedAt()).isEqualTo(deadline);
         });
+    }
+
+    @Test
+    @DisplayName("자동 추측은 출제자에게는 제출하지 않는다.")
+    void autoSubmitGuesses_출제자에게는_제출하지_않는다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String questionerId = room.getCurrentRound().getQuestionerId();
+
+        // when
+        room.autoSubmitGuesses(room.getGuessDeadline());
+
+        // then
+        assertThat(room.getCurrentRound().getGuesses())
+                .extracting(GuessEntry::getPlayerId)
+                .doesNotContain(questionerId);
     }
 
     @Test
@@ -1201,6 +1206,13 @@ class GameRoomTest {
 
     private PromptEntry findPromptEntry(GameRoom room, String playerId) {
         return room.getPromptEntries().stream()
+                .filter(entry -> entry.getPlayerId().equals(playerId))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private GuessEntry guessOf(List<GuessEntry> guesses, String playerId) {
+        return guesses.stream()
                 .filter(entry -> entry.getPlayerId().equals(playerId))
                 .findFirst()
                 .orElseThrow();
