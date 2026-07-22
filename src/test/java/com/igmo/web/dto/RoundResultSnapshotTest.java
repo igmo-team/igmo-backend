@@ -24,7 +24,7 @@ class RoundResultSnapshotTest {
     private static final Duration RESULT_DURATION = Duration.ofSeconds(15);
 
     @Test
-    @DisplayName("결과 스냅샷은 정답과 각 추측의 작성자, 득표수, 라운드 점수, 누적 점수를 공개한다.")
+    @DisplayName("결과 스냅샷은 정답과 각 추측의 작성자, 라운드 점수, 누적 점수를 공개한다.")
     void from_결과를_공개한다() throws Exception {
         // given
         GameRoom room = createRoomInResults();
@@ -45,12 +45,11 @@ class RoundResultSnapshotTest {
             softly.assertThat(snapshot.answerText()).isEqualTo("호스트 프롬프트");
             softly.assertThat(snapshot.resultDeadline()).isEqualTo(RESULTS_OPENED_AT.plus(RESULT_DURATION));
             softly.assertThat(snapshot.results())
-                    .extracting(view -> view.player().id(), RoundResultView::isAnswer,
-                            RoundResultView::voteCount, RoundResultView::roundScore)
+                    .extracting(view -> view.player().id(), RoundResultView::isAnswer, RoundResultView::roundScore)
                     .containsExactlyInAnyOrder(
-                            tuple(hostId, true, 1, 2),
-                            tuple(guest1Id, false, 1, 3),
-                            tuple(guest2Id, false, 0, 0)
+                            tuple(hostId, true, 2),
+                            tuple(guest1Id, false, 3),
+                            tuple(guest2Id, false, 0)
                     );
             softly.assertThat(snapshot.results())
                     .filteredOn(RoundResultView::isAnswer)
@@ -64,6 +63,46 @@ class RoundResultSnapshotTest {
                             tuple(guest2Id, 0)
                     );
         });
+    }
+
+    @Test
+    @DisplayName("결과 스냅샷은 선택지별 투표자와 점수 유형별 내역을 공개한다.")
+    void from_투표자와_점수_유형을_공개한다() throws Exception {
+        // given
+        GameRoom room = createRoomInResults();
+        String hostId = room.getPlayers().get(0).getId();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+
+        // when
+        RoundResultSnapshot snapshot = RoundResultSnapshot.from(room);
+
+        // then
+        RoundResultView answerView = findResult(snapshot, hostId);
+        RoundResultView guess1View = findResult(snapshot, guest1Id);
+        RoundResultView guess2View = findResult(snapshot, guest2Id);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(answerView.voters()).extracting(PlayerView::id).containsExactly(guest1Id);
+            softly.assertThat(guess1View.voters()).extracting(PlayerView::id).containsExactly(guest2Id);
+            softly.assertThat(guess2View.voters()).isEmpty();
+            softly.assertThat(answerView.scoreDetails())
+                    .extracting(ScoreDetailView::reason, ScoreDetailView::label, ScoreDetailView::score)
+                    .containsExactly(tuple("QUESTIONER", "출제자", 2));
+            softly.assertThat(guess1View.scoreDetails())
+                    .extracting(ScoreDetailView::reason, ScoreDetailView::label, ScoreDetailView::score)
+                    .containsExactly(
+                            tuple("CORRECT_ANSWER", "정답", 2),
+                            tuple("FOOLED_PLAYER", "낚시", 1)
+                    );
+            softly.assertThat(guess2View.scoreDetails()).isEmpty();
+        });
+    }
+
+    private RoundResultView findResult(RoundResultSnapshot snapshot, String playerId) {
+        return snapshot.results().stream()
+                .filter(view -> view.player().id().equals(playerId))
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test

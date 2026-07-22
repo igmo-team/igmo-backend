@@ -2,6 +2,7 @@ package com.igmo.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
@@ -365,6 +366,36 @@ class RoundTest {
             softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-1")).isEqualTo(3);
             softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-2")).isEqualTo(2);
             softly.assertThat(result.getRoundScoreByPlayerId().get("guesser-3")).isZero();
+        });
+    }
+
+    @Test
+    @DisplayName("라운드 점수를 낚시·정답·출제자 유형으로 나눠 보관한다.")
+    void settleResult_점수를_유형별로_분해해_보관한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.openVoting();
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        String guess1OptionId = round.getGuesses().get(0).getGuessId();
+        round.submitVote("guesser-1", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT);
+        round.submitVote("guesser-3", guess1OptionId, SUBMITTED_AT);
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result.getScoreDetails("questioner"))
+                    .containsOnly(entry(ScoreReason.QUESTIONER, 4));
+            softly.assertThat(result.getScoreDetails("guesser-1"))
+                    .containsOnly(entry(ScoreReason.CORRECT_ANSWER, 2), entry(ScoreReason.FOOLED_PLAYER, 1));
+            softly.assertThat(result.getScoreDetails("guesser-2"))
+                    .containsOnly(entry(ScoreReason.CORRECT_ANSWER, 2));
+            softly.assertThat(result.getScoreDetails("guesser-3")).isEmpty();
         });
     }
 
