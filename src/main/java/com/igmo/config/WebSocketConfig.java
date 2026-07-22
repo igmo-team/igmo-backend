@@ -64,7 +64,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     }
 
     @Bean
-    public TaskScheduler gamePhaseDeadlineScheduler() { //이건 왜 변경한거야
+    public TaskScheduler gamePhaseDeadlineScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(1);
         scheduler.setThreadNamePrefix("game-phase-deadline-");

@@ -1,7 +1,6 @@
 package com.igmo.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
@@ -13,26 +12,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
-import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
-import com.igmo.service.exception.GeminiResponseException;
 import com.igmo.service.exception.PlayerNotFoundException;
-import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
-import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
@@ -41,7 +32,6 @@ import com.igmo.web.dto.GuessEntryView;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
-import com.igmo.web.dto.PlayerView;
 import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
@@ -57,17 +47,15 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.SoftAssertions;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
 
-class GameServiceTest {
+class GamePhaseServiceTest {
 
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
@@ -85,39 +73,30 @@ class GameServiceTest {
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
     private final GameLobbyService gameLobbyService =
             new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher);
-    private final GameService gameService =
-            new GameService(
-                    gameRegistry,
-                    messagingTemplate,
+    private final ImageGenerationService imageGenerationService =
+            new ImageGenerationService(imageGenerationClient, imageGenerationExecutor);
+    private final GamePhaseService gamePhaseService =
+            new GamePhaseService(
+                    gameRoomRepository,
                     gamePhaseScheduler,
-                    imageGenerationClient,
-                    imageGenerationExecutor);
-    private final Logger gameServiceLogger = (Logger) LoggerFactory.getLogger(GameService.class);
-    private ListAppender<ILoggingEvent> imageGenerationLogAppender;
+                    eventPublisher,
+                    imageGenerationService);
 
     @BeforeEach
-    void 스케줄러가_예약_future를_반환하도록_설정한다() {
+    void 게임_단계_전환_스케줄러를_설정한다() {
         imageGenerationTask = null;
-        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofSeconds(30));
-        ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofSeconds(60));
-        ReflectionTestUtils.setField(gameService, "voteDuration", Duration.ofSeconds(30));
-        ReflectionTestUtils.setField(gameService, "resultDuration", Duration.ofSeconds(10));
+        ReflectionTestUtils.setField(gamePhaseService, "promptDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gamePhaseService, "guessDuration", Duration.ofSeconds(60));
+        ReflectionTestUtils.setField(gamePhaseService, "voteDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gamePhaseService, "resultDuration", Duration.ofSeconds(10));
         ReflectionTestUtils.setField(
-                gameService,
+                gamePhaseService,
                 "imageGenerationCompletionDelay",
                 Duration.ofSeconds(3));
         given(gamePhaseDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledPromptExpiration);
         given(imageGenerationCompletionScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledPlayingTransition);
-        imageGenerationLogAppender = new ListAppender<>();
-        imageGenerationLogAppender.start();
-        gameServiceLogger.addAppender(imageGenerationLogAppender);
-    }
-
-    @AfterEach
-    void 이미지_생성_로그_appender를_제거한다() {
-        gameServiceLogger.detachAppender(imageGenerationLogAppender);
     }
 
 
@@ -133,7 +112,7 @@ class GameServiceTest {
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
 
         // when
-        gameService.startGame("ABCD", created.playerId());
+        gamePhaseService.startGame("ABCD", created.playerId());
 
         // then
         List<RoomMessage> messages = captureRoomBroadcasts(5);
@@ -165,7 +144,7 @@ class GameServiceTest {
     @DisplayName("존재하지 않는 방을 시작하면 RoomNotFoundException을 던진다.")
     void startGame_없는_방이면_예외를_던진다() {
         // when & then
-        assertThatThrownBy(() -> gameService.startGame("ZZZZ", "player-id"))
+        assertThatThrownBy(() -> gamePhaseService.startGame("ZZZZ", "player-id"))
                 .isInstanceOf(RoomNotFoundException.class)
                 .hasMessage("방을 찾을 수 없습니다.");
     }
@@ -180,7 +159,7 @@ class GameServiceTest {
         gameLobbyService.joinGame("ABCD", "참가자2");
 
         // when & then
-        assertThatThrownBy(() -> gameService.startGame("ABCD", guest1.playerId()))
+        assertThatThrownBy(() -> gamePhaseService.startGame("ABCD", guest1.playerId()))
                 .isInstanceOf(NotHostException.class)
                 .hasMessage("방장만 게임을 시작할 수 있습니다.");
     }
@@ -195,10 +174,10 @@ class GameServiceTest {
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
+        gamePhaseService.startGame("ABCD", created.playerId());
 
         // when
-        gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
@@ -241,8 +220,8 @@ class GameServiceTest {
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        gamePhaseService.startGame("ABCD", created.playerId());
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
         clearInvocations(messagingTemplate);
 
         // when
@@ -258,8 +237,6 @@ class GameServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
-            softly.assertThat(lastLogMessage("이미지 생성 완료"))
-                    .contains("roomCode=ABCD", "playerId=", "durationMs=");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
@@ -349,19 +326,14 @@ class GameServiceTest {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
-                .willThrow(new GeminiResponseException(
-                        "Gemini 응답에 이미지 데이터가 없습니다.",
-                        List.of("text"),
-                        200,
-                        "gemini-3.1-flash-image",
-                        "2K"));
+                .willThrow(new RuntimeException("이미지 생성 실패"));
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        gameService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        gamePhaseService.startGame("ABCD", created.playerId());
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
         clearInvocations(messagingTemplate);
 
         // when
@@ -377,9 +349,6 @@ class GameServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isNull();
-            softly.assertThat(lastLogMessage("이미지 생성 실패"))
-                    .contains("roomCode=ABCD", "playerId=", "durationMs=")
-                    .contains("reason=Gemini 응답에 이미지 데이터가 없습니다.");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
         verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
@@ -396,8 +365,8 @@ class GameServiceTest {
     void promptExpiration_미제출_참가자에게_자동_프롬프트를_제출하고_이미지_생성을_시작한다() {
         // given
         GameSession session = startGeneratingGame();
-        gameService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
-        gameService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
         clearInvocations(messagingTemplate);
 
         // when
@@ -425,7 +394,7 @@ class GameServiceTest {
     @DisplayName("존재하지 않는 방에 프롬프트를 제출하면 RoomNotFoundException을 던진다.")
     void submitPrompt_없는_방이면_예외를_던진다() {
         // when & then
-        assertThatThrownBy(() -> gameService.submitPrompt("ZZZZ", "player-id", "프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ZZZZ", "player-id", "프롬프트"))
                 .isInstanceOf(RoomNotFoundException.class)
                 .hasMessage("방을 찾을 수 없습니다.");
     }
@@ -438,7 +407,7 @@ class GameServiceTest {
         gameLobbyService.createGame("호스트");
 
         // when & then
-        assertThatThrownBy(() -> gameService.submitPrompt("ABCD", "unknown-player-id", "프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", "unknown-player-id", "프롬프트"))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
     }
@@ -451,7 +420,7 @@ class GameServiceTest {
         CreateGameResponse created = gameLobbyService.createGame("호스트");
 
         // when & then
-        assertThatThrownBy(() -> gameService.submitPrompt("ABCD", created.playerId(), "프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", created.playerId(), "프롬프트"))
                 .isInstanceOf(PromptSubmissionNotAllowedException.class)
                 .hasMessage("프롬프트를 제출할 수 있는 단계가 아닙니다.");
     }
@@ -466,11 +435,11 @@ class GameServiceTest {
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        gameService.submitPrompt("ABCD", guest1.playerId(), "첫 번째 프롬프트");
+        gamePhaseService.startGame("ABCD", created.playerId());
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "첫 번째 프롬프트");
 
         // when & then
-        assertThatThrownBy(() -> gameService.submitPrompt("ABCD", guest1.playerId(), "두 번째 프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "두 번째 프롬프트"))
                 .isInstanceOf(DuplicatePromptSubmissionException.class)
                 .hasMessage("이미 프롬프트를 제출했습니다.");
     }
@@ -479,17 +448,17 @@ class GameServiceTest {
     @DisplayName("프롬프트 마감 이후 제출하면 PromptSubmissionExpiredException을 전파한다.")
     void submitPrompt_마감_이후이면_예외를_전파한다() {
         // given
-        ReflectionTestUtils.setField(gameService, "promptDuration", Duration.ofMillis(-1));
+        ReflectionTestUtils.setField(gamePhaseService, "promptDuration", Duration.ofMillis(-1));
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
+        gamePhaseService.startGame("ABCD", created.playerId());
 
         // when & then
-        assertThatThrownBy(() -> gameService.submitPrompt("ABCD", guest1.playerId(), "늦은 프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "늦은 프롬프트"))
                 .isInstanceOf(PromptSubmissionExpiredException.class)
                 .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
     }
@@ -503,7 +472,7 @@ class GameServiceTest {
         clearInvocations(messagingTemplate);
 
         // when
-        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
 
         // then
         RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
@@ -523,11 +492,11 @@ class GameServiceTest {
     void submitGuess_전원이_제출하면_VOTING_스냅샷을_브로드캐스트하고_마감_작업을_취소한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
         clearInvocations(messagingTemplate);
 
         // when
-        gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
 
         // then
         VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
@@ -547,7 +516,7 @@ class GameServiceTest {
         setUpRoomInPlaying();
 
         // when & then
-        assertThatThrownBy(() -> gameService.submitGuess("ABCD", "unknown-player", "추측"))
+        assertThatThrownBy(() -> gamePhaseService.submitGuess("ABCD", "unknown-player", "추측"))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
     }
@@ -557,7 +526,7 @@ class GameServiceTest {
     void guessDeadline_마감_작업이_실행되면_VOTING_스냅샷을_브로드캐스트한다() {
         // given
         setUpRoomWithImagesReady();
-        ReflectionTestUtils.setField(gameService, "guessDuration", Duration.ofMillis(-1));
+        ReflectionTestUtils.setField(gamePhaseService, "guessDuration", Duration.ofMillis(-1));
         captureScheduledPlayingTransition().run();
         Runnable guessExpiration = captureLastScheduledDeadline(2);
         clearInvocations(messagingTemplate);
@@ -582,8 +551,8 @@ class GameServiceTest {
         // given
         List<String> playerIds = setUpRoomInPlaying();
         Runnable guessExpiration = captureLastScheduledDeadline(2);
-        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
-        gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
         clearInvocations(messagingTemplate);
 
         // when
@@ -602,7 +571,7 @@ class GameServiceTest {
         clearInvocations(messagingTemplate);
 
         // when
-        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(1), answerOptionId);
 
         // then
         VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
@@ -623,11 +592,11 @@ class GameServiceTest {
         // given
         List<String> playerIds = setUpRoomInVoting();
         String answerOptionId = findAnswerOptionId("ABCD");
-        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(1), answerOptionId);
         clearInvocations(messagingTemplate);
 
         // when
-        gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(2), answerOptionId);
 
         // then
         RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
@@ -643,7 +612,7 @@ class GameServiceTest {
         String answerOptionId = findAnswerOptionId("ABCD");
 
         // when & then
-        assertThatThrownBy(() -> gameService.submitVote("ABCD", "unknown-player", answerOptionId))
+        assertThatThrownBy(() -> gamePhaseService.submitVote("ABCD", "unknown-player", answerOptionId))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
     }
@@ -652,7 +621,7 @@ class GameServiceTest {
     @DisplayName("투표 마감 작업이 실행되면 RESULTS로 전환한 스냅샷을 브로드캐스트한다.")
     void voteDeadline_마감_작업이_실행되면_RESULTS로_전환한다() {
         // given
-        ReflectionTestUtils.setField(gameService, "voteDuration", Duration.ofMillis(-1));
+        ReflectionTestUtils.setField(gamePhaseService, "voteDuration", Duration.ofMillis(-1));
         setUpRoomInVoting();
         Runnable voteExpiration = captureLastScheduledDeadline(3);
         clearInvocations(messagingTemplate);
@@ -672,8 +641,8 @@ class GameServiceTest {
         List<String> playerIds = setUpRoomInVoting();
         Runnable voteExpiration = captureLastScheduledDeadline(3);
         String answerOptionId = findAnswerOptionId("ABCD");
-        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
-        gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(2), answerOptionId);
         clearInvocations(messagingTemplate);
 
         // when
@@ -756,28 +725,28 @@ class GameServiceTest {
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", created.playerId());
-        gameService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        gamePhaseService.startGame("ABCD", created.playerId());
+        gamePhaseService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
         runImageGenerationTask();
-        gameService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
         runImageGenerationTask();
-        gameService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
         runImageGenerationTask();
         return List.of(created.playerId(), guest1.playerId(), guest2.playerId());
     }
 
     private List<String> setUpRoomInVoting() {
         List<String> playerIds = setUpRoomInPlaying();
-        gameService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
-        gameService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
         return playerIds;
     }
 
     private List<String> setUpRoomInResults() {
         List<String> playerIds = setUpRoomInVoting();
         String answerOptionId = findAnswerOptionId("ABCD");
-        gameService.submitVote("ABCD", playerIds.get(1), answerOptionId);
-        gameService.submitVote("ABCD", playerIds.get(2), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(1), answerOptionId);
+        gamePhaseService.submitVote("ABCD", playerIds.get(2), answerOptionId);
         return playerIds;
     }
 
@@ -847,12 +816,12 @@ class GameServiceTest {
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
-        gameService.startGame("ABCD", host.playerId());
+        gamePhaseService.startGame("ABCD", host.playerId());
         return new GameSession(host, guest1, guest2);
     }
 
     private void submitPromptAndCompleteImage(String playerId, String prompt) {
-        gameService.submitPrompt("ABCD", playerId, prompt);
+        gamePhaseService.submitPrompt("ABCD", playerId, prompt);
         runImageGenerationTask();
     }
 
@@ -923,14 +892,6 @@ class GameServiceTest {
         ArgumentCaptor<ImageGenerationResult> captor = ArgumentCaptor.forClass(ImageGenerationResult.class);
         verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/image-generation"), captor.capture());
         return captor.getValue();
-    }
-
-    private String lastLogMessage(String messagePrefix) {
-        return imageGenerationLogAppender.list.stream()
-                .filter(loggingEvent -> loggingEvent.getFormattedMessage().startsWith(messagePrefix))
-                .reduce((previous, current) -> current)
-                .orElseThrow()
-                .getFormattedMessage();
     }
 
     private record GameSession(

@@ -49,14 +49,6 @@ class PlayerPresenceServiceConcurrencyTest {
                     gamePhaseScheduler,
                     eventPublisher,
                     disconnectGraceScheduler);
-    private final GameService gameService =
-            new GameService(
-                    gameRegistry,
-                    messagingTemplate,
-                    gamePhaseScheduler,
-                    mock(ImageGenerationClient.class),
-                    Runnable::run);
-
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
         ReflectionTestUtils.setField(playerPresenceService, "disconnectGrace", Duration.ofSeconds(3));
