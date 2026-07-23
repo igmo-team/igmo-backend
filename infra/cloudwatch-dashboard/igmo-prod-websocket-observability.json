@@ -30,7 +30,7 @@
         "title": "현재 웹소켓 연결 수",
         "region": "ap-northeast-2",
         "view": "singleValue",
-        "setPeriodToTimeRange": true,
+        "setPeriodToTimeRange": false,
         "stat": "Average",
         "metrics": [
           ["Igmo/App", "websocket_connection_active", "instance", "127.0.0.1:8080", "service", "igmo", "env", "prod", "job", "igmo-app"]
@@ -47,7 +47,7 @@
         "title": "현재 게임 방 수",
         "region": "ap-northeast-2",
         "view": "singleValue",
-        "setPeriodToTimeRange": true,
+        "setPeriodToTimeRange": false,
         "stat": "Average",
         "metrics": [
           ["Igmo/App", "game_room_active", "instance", "127.0.0.1:8080", "service", "igmo", "env", "prod", "job", "igmo-app"]
