@@ -557,6 +557,35 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("이미지 생성 중(GENERATING)인 참가자는 이미지 생성 진행 중으로 판단한다.")
+    void isImageGenerationInProgress_생성_중이면_true를_반환한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+
+        // when & then
+        assertThat(room.isImageGenerationInProgress(host.getId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("이미 READY인 참가자는 이미지 생성 진행 중이 아니라고 판단한다.")
+    void isImageGenerationInProgress_READY면_false를_반환한다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+
+        // when & then
+        assertThat(room.isImageGenerationInProgress(room.getHostId())).isFalse();
+    }
+
+    @Test
     @DisplayName("이미지 생성 단계가 아니면 샘플을 채우지 않고 빈 배정 내역을 반환한다.")
     void fillMissingImagesWithSamples_생성_단계가_아니면_아무것도_하지_않는다() throws Exception {
         // given

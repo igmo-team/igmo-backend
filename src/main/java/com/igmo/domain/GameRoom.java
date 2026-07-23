@@ -180,6 +180,11 @@ public class GameRoom {
         entry.failImageGeneration();
     }
 
+    public synchronized boolean isImageGenerationInProgress(String playerId) {
+        PromptEntry entry = promptEntriesByPlayerId.get(playerId);
+        return entry != null && entry.getStatus() == PromptEntryStatus.GENERATING;
+    }
+
     // 프롬프트 마감 시 READY가 아닌 엔트리에 미리 준비한 샘플을 배정해 전원 READY를 보장한다.
     // 풀이 채울 인원보다 많으면 서로 다른 샘플을, 부족하면 재사용해서라도 빈 자리를 남기지 않는다.
     public synchronized Map<String, SamplePrompt> fillMissingImagesWithSamples(List<SamplePrompt> pool, Instant now) {

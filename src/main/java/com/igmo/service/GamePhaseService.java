@@ -233,7 +233,9 @@ public class GamePhaseService {
             String imageUrl
     ) {
         boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
-            if (lockedRoom.getPhase() != GamePhase.GENERATING) {
+            // 마감 시 샘플로 채워진 뒤 뒤늦게 도착한 생성 결과는 무시한다. (엔트리가 더 이상 생성 중이 아님)
+            if (lockedRoom.getPhase() != GamePhase.GENERATING
+                    || !lockedRoom.isImageGenerationInProgress(playerId)) {
                 return false;
             }
             boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();

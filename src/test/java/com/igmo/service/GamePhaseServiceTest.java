@@ -459,6 +459,26 @@ class GamePhaseServiceTest {
     }
 
     @Test
+    @DisplayName("샘플로 채워진 뒤 도착한 실제 이미지 생성 결과는 개인 전송하지 않고 샘플을 유지한다.")
+    void imageGeneration_샘플로_채워진_뒤_도착한_결과는_무시한다() {
+        // given
+        GameSession session = startExpirationScenarioWithMissingImages();
+        Runnable lateGuest1Generation = imageGenerationTask;
+        captureScheduledPromptExpiration().run();
+        clearInvocations(messagingTemplate);
+
+        // when
+        lateGuest1Generation.run();
+
+        // then
+        PromptEntry guest1Entry = findPromptEntry("ABCD", session.guest1().playerId());
+        assertThat(samplePromptProvider.getAll())
+                .contains(new SamplePrompt(guest1Entry.getPrompt(), guest1Entry.getImageUrl()));
+        verify(messagingTemplate, never())
+                .convertAndSendToUser(eq(session.guest1().playerId()), eq("/queue/image-generation"), any());
+    }
+
+    @Test
     @DisplayName("존재하지 않는 방에 프롬프트를 제출하면 RoomNotFoundException을 던진다.")
     void submitPrompt_없는_방이면_예외를_던진다() {
         // when & then
