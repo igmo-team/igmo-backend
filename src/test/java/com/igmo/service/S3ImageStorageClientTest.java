@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.igmo.monitoring.GameMetrics;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +19,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 class S3ImageStorageClientTest {
 
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
+
     @Test
     @DisplayName("이미지를 S3에 저장하고 public base URL 기준 이미지 URL을 반환한다.")
     void store_uploadsImageToS3AndReturnsImageUrl() throws IOException {
@@ -25,6 +28,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "igmo-images",
                 "ap-northeast-2",
                 "/generated-images/",
@@ -47,6 +51,7 @@ class S3ImageStorageClientTest {
         assertThat(request.contentType()).isEqualTo("image/png");
         assertThat(bodyCaptor.getValue().contentStreamProvider().newStream().readAllBytes()).isEqualTo(image);
         assertThat(imageUrl).isEqualTo("https://cdn.example.com/images/" + request.key());
+        verify(gameMetrics).recordImageUploadDuration(any());
     }
 
     @Test
@@ -56,6 +61,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "igmo-images",
                 "ap-northeast-2",
                 "generated-images",
@@ -79,6 +85,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "igmo-images",
                 "ap-northeast-2",
                 "generated images",
@@ -103,6 +110,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "",
                 "ap-northeast-2",
                 "generated-images",
