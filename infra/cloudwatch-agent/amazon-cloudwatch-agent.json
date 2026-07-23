@@ -77,7 +77,19 @@
             "process_cpu_usage": "None",
             "system_cpu_usage": "None",
             "application_ready_time_seconds": "Seconds",
-            "application_started_time_seconds": "Seconds"
+            "application_started_time_seconds": "Seconds",
+            "websocket_connection_active": "Count",
+            "game_room_active": "Count",
+            "websocket_broadcast_count_total": "Count",
+            "websocket_broadcast_failure_total": "Count",
+            "image_generation_duration_seconds_count": "Count",
+            "image_generation_duration_seconds_sum": "Seconds",
+            "image_generation_duration_seconds_max": "Seconds",
+            "image_generation_failure_total": "Count",
+            "image_upload_duration_seconds_count": "Count",
+            "image_upload_duration_seconds_sum": "Seconds",
+            "image_upload_duration_seconds_max": "Seconds",
+            "image_upload_failure_total": "Count"
           },
           "metric_declaration": [
             {
@@ -102,7 +114,12 @@
                 "^jvm_gc_pause_seconds_(count|sum)$",
                 "^process_cpu_usage$",
                 "^system_cpu_usage$",
-                "^application_(ready|started)_time_seconds$"
+                "^application_(ready|started)_time_seconds$",
+                "^websocket_connection_active$",
+                "^game_room_active$",
+                "^websocket_broadcast_(count|failure)_total$",
+                "^image_(generation|upload)_duration_seconds_(count|sum|max)$",
+                "^image_(generation|upload)_failure_total$"
               ]
             }
           ]
