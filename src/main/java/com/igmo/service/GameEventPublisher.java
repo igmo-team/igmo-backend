@@ -46,8 +46,13 @@ public class GameEventPublisher {
     }
 
     public void publish(String code, RoomMessage<?> message) {
-        messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, message);
-        gameMetrics.incrementWebsocketBroadcastCount();
+        try {
+            messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, message);
+            gameMetrics.incrementWebsocketBroadcastCount();
+        } catch (RuntimeException exception) {
+            gameMetrics.incrementWebsocketBroadcastFailure();
+            throw exception;
+        }
     }
 
     public void sendImageGenerationResult(String playerId, ImageGenerationResult result) {

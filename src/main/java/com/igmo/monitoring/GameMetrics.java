@@ -14,6 +14,7 @@ public class GameMetrics {
     private final Timer imageUploadDuration;
     private final Counter imageUploadFailure;
     private final Counter websocketBroadcastCount;
+    private final Counter websocketBroadcastFailure;
 
     public GameMetrics(MeterRegistry meterRegistry) {
         imageGenerationDuration = meterRegistry.timer("image.generation.duration");
@@ -21,6 +22,7 @@ public class GameMetrics {
         imageUploadDuration = meterRegistry.timer("image.upload.duration");
         imageUploadFailure = meterRegistry.counter("image.upload.failure");
         websocketBroadcastCount = meterRegistry.counter("websocket.broadcast.count");
+        websocketBroadcastFailure = meterRegistry.counter("websocket.broadcast.failure");
     }
 
     public void recordImageGenerationDuration(Duration duration) {
@@ -41,5 +43,9 @@ public class GameMetrics {
 
     public void incrementWebsocketBroadcastCount() {
         websocketBroadcastCount.increment();
+    }
+
+    public void incrementWebsocketBroadcastFailure() {
+        websocketBroadcastFailure.increment();
     }
 }
