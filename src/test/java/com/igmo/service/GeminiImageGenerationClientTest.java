@@ -6,9 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-import com.igmo.monitoring.GameMetrics;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.GeminiRequestException;
 import com.igmo.service.exception.GeminiResponseException;
 import com.igmo.service.exception.ImageStorageException;
@@ -84,7 +84,7 @@ class GeminiImageGenerationClientTest {
     }
 
     @Test
-    @DisplayName("이미지 content 블록이 없으면 Gemini 응답 예외를 던진다.")
+    @DisplayName("200 OK 응답이 텍스트뿐이면 텍스트 예외를 던진다.")
     void generate_throwsExceptionWithoutImageContent() throws Exception {
         // given
         server = startServer(new AtomicReference<>(), 200, """
@@ -104,7 +104,36 @@ class GeminiImageGenerationClientTest {
         // when & then
         assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
                 .isInstanceOf(GeminiResponseException.class)
-                .hasMessage("Gemini 응답에 이미지 데이터가 없습니다.");
+                .hasMessage("Gemini 응답이 이미지 대신 텍스트입니다.");
+    }
+
+    @Test
+    @DisplayName("200 OK 응답이 이미지 메타데이터만 가지면 이미지 바이트 누락 예외를 던진다.")
+    void generate_이미지_바이트_데이터가_없으면_예외를_던진다() throws Exception {
+        // given
+        server = startServer(new AtomicReference<>(), 200, """
+                {
+                  "steps": [
+                    {"type": "thought", "signature": "opaque-thought-signature"},
+                    {"type": "model_output", "content": [{"type": "image", "mime_type": "image/jpeg"}]}
+                  ]
+                }
+                """);
+        GeminiImageGenerationClient client = new GeminiImageGenerationClient(
+                objectMapper,
+                HttpClient.newHttpClient(),
+                (image, contentType) -> "https://cdn.example.com/generated-images/prompt-1.png",
+                gameMetrics,
+                URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
+                "api-key",
+                "gemini-3.1-flash-image",
+                "2K"
+        );
+
+        // when & then
+        assertThatThrownBy(() -> client.generate("동굴 벽화 스타일의 바나나"))
+                .isInstanceOf(GeminiResponseException.class)
+                .hasMessage("Gemini 응답에 이미지 바이트 데이터가 없습니다.");
     }
 
     @Test

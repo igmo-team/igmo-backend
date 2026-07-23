@@ -698,6 +698,25 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("이미지 생성에 실패한 플레이어는 마감 전 프롬프트를 다시 제출할 수 있다.")
+    void submitPrompt_이미지_생성에_실패한_플레이어이면_마감_전_다시_제출할_수_있다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String guest2Id = room.getPlayers().get(2).getId();
+
+        // when
+        room.submitPrompt(guest2Id, "다시 입력한 프롬프트", PROMPT_STARTED_AT.plusSeconds(1));
+
+        // then
+        PromptEntry entry = findPromptEntry(room, guest2Id);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getPrompt()).isEqualTo("다시 입력한 프롬프트");
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(entry.getImageUrl()).isNull();
+        });
+    }
+
+    @Test
     @DisplayName("방장이 아닌 참가자가 시작하면 NotHostException을 던진다.")
     void start_방장이_아니면_예외를_던진다() {
         // given

@@ -154,19 +154,36 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
             }
             for (JsonNode content : step.path("content")) {
                 JsonNode imageBase64 = content.path("data");
-                if ("image".equals(content.path("type").asText()) && imageBase64.isTextual()) {
-                    try {
-                        return Base64.getDecoder().decode(imageBase64.asText());
-                    } catch (IllegalArgumentException exception) {
-                        throw new GeminiResponseException(
-                                "Gemini 응답의 이미지 데이터 형식이 올바르지 않습니다.",
-                                httpStatus,
-                                model,
-                                imageSize,
-                                exception);
-                    }
+                if (!"image".equals(content.path("type").asText())) {
+                    continue;
+                }
+                if (!imageBase64.isTextual()) {
+                    throw new GeminiResponseException(
+                            "Gemini 응답에 이미지 바이트 데이터가 없습니다.",
+                            modelOutputContentTypes,
+                            httpStatus,
+                            model,
+                            imageSize);
+                }
+                try {
+                    return Base64.getDecoder().decode(imageBase64.asText());
+                } catch (IllegalArgumentException exception) {
+                    throw new GeminiResponseException(
+                            "Gemini 응답의 이미지 데이터 형식이 올바르지 않습니다.",
+                            httpStatus,
+                            model,
+                            imageSize,
+                            exception);
                 }
             }
+        }
+        if (modelOutputContentTypes.contains("text")) {
+            throw new GeminiResponseException(
+                    "Gemini 응답이 이미지 대신 텍스트입니다.",
+                    modelOutputContentTypes,
+                    httpStatus,
+                    model,
+                    imageSize);
         }
         throw new GeminiResponseException(
                 "Gemini 응답에 이미지 데이터가 없습니다.",

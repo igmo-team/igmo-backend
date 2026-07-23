@@ -27,6 +27,7 @@ import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.service.exception.GeminiResponseException;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
@@ -341,8 +342,14 @@ class GamePhaseServiceTest {
     void imageGeneration_실패하면_개인_실패_결과를_전송하고_전체_상태를_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
+        GeminiResponseException failure = new GeminiResponseException(
+                "Gemini 응답이 이미지 대신 텍스트입니다.",
+                List.of("text"),
+                200,
+                "gemini-3.1-flash-image",
+                "2K");
         given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
-                .willThrow(new RuntimeException("이미지 생성 실패"));
+                .willThrow(failure);
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -365,6 +372,7 @@ class GamePhaseServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isNull();
+            softly.assertThat(result.errorMessage()).isEqualTo("Gemini 응답이 이미지 대신 텍스트입니다.");
         });
         verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
         verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
@@ -374,6 +382,47 @@ class GamePhaseServiceTest {
                 .singleElement()
                 .extracting(PromptEntryView::submitted)
                 .isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("이미지 생성에 실패한 프롬프트는 마감 전 다시 제출할 수 있다.")
+    void submitPrompt_이미지_생성에_실패하면_마감_전_다시_제출할_수_있다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate("실패한 프롬프트"))
+                .willThrow(new GeminiResponseException(
+                        "Gemini 응답이 이미지 대신 텍스트입니다.",
+                        List.of("text"),
+                        200,
+                        "gemini-3.1-flash-image",
+                        "2K"));
+        given(imageGenerationClient.generate("다시 입력한 프롬프트"))
+                .willReturn("https://cdn.example.com/retried.png");
+        CreateGameResponse created = gameLobbyService.createGame("호스트");
+        JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
+        gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
+        gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
+        gamePhaseService.startGame("ABCD", created.playerId());
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "실패한 프롬프트");
+        runImageGenerationTask();
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "다시 입력한 프롬프트");
+        runImageGenerationTask();
+
+        // then
+        PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
+        ImageGenerationResult result = captureImageGenerationResult(guest1.playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(entry.getPrompt()).isEqualTo("다시 입력한 프롬프트");
+            softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/retried.png");
+            softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(result.errorMessage()).isNull();
+        });
+        verify(imageGenerationClient).generate("다시 입력한 프롬프트");
     }
 
     @Test
