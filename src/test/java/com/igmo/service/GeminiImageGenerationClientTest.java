@@ -2,7 +2,11 @@ package com.igmo.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
+import com.igmo.monitoring.GameMetrics;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.igmo.service.exception.GeminiRequestException;
@@ -23,6 +27,7 @@ import org.junit.jupiter.api.Test;
 class GeminiImageGenerationClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
     private HttpServer server;
 
     @AfterEach
@@ -48,6 +53,7 @@ class GeminiImageGenerationClientTest {
                     storedContentType.set(contentType);
                     return "https://cdn.example.com/generated-images/prompt-1.png";
                 },
+                gameMetrics,
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -74,6 +80,7 @@ class GeminiImageGenerationClientTest {
         assertThat(storedImage.get()).isEqualTo("image".getBytes(StandardCharsets.UTF_8));
         assertThat(storedContentType.get()).isEqualTo("image/jpeg");
         assertThat(imageUrl).isEqualTo("https://cdn.example.com/generated-images/prompt-1.png");
+        verify(gameMetrics).recordImageGenerationDuration(any());
     }
 
     @Test
@@ -87,6 +94,7 @@ class GeminiImageGenerationClientTest {
                 objectMapper,
                 HttpClient.newHttpClient(),
                 (image, contentType) -> "https://cdn.example.com/generated-images/prompt-1.png",
+                gameMetrics,
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -129,6 +137,7 @@ class GeminiImageGenerationClientTest {
                     storedImage.set(image);
                     return "https://cdn.example.com/generated-images/prompt-1.png";
                 },
+                gameMetrics,
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -153,6 +162,7 @@ class GeminiImageGenerationClientTest {
                 objectMapper,
                 HttpClient.newHttpClient(),
                 (image, contentType) -> "https://cdn.example.com/generated-images/prompt-1.png",
+                gameMetrics,
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
@@ -177,6 +187,7 @@ class GeminiImageGenerationClientTest {
                 (image, contentType) -> {
                     throw new IllegalStateException("S3 unavailable");
                 },
+                gameMetrics,
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
                 "api-key",
                 "gemini-3.1-flash-image",
