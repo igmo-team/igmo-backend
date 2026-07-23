@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,12 @@ class GameRoomTest {
     private static final Duration VOTE_DURATION = Duration.ofSeconds(30);
     private static final Instant RESULTS_OPENED_AT = Instant.parse("2026-07-06T10:05:40Z");
     private static final Duration RESULT_DURATION = Duration.ofSeconds(15);
+    private static final Instant PROMPT_DEADLINE = PROMPT_STARTED_AT.plus(PROMPT_DURATION);
+    private static final List<SamplePrompt> SAMPLE_POOL = List.of(
+            new SamplePrompt("샘플 프롬프트 1", "https://cdn.example.com/samples/1.png"),
+            new SamplePrompt("샘플 프롬프트 2", "https://cdn.example.com/samples/2.png"),
+            new SamplePrompt("샘플 프롬프트 3", "https://cdn.example.com/samples/3.png"),
+            new SamplePrompt("샘플 프롬프트 4", "https://cdn.example.com/samples/4.png"));
 
     @Test
     @DisplayName("방을 생성하면 호스트가 첫 참가자로 등록되고 LOBBY 상태가 된다.")
@@ -481,6 +488,86 @@ class GameRoomTest {
 
         // when & then
         assertThat(room.hasAllImagesGenerated()).isFalse();
+    }
+
+    @Test
+    @DisplayName("이미지 마감 시 READY가 아닌 엔트리를 샘플로 채워 전원 READY로 만든다.")
+    void fillMissingImagesWithSamples_READY가_아닌_엔트리를_채워_전원_READY로_만든다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+
+        // when
+        room.fillMissingImagesWithSamples(SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        assertThat(room.hasAllImagesGenerated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("이미 READY인 엔트리는 샘플로 덮어쓰지 않는다.")
+    void fillMissingImagesWithSamples_이미_READY인_엔트리는_유지한다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String hostId = room.getHostId();
+
+        // when
+        room.fillMissingImagesWithSamples(SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        PromptEntry hostEntry = findPromptEntry(room, hostId);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(hostEntry.getPrompt()).isEqualTo("호스트 프롬프트");
+            softly.assertThat(hostEntry.getImageUrl()).isEqualTo("https://cdn.example.com/host.png");
+        });
+    }
+
+    @Test
+    @DisplayName("샘플로 채운 플레이어와 배정된 샘플을 배정 내역으로 반환한다.")
+    void fillMissingImagesWithSamples_배정_내역을_반환한다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String hostId = room.getHostId();
+        List<String> missingPlayerIds = room.getPlayers().stream()
+                .map(Player::getId)
+                .filter(id -> !id.equals(hostId))
+                .toList();
+
+        // when
+        Map<String, SamplePrompt> assignments = room.fillMissingImagesWithSamples(SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(assignments.keySet()).containsExactlyInAnyOrderElementsOf(missingPlayerIds);
+            softly.assertThat(assignments).doesNotContainKey(hostId);
+            softly.assertThat(assignments.values()).allMatch(SAMPLE_POOL::contains);
+        });
+    }
+
+    @Test
+    @DisplayName("샘플 풀이 채울 인원보다 많으면 서로 다른 샘플을 배정한다.")
+    void fillMissingImagesWithSamples_풀이_충분하면_서로_다른_샘플을_배정한다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+
+        // when
+        Map<String, SamplePrompt> assignments = room.fillMissingImagesWithSamples(SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        assertThat(assignments.values()).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("이미지 생성 단계가 아니면 샘플을 채우지 않고 빈 배정 내역을 반환한다.")
+    void fillMissingImagesWithSamples_생성_단계가_아니면_아무것도_하지_않는다() throws Exception {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        setPhase(room, GamePhase.PLAYING);
+
+        // when
+        Map<String, SamplePrompt> assignments = room.fillMissingImagesWithSamples(SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        assertThat(assignments).isEmpty();
     }
 
     @Test
@@ -1200,6 +1287,24 @@ class GameRoomTest {
         room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
         room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
         room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
+        return room;
+    }
+
+    // host: READY, 참가자1: WAITING(무제출), 참가자2: FAILED 로 GENERATING 단계를 만든다.
+    private GameRoom createGeneratingRoomWithMissingImages() {
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.failImageGeneration(guest2.getId());
         return room;
     }
 

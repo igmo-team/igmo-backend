@@ -180,6 +180,28 @@ public class GameRoom {
         entry.failImageGeneration();
     }
 
+    // 프롬프트 마감 시 READY가 아닌 엔트리에 미리 준비한 샘플을 배정해 전원 READY를 보장한다.
+    // 풀이 채울 인원보다 많으면 서로 다른 샘플을, 부족하면 재사용해서라도 빈 자리를 남기지 않는다.
+    public synchronized Map<String, SamplePrompt> fillMissingImagesWithSamples(List<SamplePrompt> pool, Instant now) {
+        if (!isGenerating() || pool.isEmpty()) {
+            return Map.of();
+        }
+        List<SamplePrompt> shuffledPool = new ArrayList<>(pool);
+        Collections.shuffle(shuffledPool, ThreadLocalRandom.current());
+        Map<String, SamplePrompt> assignments = new LinkedHashMap<>();
+        int assignedCount = 0;
+        for (PromptEntry entry : promptEntriesByPlayerId.values()) {
+            if (entry.isImageGenerated()) {
+                continue;
+            }
+            SamplePrompt sample = shuffledPool.get(assignedCount % shuffledPool.size());
+            entry.fillWithSample(sample.prompt(), sample.imageUrl(), now);
+            assignments.put(entry.getPlayerId(), sample);
+            assignedCount++;
+        }
+        return assignments;
+    }
+
     public synchronized void advanceToPlaying() {
         if (!isGenerating() || !hasAllImagesGenerated()) {
             throw new ImagesNotReadyException();
