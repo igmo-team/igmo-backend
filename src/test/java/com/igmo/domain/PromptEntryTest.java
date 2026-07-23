@@ -37,6 +37,29 @@ class PromptEntryTest {
     }
 
     @Test
+    @DisplayName("WAITING 또는 FAILED 상태의 프롬프트만 다시 제출할 수 있다.")
+    void canSubmitPrompt_WAITING_또는_FAILED면_true를_반환한다() {
+        // given
+        PromptEntry waiting = PromptEntry.waiting("waiting-player");
+        PromptEntry generating = PromptEntry.waiting("generating-player");
+        generating.submit("프롬프트", Instant.parse("2026-07-08T10:00:00Z"));
+        PromptEntry ready = PromptEntry.waiting("ready-player");
+        ready.submit("프롬프트", Instant.parse("2026-07-08T10:00:00Z"));
+        ready.completeImageGeneration("https://cdn.example.com/images/prompt.png");
+        PromptEntry failed = PromptEntry.waiting("failed-player");
+        failed.submit("프롬프트", Instant.parse("2026-07-08T10:00:00Z"));
+        failed.failImageGeneration();
+
+        // when & then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(waiting.canSubmitPrompt()).isTrue();
+            softly.assertThat(failed.canSubmitPrompt()).isTrue();
+            softly.assertThat(generating.canSubmitPrompt()).isFalse();
+            softly.assertThat(ready.canSubmitPrompt()).isFalse();
+        });
+    }
+
+    @Test
     @DisplayName("이미지 생성이 완료되면 이미지 URL을 저장하고 READY 상태로 바꾼다.")
     void completeImageGeneration_이미지_URL을_저장하고_READY로_바꾼다() {
         // given

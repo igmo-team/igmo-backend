@@ -42,6 +42,10 @@ public class PromptEntry {
         return status != PromptEntryStatus.WAITING;
     }
 
+    public boolean canSubmitPrompt() {
+        return status == PromptEntryStatus.WAITING || status == PromptEntryStatus.FAILED;
+    }
+
     // 마감 후 샘플로 READY가 된 엔트리를 뒤늦게 도착한 생성 결과가 덮어쓰지 못하도록 생성 중일 때만 반영한다.
     public void completeImageGeneration(String imageUrl) {
         if (!isGenerating()) {

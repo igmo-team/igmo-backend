@@ -155,7 +155,7 @@ public class GameRoom {
         if (entry == null) {
             return;
         }
-        if (entry.isSubmitted()) {
+        if (!entry.canSubmitPrompt()) {
             throw new DuplicatePromptSubmissionException();
         }
         if (isPromptExpired(submittedAt)) {

@@ -214,14 +214,16 @@ public class GamePhaseService {
                         room -> room.completeImageGeneration(playerId, imageUrl),
                         PromptEntryStatus.READY,
                         submittedPrompt,
-                        imageUrl),
+                        imageUrl,
+                        null),
                 exception -> updateImageGenerationResult(
                         code,
                         playerId,
                         room -> room.failImageGeneration(playerId),
                         PromptEntryStatus.FAILED,
                         submittedPrompt,
-                        null));
+                        null,
+                        failureMessage(exception)));
     }
 
     private void updateImageGenerationResult(
@@ -230,7 +232,8 @@ public class GamePhaseService {
             Consumer<GameRoom> operation,
             PromptEntryStatus status,
             String submittedPrompt,
-            String imageUrl
+            String imageUrl,
+            String errorMessage
     ) {
         boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
             // 마감 시 샘플로 채워진 뒤 뒤늦게 도착한 생성 결과는 무시한다. (엔트리가 더 이상 생성 중이 아님)
@@ -242,7 +245,7 @@ public class GamePhaseService {
             operation.accept(lockedRoom);
             eventPublisher.sendImageGenerationResult(
                     playerId,
-                    new ImageGenerationResult(code, status, submittedPrompt, imageUrl));
+                    new ImageGenerationResult(code, status, submittedPrompt, imageUrl, errorMessage));
             eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
             return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
         }).orElse(false);
@@ -250,6 +253,13 @@ public class GamePhaseService {
             gamePhaseScheduler.cancelPrompt(code);
             schedulePlayingTransition(code);
         }
+    }
+
+    private String failureMessage(Exception exception) {
+        if (exception.getMessage() != null && !exception.getMessage().isBlank()) {
+            return exception.getMessage();
+        }
+        return "이미지 생성에 실패했습니다. 다시 시도해주세요.";
     }
 
     private void schedulePlayingTransition(String code) {
