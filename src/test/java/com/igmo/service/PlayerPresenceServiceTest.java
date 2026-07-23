@@ -16,6 +16,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -40,6 +41,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class PlayerPresenceServiceTest {
 
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
@@ -54,11 +56,11 @@ class PlayerPresenceServiceTest {
     private final GameLobbyService gameLobbyService = new GameLobbyService(
             new GameRoomRepository(gameRegistry),
             roomCodeGenerator,
-            new GameEventPublisher(messagingTemplate));
+            new GameEventPublisher(messagingTemplate, gameMetrics));
     private final PlayerPresenceService playerPresenceService = new PlayerPresenceService(
             new GameRoomRepository(gameRegistry),
             gamePhaseScheduler,
-            new GameEventPublisher(messagingTemplate),
+            new GameEventPublisher(messagingTemplate, gameMetrics),
             disconnectGraceScheduler);
 
     @BeforeEach

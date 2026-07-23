@@ -3,6 +3,7 @@ package com.igmo.web;
 import java.util.Map;
 
 import com.igmo.service.PlayerPresenceService;
+import com.igmo.monitoring.GameMetrics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -14,9 +15,14 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 public class WebSocketDisconnectListener {
 
     private final PlayerPresenceService playerPresenceService;
+    private final GameMetrics gameMetrics;
 
     @EventListener
     public void handleSessionDisconnect(SessionDisconnectEvent event) {
+        String sessionId = SimpMessageHeaderAccessor.getSessionId(event.getMessage().getHeaders());
+        if (sessionId != null) {
+            gameMetrics.disconnectWebSocket(sessionId);
+        }
         Map<String, Object> sessionAttributes =
                 SimpMessageHeaderAccessor.getSessionAttributes(event.getMessage().getHeaders());
         if (sessionAttributes == null) {

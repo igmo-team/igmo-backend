@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.igmo.service.PlayerPresenceService;
+import com.igmo.monitoring.GameMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
@@ -20,7 +21,8 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 class WebSocketDisconnectListenerTest {
 
     private final PlayerPresenceService playerPresenceService = mock(PlayerPresenceService.class);
-    private final WebSocketDisconnectListener listener = new WebSocketDisconnectListener(playerPresenceService);
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
+    private final WebSocketDisconnectListener listener = new WebSocketDisconnectListener(playerPresenceService, gameMetrics);
 
     @Test
     @DisplayName("세션에 방/플레이어 식별 정보가 있으면 연결 끊김 퇴장 처리를 호출한다.")
@@ -36,6 +38,7 @@ class WebSocketDisconnectListenerTest {
 
         // then
         verify(playerPresenceService).handleDisconnect("ABCD", "player-1");
+        verify(gameMetrics).disconnectWebSocket("session-1");
     }
 
     @Test

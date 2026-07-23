@@ -1,7 +1,9 @@
 package com.igmo.service;
 
+import com.igmo.monitoring.GameMetrics;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -14,6 +16,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 public class S3ImageStorageClient implements ImageStorageClient {
 
     private final S3Client s3Client;
+    private final GameMetrics gameMetrics;
     private final String bucket;
     private final String region;
     private final String keyPrefix;
@@ -21,12 +24,14 @@ public class S3ImageStorageClient implements ImageStorageClient {
 
     public S3ImageStorageClient(
             S3Client s3Client,
+            GameMetrics gameMetrics,
             @Value("${igmo.image-storage.s3.bucket}") String bucket,
             @Value("${igmo.image-storage.s3.region}") String region,
             @Value("${igmo.image-storage.s3.key-prefix}") String keyPrefix,
             @Value("${igmo.image-storage.s3.public-base-url}") String publicBaseUrl
     ) {
         this.s3Client = s3Client;
+        this.gameMetrics = gameMetrics;
         this.bucket = bucket;
         this.region = region;
         this.keyPrefix = normalizeKeyPrefix(keyPrefix);
@@ -45,7 +50,15 @@ public class S3ImageStorageClient implements ImageStorageClient {
                 .key(key)
                 .contentType(contentType)
                 .build();
-        s3Client.putObject(request, RequestBody.fromBytes(image));
+        long startedAt = System.nanoTime();
+        try {
+            s3Client.putObject(request, RequestBody.fromBytes(image));
+        } catch (RuntimeException exception) {
+            gameMetrics.incrementImageUploadFailure();
+            throw exception;
+        } finally {
+            gameMetrics.recordImageUploadDuration(Duration.ofNanos(System.nanoTime() - startedAt));
+        }
 
         return buildImageUrl(key);
     }

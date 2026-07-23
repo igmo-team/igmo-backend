@@ -6,7 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+import com.igmo.monitoring.GameMetrics;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +20,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 class S3ImageStorageClientTest {
 
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
+
     @Test
     @DisplayName("이미지를 S3에 저장하고 public base URL 기준 이미지 URL을 반환한다.")
     void store_uploadsImageToS3AndReturnsImageUrl() throws IOException {
@@ -25,6 +29,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "igmo-images",
                 "ap-northeast-2",
                 "/generated-images/",
@@ -47,6 +52,7 @@ class S3ImageStorageClientTest {
         assertThat(request.contentType()).isEqualTo("image/png");
         assertThat(bodyCaptor.getValue().contentStreamProvider().newStream().readAllBytes()).isEqualTo(image);
         assertThat(imageUrl).isEqualTo("https://cdn.example.com/images/" + request.key());
+        verify(gameMetrics).recordImageUploadDuration(any());
     }
 
     @Test
@@ -56,6 +62,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "igmo-images",
                 "ap-northeast-2",
                 "generated-images",
@@ -79,6 +86,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "igmo-images",
                 "ap-northeast-2",
                 "generated images",
@@ -103,6 +111,7 @@ class S3ImageStorageClientTest {
         S3Client s3Client = mock(S3Client.class);
         S3ImageStorageClient client = new S3ImageStorageClient(
                 s3Client,
+                gameMetrics,
                 "",
                 "ap-northeast-2",
                 "generated-images",
@@ -114,5 +123,29 @@ class S3ImageStorageClientTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("S3 bucket is required for image storage.");
         verifyNoInteractions(s3Client);
+    }
+
+    @Test
+    @DisplayName("S3 업로드에 실패하면 실패 카운터를 증가시키고 예외를 전파한다.")
+    void store_incrementsFailureMetricWhenUploadFails() {
+        // given
+        S3Client s3Client = mock(S3Client.class);
+        when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenThrow(new IllegalStateException("S3 unavailable"));
+        S3ImageStorageClient client = new S3ImageStorageClient(
+                s3Client,
+                gameMetrics,
+                "igmo-images",
+                "ap-northeast-2",
+                "generated-images",
+                ""
+        );
+
+        // when & then
+        assertThatThrownBy(() -> client.store("image".getBytes(StandardCharsets.UTF_8), "image/png"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("S3 unavailable");
+        verify(gameMetrics).incrementImageUploadFailure();
+        verify(gameMetrics).recordImageUploadDuration(any());
     }
 }

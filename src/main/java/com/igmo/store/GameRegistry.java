@@ -19,6 +19,10 @@ public class GameRegistry {
         return Optional.ofNullable(rooms.get(code));
     }
 
+    public int count() {
+        return rooms.size();
+    }
+
     public void remove(String code) {
         rooms.remove(code);
     }

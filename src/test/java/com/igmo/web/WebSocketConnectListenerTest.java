@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.igmo.service.PlayerPresenceService;
+import com.igmo.monitoring.GameMetrics;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -18,7 +19,8 @@ import org.springframework.web.socket.messaging.SessionConnectEvent;
 class WebSocketConnectListenerTest {
 
     private final PlayerPresenceService playerPresenceService = mock(PlayerPresenceService.class);
-    private final WebSocketConnectListener listener = new WebSocketConnectListener(playerPresenceService);
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
+    private final WebSocketConnectListener listener = new WebSocketConnectListener(playerPresenceService, gameMetrics);
 
     @Test
     @DisplayName("세션에 방/플레이어 식별 정보가 있으면 예약된 삭제를 취소한다.")
@@ -34,6 +36,7 @@ class WebSocketConnectListenerTest {
 
         // then
         verify(playerPresenceService).cancelPendingRemoval("ABCD", "player-1");
+        verify(gameMetrics).connectWebSocket("session-1");
     }
 
     @Test

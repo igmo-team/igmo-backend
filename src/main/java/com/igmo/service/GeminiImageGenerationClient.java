@@ -2,6 +2,7 @@ package com.igmo.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.GeminiRequestException;
 import com.igmo.service.exception.GeminiResponseException;
 import com.igmo.service.exception.ImageStorageException;
@@ -9,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +44,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final ImageStorageClient imageStorageClient;
+    private final GameMetrics gameMetrics;
     private final URI imageGenerationUri;
     private final String apiKey;
     private final String model;
@@ -51,11 +54,12 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
     public GeminiImageGenerationClient(
             ObjectMapper objectMapper,
             ImageStorageClient imageStorageClient,
+            GameMetrics gameMetrics,
             @Value("${igmo.ai.gemini.api-key}") String apiKey,
             @Value("${igmo.ai.gemini.model}") String model,
             @Value("${igmo.ai.gemini.image-size}") String imageSize
     ) {
-        this(objectMapper, HttpClient.newHttpClient(), imageStorageClient, IMAGE_GENERATION_URI, apiKey, model,
+        this(objectMapper, HttpClient.newHttpClient(), imageStorageClient, gameMetrics, IMAGE_GENERATION_URI, apiKey, model,
                 imageSize);
     }
 
@@ -63,6 +67,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
             ObjectMapper objectMapper,
             HttpClient httpClient,
             ImageStorageClient imageStorageClient,
+            GameMetrics gameMetrics,
             URI imageGenerationUri,
             String apiKey,
             String model,
@@ -71,6 +76,7 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
         this.imageStorageClient = imageStorageClient;
+        this.gameMetrics = gameMetrics;
         this.imageGenerationUri = imageGenerationUri;
         this.apiKey = apiKey;
         this.model = model;
@@ -79,13 +85,22 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
 
     @Override
     public String generate(String prompt) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new GeminiRequestException("Gemini API 키가 설정되지 않았습니다.", model, imageSize, null);
-        }
+        long startedAt = System.nanoTime();
+        byte[] image;
+        try {
+            if (apiKey == null || apiKey.isBlank()) {
+                throw new GeminiRequestException("Gemini API 키가 설정되지 않았습니다.", model, imageSize, null);
+            }
 
-        HttpResponse<String> response = sendRequest(createRequest(prompt));
-        verifySuccessfulResponse(response);
-        byte[] image = extractImage(response.body(), response.statusCode());
+            HttpResponse<String> response = sendRequest(createRequest(prompt));
+            verifySuccessfulResponse(response);
+            image = extractImage(response.body(), response.statusCode());
+        } catch (RuntimeException exception) {
+            gameMetrics.incrementImageGenerationFailure();
+            throw exception;
+        } finally {
+            gameMetrics.recordImageGenerationDuration(Duration.ofNanos(System.nanoTime() - startedAt));
+        }
         return storeImage(image);
     }
 
