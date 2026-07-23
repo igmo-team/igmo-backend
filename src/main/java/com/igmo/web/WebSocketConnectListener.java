@@ -1,5 +1,6 @@
 package com.igmo.web;
 
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.PlayerPresenceService;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -13,9 +14,14 @@ import org.springframework.web.socket.messaging.SessionConnectEvent;
 public class WebSocketConnectListener {
 
     private final PlayerPresenceService playerPresenceService;
+    private final GameMetrics gameMetrics;
 
     @EventListener
     public void handleSessionConnect(SessionConnectEvent event) {
+        String sessionId = SimpMessageHeaderAccessor.getSessionId(event.getMessage().getHeaders());
+        if (sessionId != null) {
+            gameMetrics.connectWebSocket(sessionId);
+        }
         Map<String, Object> sessionAttributes =
                 SimpMessageHeaderAccessor.getSessionAttributes(event.getMessage().getHeaders());
         if (sessionAttributes == null) {

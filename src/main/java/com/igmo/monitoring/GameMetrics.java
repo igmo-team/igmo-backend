@@ -4,6 +4,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -15,6 +17,7 @@ public class GameMetrics {
     private final Counter imageUploadFailure;
     private final Counter websocketBroadcastCount;
     private final Counter websocketBroadcastFailure;
+    private final Set<String> activeWebSocketSessionIds = ConcurrentHashMap.newKeySet();
 
     public GameMetrics(MeterRegistry meterRegistry) {
         imageGenerationDuration = meterRegistry.timer("image.generation.duration");
@@ -23,6 +26,7 @@ public class GameMetrics {
         imageUploadFailure = meterRegistry.counter("image.upload.failure");
         websocketBroadcastCount = meterRegistry.counter("websocket.broadcast.count");
         websocketBroadcastFailure = meterRegistry.counter("websocket.broadcast.failure");
+        meterRegistry.gauge("websocket.connection.active", activeWebSocketSessionIds, Set::size);
     }
 
     public void recordImageGenerationDuration(Duration duration) {
@@ -47,5 +51,13 @@ public class GameMetrics {
 
     public void incrementWebsocketBroadcastFailure() {
         websocketBroadcastFailure.increment();
+    }
+
+    public void connectWebSocket(String sessionId) {
+        activeWebSocketSessionIds.add(sessionId);
+    }
+
+    public void disconnectWebSocket(String sessionId) {
+        activeWebSocketSessionIds.remove(sessionId);
     }
 }
