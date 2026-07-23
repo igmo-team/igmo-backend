@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.GameRoom;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.JoinGameResponse;
@@ -30,6 +31,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class PlayerPresenceServiceConcurrencyTest {
 
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
@@ -38,7 +40,7 @@ class PlayerPresenceServiceConcurrencyTest {
     private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
-    private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate);
+    private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
     private final GameLobbyService gameLobbyService =

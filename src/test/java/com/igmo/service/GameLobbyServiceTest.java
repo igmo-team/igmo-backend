@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.exception.DuplicateNicknameException;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -23,13 +24,14 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 class GameLobbyServiceTest {
 
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final GameLobbyService gameLobbyService = new GameLobbyService(
             new GameRoomRepository(gameRegistry),
             roomCodeGenerator,
-            new GameEventPublisher(messagingTemplate));
+            new GameEventPublisher(messagingTemplate, gameMetrics));
 
     @Test
     @DisplayName("게임을 생성하면 방 코드와 호스트 playerId를 반환하고 레지스트리에 저장한다.")

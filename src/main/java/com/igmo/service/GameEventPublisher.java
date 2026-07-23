@@ -1,5 +1,6 @@
 package com.igmo.service;
 
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
@@ -17,9 +18,11 @@ public class GameEventPublisher {
     private static final String IMAGE_GENERATION_QUEUE = "/queue/image-generation";
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final GameMetrics gameMetrics;
 
-    public GameEventPublisher(SimpMessagingTemplate messagingTemplate) {
+    public GameEventPublisher(SimpMessagingTemplate messagingTemplate, GameMetrics gameMetrics) {
         this.messagingTemplate = messagingTemplate;
+        this.gameMetrics = gameMetrics;
     }
 
     public void publishLobby(String code, LobbySnapshot snapshot) {
@@ -44,6 +47,7 @@ public class GameEventPublisher {
 
     public void publish(String code, RoomMessage<?> message) {
         messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, message);
+        gameMetrics.incrementWebsocketBroadcastCount();
     }
 
     public void sendImageGenerationResult(String playerId, ImageGenerationResult result) {

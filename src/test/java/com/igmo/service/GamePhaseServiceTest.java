@@ -20,6 +20,7 @@ import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
@@ -58,6 +59,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class GamePhaseServiceTest {
 
+    private final GameMetrics gameMetrics = mock(GameMetrics.class);
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
@@ -69,7 +71,7 @@ class GamePhaseServiceTest {
     private final ScheduledFuture<?> scheduledPromptExpiration = mock(ScheduledFuture.class);
     private final ScheduledFuture<?> scheduledPlayingTransition = mock(ScheduledFuture.class);
     private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
-    private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate);
+    private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
     private final GameLobbyService gameLobbyService =
