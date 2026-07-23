@@ -71,4 +71,66 @@ class PromptEntryTest {
             softly.assertThat(entry.isImageGenerated()).isFalse();
         });
     }
+
+    @Test
+    @DisplayName("샘플로 채우면 프롬프트와 이미지 URL을 저장하고 READY 상태로 바꾼다.")
+    void fillWithSample_프롬프트와_이미지_URL을_저장하고_READY로_바꾼다() {
+        // given
+        PromptEntry entry = PromptEntry.waiting("player-id");
+
+        // when
+        entry.fillWithSample(
+                "노을 지는 해변을 걷는 강아지",
+                "https://cdn.example.com/samples/dog.png",
+                Instant.parse("2026-07-08T10:00:00Z"));
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(entry.getPrompt()).isEqualTo("노을 지는 해변을 걷는 강아지");
+            softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/samples/dog.png");
+            softly.assertThat(entry.getSubmittedAt()).isEqualTo(Instant.parse("2026-07-08T10:00:00Z"));
+            softly.assertThat(entry.isImageGenerated()).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("이미 READY 상태면 뒤늦게 도착한 이미지 생성 완료를 무시한다.")
+    void completeImageGeneration_이미_READY면_무시한다() {
+        // given
+        PromptEntry entry = PromptEntry.waiting("player-id");
+        entry.fillWithSample(
+                "샘플 프롬프트",
+                "https://cdn.example.com/samples/sample.png",
+                Instant.parse("2026-07-08T10:00:00Z"));
+
+        // when
+        entry.completeImageGeneration("https://cdn.example.com/late.png");
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/samples/sample.png");
+        });
+    }
+
+    @Test
+    @DisplayName("이미 READY 상태면 뒤늦게 도착한 이미지 생성 실패를 무시한다.")
+    void failImageGeneration_이미_READY면_무시한다() {
+        // given
+        PromptEntry entry = PromptEntry.waiting("player-id");
+        entry.fillWithSample(
+                "샘플 프롬프트",
+                "https://cdn.example.com/samples/sample.png",
+                Instant.parse("2026-07-08T10:00:00Z"));
+
+        // when
+        entry.failImageGeneration();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/samples/sample.png");
+        });
+    }
 }
