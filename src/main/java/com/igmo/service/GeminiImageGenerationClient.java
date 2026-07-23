@@ -95,6 +95,9 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
             HttpResponse<String> response = sendRequest(createRequest(prompt));
             verifySuccessfulResponse(response);
             image = extractImage(response.body(), response.statusCode());
+        } catch (RuntimeException exception) {
+            gameMetrics.incrementImageGenerationFailure();
+            throw exception;
         } finally {
             gameMetrics.recordImageGenerationDuration(Duration.ofNanos(System.nanoTime() - startedAt));
         }

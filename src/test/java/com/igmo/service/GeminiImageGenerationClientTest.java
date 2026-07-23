@@ -174,6 +174,7 @@ class GeminiImageGenerationClientTest {
                 .isInstanceOfSatisfying(GeminiRequestException.class, exception ->
                         assertThat(exception.getHttpStatus()).isEqualTo(400))
                 .hasMessage("Gemini 이미지 생성 요청에 실패했습니다. status=400");
+        verify(gameMetrics).incrementImageGenerationFailure();
     }
 
     @Test
