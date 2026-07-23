@@ -53,6 +53,9 @@ public class S3ImageStorageClient implements ImageStorageClient {
         long startedAt = System.nanoTime();
         try {
             s3Client.putObject(request, RequestBody.fromBytes(image));
+        } catch (RuntimeException exception) {
+            gameMetrics.incrementImageUploadFailure();
+            throw exception;
         } finally {
             gameMetrics.recordImageUploadDuration(Duration.ofNanos(System.nanoTime() - startedAt));
         }

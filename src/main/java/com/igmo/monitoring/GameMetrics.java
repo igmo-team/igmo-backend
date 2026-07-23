@@ -12,11 +12,13 @@ public class GameMetrics {
     private final Timer imageGenerationDuration;
     private final Counter imageGenerationFailure;
     private final Timer imageUploadDuration;
+    private final Counter imageUploadFailure;
 
     public GameMetrics(MeterRegistry meterRegistry) {
         imageGenerationDuration = meterRegistry.timer("image.generation.duration");
         imageGenerationFailure = meterRegistry.counter("image.generation.failure");
         imageUploadDuration = meterRegistry.timer("image.upload.duration");
+        imageUploadFailure = meterRegistry.counter("image.upload.failure");
     }
 
     public void recordImageGenerationDuration(Duration duration) {
@@ -29,5 +31,9 @@ public class GameMetrics {
 
     public void recordImageUploadDuration(Duration duration) {
         imageUploadDuration.record(duration);
+    }
+
+    public void incrementImageUploadFailure() {
+        imageUploadFailure.increment();
     }
 }

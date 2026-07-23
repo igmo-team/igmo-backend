@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.igmo.monitoring.GameMetrics;
 import java.io.IOException;
@@ -122,5 +123,29 @@ class S3ImageStorageClientTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("S3 bucket is required for image storage.");
         verifyNoInteractions(s3Client);
+    }
+
+    @Test
+    @DisplayName("S3 업로드에 실패하면 실패 카운터를 증가시키고 예외를 전파한다.")
+    void store_incrementsFailureMetricWhenUploadFails() {
+        // given
+        S3Client s3Client = mock(S3Client.class);
+        when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenThrow(new IllegalStateException("S3 unavailable"));
+        S3ImageStorageClient client = new S3ImageStorageClient(
+                s3Client,
+                gameMetrics,
+                "igmo-images",
+                "ap-northeast-2",
+                "generated-images",
+                ""
+        );
+
+        // when & then
+        assertThatThrownBy(() -> client.store("image".getBytes(StandardCharsets.UTF_8), "image/png"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("S3 unavailable");
+        verify(gameMetrics).incrementImageUploadFailure();
+        verify(gameMetrics).recordImageUploadDuration(any());
     }
 }
