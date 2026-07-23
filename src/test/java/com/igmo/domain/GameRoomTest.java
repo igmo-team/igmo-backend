@@ -399,47 +399,6 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("대기 중인 프롬프트가 하나라도 있으면 true를 반환한다.")
-    void hasWaitingPrompt_대기_프롬프트가_있으면_true를_반환한다() {
-        // given
-        Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
-        Player guest1 = new Player("참가자1");
-        Player guest2 = new Player("참가자2");
-        room.addPlayer(guest1);
-        room.addPlayer(guest2);
-        room.changePlayerReady(guest1.getId(), true);
-        room.changePlayerReady(guest2.getId(), true);
-        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
-        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
-        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
-
-        // when & then
-        assertThat(room.hasWaitingPrompt()).isTrue();
-    }
-
-    @Test
-    @DisplayName("모든 프롬프트가 제출되면 대기 중인 프롬프트가 없다고 판단한다.")
-    void hasWaitingPrompt_모두_제출했으면_false를_반환한다() {
-        // given
-        Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
-        Player guest1 = new Player("참가자1");
-        Player guest2 = new Player("참가자2");
-        room.addPlayer(guest1);
-        room.addPlayer(guest2);
-        room.changePlayerReady(guest1.getId(), true);
-        room.changePlayerReady(guest2.getId(), true);
-        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
-        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
-        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
-        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
-
-        // when & then
-        assertThat(room.hasWaitingPrompt()).isFalse();
-    }
-
-    @Test
     @DisplayName("모든 제출 프롬프트의 이미지가 READY 상태가 되면 생성 완료로 판단한다.")
     void hasAllImagesGenerated_모든_이미지가_READY이면_true를_반환한다() {
         // given

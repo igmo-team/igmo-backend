@@ -459,6 +459,39 @@ class GamePhaseServiceTest {
     }
 
     @Test
+    @DisplayName("전원 프롬프트 제출 후 일부 이미지 생성이 실패해도 마감 시 실패한 참가자를 샘플로 채워 전원 READY로 만든다.")
+    void promptExpiration_이미지_생성_실패자를_샘플로_채운다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        given(imageGenerationClient.generate("호스트 프롬프트")).willReturn("https://cdn.example.com/host.png");
+        given(imageGenerationClient.generate("참가자1 프롬프트")).willReturn("https://cdn.example.com/guest-1.png");
+        given(imageGenerationClient.generate("참가자2 프롬프트")).willThrow(new RuntimeException("이미지 생성 실패"));
+        CreateGameResponse created = gameLobbyService.createGame("호스트");
+        JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
+        gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
+        gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
+        gamePhaseService.startGame("ABCD", created.playerId());
+        submitPromptAndCompleteImage(created.playerId(), "호스트 프롬프트");
+        submitPromptAndCompleteImage(guest1.playerId(), "참가자1 프롬프트");
+        submitPromptAndCompleteImage(guest2.playerId(), "참가자2 프롬프트");
+        clearInvocations(messagingTemplate);
+
+        // when
+        captureScheduledPromptExpiration().run();
+
+        // then
+        PromptEntry guest2Entry = findPromptEntry("ABCD", guest2.playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest2Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(samplePromptProvider.getAll())
+                    .contains(new SamplePrompt(guest2Entry.getPrompt(), guest2Entry.getImageUrl()));
+            softly.assertThat(gameRegistry.find("ABCD").orElseThrow().hasAllImagesGenerated()).isTrue();
+        });
+        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
     @DisplayName("샘플로 채워진 뒤 도착한 실제 이미지 생성 결과는 개인 전송하지 않고 샘플을 유지한다.")
     void imageGeneration_샘플로_채워진_뒤_도착한_결과는_무시한다() {
         // given

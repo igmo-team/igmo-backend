@@ -59,10 +59,6 @@ public class PromptEntry {
         this.status = PromptEntryStatus.FAILED;
     }
 
-    public boolean isWaiting() {
-        return status == PromptEntryStatus.WAITING;
-    }
-
     private boolean isGenerating() {
         return status == PromptEntryStatus.GENERATING;
     }

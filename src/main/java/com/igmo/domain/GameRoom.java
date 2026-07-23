@@ -214,11 +214,6 @@ public class GameRoom {
         phase = GamePhase.PLAYING;
     }
 
-    public synchronized boolean hasWaitingPrompt() {
-        return promptEntriesByPlayerId.values().stream()
-                .anyMatch(PromptEntry::isWaiting);
-    }
-
     public synchronized boolean hasAllImagesGenerated() {
         return !promptEntriesByPlayerId.isEmpty()
                 && promptEntriesByPlayerId.values().stream()
