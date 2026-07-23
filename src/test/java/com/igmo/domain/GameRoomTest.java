@@ -763,9 +763,21 @@ class GameRoomTest {
     @DisplayName("현재 참여자 중 READY 이미지가 아닌 사람이 있으면 부분 라운드를 시작하지 않는다.")
     void startRounds_READY_이미지가_일부만_있으면_부분_라운드를_시작하지_않는다() throws Exception {
         // given
-        GameRoom room = createRoomWithGeneratedImages();
-        String failedPlayerId = room.getPlayers().get(2).getId();
-        room.failImageGeneration(failedPlayerId);
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host);
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+        room.submitPrompt(host.getId(), "호스트 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest1.getId(), "참가자1 프롬프트", PROMPT_STARTED_AT);
+        room.submitPrompt(guest2.getId(), "참가자2 프롬프트", PROMPT_STARTED_AT);
+        room.completeImageGeneration(host.getId(), "https://cdn.example.com/host.png");
+        room.completeImageGeneration(guest1.getId(), "https://cdn.example.com/guest-1.png");
+        room.failImageGeneration(guest2.getId());
         setPhase(room, GamePhase.PLAYING);
 
         // when & then

@@ -166,7 +166,7 @@ public class GameRoom {
 
     public synchronized void completeImageGeneration(String playerId, String imageUrl) {
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
-        if (entry == null || !entry.isSubmitted()) {
+        if (entry == null) {
             return;
         }
         entry.completeImageGeneration(imageUrl);
@@ -174,7 +174,7 @@ public class GameRoom {
 
     public synchronized void failImageGeneration(String playerId) {
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
-        if (entry == null || !entry.isSubmitted()) {
+        if (entry == null) {
             return;
         }
         entry.failImageGeneration();
