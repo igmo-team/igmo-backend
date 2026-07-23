@@ -3,6 +3,7 @@ package com.igmo.service;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntryStatus;
+import com.igmo.domain.SamplePrompt;
 import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
@@ -16,6 +17,7 @@ import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +31,7 @@ public class GamePhaseService {
     private final GamePhaseScheduler gamePhaseScheduler;
     private final GameEventPublisher eventPublisher;
     private final ImageGenerationService imageGenerationService;
+    private final SamplePromptProvider samplePromptProvider;
 
     @Value("${igmo.game.prompt-duration}")
     private Duration promptDuration;
@@ -45,12 +48,14 @@ public class GamePhaseService {
             GameRoomRepository gameRoomRepository,
             GamePhaseScheduler gamePhaseScheduler,
             GameEventPublisher eventPublisher,
-            ImageGenerationService imageGenerationService
+            ImageGenerationService imageGenerationService,
+            SamplePromptProvider samplePromptProvider
     ) {
         this.gameRoomRepository = gameRoomRepository;
         this.gamePhaseScheduler = gamePhaseScheduler;
         this.eventPublisher = eventPublisher;
         this.imageGenerationService = imageGenerationService;
+        this.samplePromptProvider = samplePromptProvider;
     }
 
     public void startGame(String code, String playerId) {
@@ -70,9 +75,6 @@ public class GamePhaseService {
             }
             Instant submittedAt = Instant.now();
             room.submitPrompt(playerId, prompt, submittedAt);
-            if (!room.hasWaitingPrompt()) {
-                gamePhaseScheduler.cancelPrompt(code);
-            }
             return PromptSubmissionSnapshot.from(room);
         });
         eventPublisher.publishPromptSubmission(code, snapshot);
@@ -119,14 +121,28 @@ public class GamePhaseService {
         gamePhaseScheduler.schedulePrompt(code, deadline, () -> runPromptExpiration(code, deadline));
     }
 
+    // 프롬프트 마감 시 READY가 아닌 참가자를 샘플로 채워 전원 READY를 보장하고 PLAYING 전환을 예약한다.
     private void runPromptExpiration(String code, Instant deadline) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
-                        return null;
+                        return false;
                     }
-                    return PromptSubmissionSnapshot.from(lockedRoom);
+                    Map<String, SamplePrompt> assignments =
+                            lockedRoom.fillMissingImagesWithSamples(samplePromptProvider.getAll(), Instant.now());
+                    publishSampleImageResults(code, assignments);
+                    eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
+                    return !assignments.isEmpty();
                 })
-                .ifPresent(snapshot -> eventPublisher.publishPromptSubmission(code, snapshot));
+                .orElse(false);
+        if (shouldSchedulePlayingTransition) {
+            schedulePlayingTransition(code);
+        }
+    }
+
+    private void publishSampleImageResults(String code, Map<String, SamplePrompt> assignments) {
+        assignments.forEach((playerId, sample) -> eventPublisher.sendImageGenerationResult(
+                playerId,
+                new ImageGenerationResult(code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl())));
     }
 
     private void scheduleGuessExpiration(String code, Instant deadline) {
@@ -229,6 +245,7 @@ public class GamePhaseService {
             return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
         }).orElse(false);
         if (shouldSchedulePlayingTransition) {
+            gamePhaseScheduler.cancelPrompt(code);
             schedulePlayingTransition(code);
         }
     }

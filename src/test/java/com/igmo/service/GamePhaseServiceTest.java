@@ -13,11 +13,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
+import com.igmo.domain.SamplePrompt;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
@@ -58,6 +60,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class GamePhaseServiceTest {
 
+    private static final String SAMPLE_PROMPTS_JSON = """
+            [
+              { "prompt": "샘플 프롬프트 1", "imageUrl": "https://cdn.example.com/samples/1.png" },
+              { "prompt": "샘플 프롬프트 2", "imageUrl": "https://cdn.example.com/samples/2.png" },
+              { "prompt": "샘플 프롬프트 3", "imageUrl": "https://cdn.example.com/samples/3.png" }
+            ]
+            """;
+
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
@@ -76,12 +86,15 @@ class GamePhaseServiceTest {
             new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher);
     private final ImageGenerationService imageGenerationService =
             new ImageGenerationService(imageGenerationClient, imageGenerationExecutor);
+    private final SamplePromptProvider samplePromptProvider =
+            new SamplePromptProvider(new ObjectMapper(), SAMPLE_PROMPTS_JSON, "test");
     private final GamePhaseService gamePhaseService =
             new GamePhaseService(
                     gameRoomRepository,
                     gamePhaseScheduler,
                     eventPublisher,
-                    imageGenerationService);
+                    imageGenerationService,
+                    samplePromptProvider);
 
     @BeforeEach
     void 게임_단계_전환_스케줄러를_설정한다() {
@@ -362,12 +375,10 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("프롬프트 마감 작업이 실행되면 자동 제출 없이 현황 스냅샷만 브로드캐스트한다.")
-    void promptExpiration_자동_제출_없이_현황_스냅샷만_브로드캐스트한다() {
+    @DisplayName("프롬프트 마감 작업이 실행되면 READY가 아닌 참가자를 샘플로 채우고 READY인 참가자는 유지한다.")
+    void promptExpiration_READY가_아닌_참가자를_샘플로_채운다() {
         // given
-        GameSession session = startGeneratingGame();
-        gamePhaseService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
-        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        GameSession session = startExpirationScenarioWithMissingImages();
         clearInvocations(messagingTemplate);
         imageGenerationTask = null;
 
@@ -375,15 +386,76 @@ class GamePhaseServiceTest {
         captureScheduledPromptExpiration().run();
 
         // then
-        PromptEntry notSubmittedEntry = findPromptEntry("ABCD", session.guest2().playerId());
-        PromptSubmissionSnapshot expirationSnapshot = captureLastPromptSubmissionBroadcast();
+        PromptEntry hostEntry = findPromptEntry("ABCD", session.host().playerId());
+        PromptEntry guest1Entry = findPromptEntry("ABCD", session.guest1().playerId());
+        PromptEntry guest2Entry = findPromptEntry("ABCD", session.guest2().playerId());
+        List<SamplePrompt> pool = samplePromptProvider.getAll();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(notSubmittedEntry.getStatus()).isEqualTo(PromptEntryStatus.WAITING);
-            softly.assertThat(notSubmittedEntry.getPrompt()).isNull();
-            softly.assertThat(findPromptEntryView(expirationSnapshot, session.guest2().playerId()).submitted())
-                    .isFalse();
+            softly.assertThat(hostEntry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(hostEntry.getPrompt()).isEqualTo("호스트 프롬프트");
+            softly.assertThat(hostEntry.getImageUrl()).isEqualTo("https://cdn.example.com/host.png");
+            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(pool).contains(new SamplePrompt(guest1Entry.getPrompt(), guest1Entry.getImageUrl()));
+            softly.assertThat(guest2Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(pool).contains(new SamplePrompt(guest2Entry.getPrompt(), guest2Entry.getImageUrl()));
             softly.assertThat(imageGenerationTask).isNull();
         });
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 시 샘플로 채운 참가자에게 개인 이미지 결과를 전송한다.")
+    void promptExpiration_샘플로_채운_참가자에게_개인_이미지_결과를_전송한다() {
+        // given
+        GameSession session = startExpirationScenarioWithMissingImages();
+        clearInvocations(messagingTemplate);
+
+        // when
+        captureScheduledPromptExpiration().run();
+
+        // then
+        ImageGenerationResult guest1Result = captureImageGenerationResult(session.guest1().playerId());
+        ImageGenerationResult guest2Result = captureImageGenerationResult(session.guest2().playerId());
+        List<SamplePrompt> pool = samplePromptProvider.getAll();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest1Result.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(guest1Result.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(pool).contains(new SamplePrompt(guest1Result.prompt(), guest1Result.imageUrl()));
+            softly.assertThat(guest2Result.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(pool).contains(new SamplePrompt(guest2Result.prompt(), guest2Result.imageUrl()));
+        });
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감으로 전원 READY가 되면 3초 후 PLAYING 전환을 예약한다.")
+    void promptExpiration_전원_READY가_되면_PLAYING_전환을_예약한다() {
+        // given
+        startExpirationScenarioWithMissingImages();
+        clearInvocations(messagingTemplate);
+
+        // when
+        Instant before = Instant.now();
+        captureScheduledPromptExpiration().run();
+        Instant after = Instant.now();
+
+        // then
+        ArgumentCaptor<Instant> scheduledAt = ArgumentCaptor.forClass(Instant.class);
+        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), scheduledAt.capture());
+        assertThat(scheduledAt.getValue()).isBetween(before.plusSeconds(3), after.plusSeconds(3));
+    }
+
+    @Test
+    @DisplayName("모든 프롬프트를 제출해도 이미지가 준비되기 전에는 프롬프트 마감 작업을 취소하지 않는다.")
+    void submitPrompt_이미지가_준비되기_전에는_프롬프트_마감을_취소하지_않는다() {
+        // given
+        GameSession session = startGeneratingGame();
+
+        // when
+        gamePhaseService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest2().playerId(), "참가자2 프롬프트");
+
+        // then
+        verify(scheduledPromptExpiration, never()).cancel(false);
     }
 
     @Test
@@ -823,6 +895,14 @@ class GamePhaseServiceTest {
     private void submitPromptAndCompleteImage(String playerId, String prompt) {
         gamePhaseService.submitPrompt("ABCD", playerId, prompt);
         runImageGenerationTask();
+    }
+
+    // host: READY(실제 이미지), 참가자1: GENERATING(제출했지만 이미지 미완료), 참가자2: WAITING(무제출)
+    private GameSession startExpirationScenarioWithMissingImages() {
+        GameSession session = startGeneratingGame();
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        return session;
     }
 
     private void runImageGenerationTask() {
