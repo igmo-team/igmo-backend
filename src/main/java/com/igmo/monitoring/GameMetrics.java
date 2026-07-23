@@ -1,7 +1,8 @@
 package com.igmo.monitoring;
 
-import io.micrometer.core.instrument.MeterRegistry;
+import com.igmo.store.GameRegistry;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.Set;
@@ -19,7 +20,7 @@ public class GameMetrics {
     private final Counter websocketBroadcastFailure;
     private final Set<String> activeWebSocketSessionIds = ConcurrentHashMap.newKeySet();
 
-    public GameMetrics(MeterRegistry meterRegistry) {
+    public GameMetrics(MeterRegistry meterRegistry, GameRegistry gameRegistry) {
         imageGenerationDuration = meterRegistry.timer("image.generation.duration");
         imageGenerationFailure = meterRegistry.counter("image.generation.failure");
         imageUploadDuration = meterRegistry.timer("image.upload.duration");
@@ -27,6 +28,7 @@ public class GameMetrics {
         websocketBroadcastCount = meterRegistry.counter("websocket.broadcast.count");
         websocketBroadcastFailure = meterRegistry.counter("websocket.broadcast.failure");
         meterRegistry.gauge("websocket.connection.active", activeWebSocketSessionIds, Set::size);
+        meterRegistry.gauge("game.room.active", gameRegistry, GameRegistry::count);
     }
 
     public void recordImageGenerationDuration(Duration duration) {
