@@ -1,4 +1,4 @@
-package com.igmo.service.exception;
+package com.igmo.imagegeneration.exception;
 
 import lombok.Getter;
 

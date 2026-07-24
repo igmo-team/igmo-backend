@@ -25,9 +25,12 @@ import com.igmo.domain.exception.NotHostException;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
+import com.igmo.imagegeneration.GeneratedImage;
+import com.igmo.imagegeneration.ImageGenerationRequest;
+import com.igmo.imagegeneration.ImageGenerator;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
-import com.igmo.service.exception.GeminiResponseException;
+import com.igmo.imagegeneration.exception.GeminiResponseException;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
@@ -47,10 +50,12 @@ import com.igmo.web.dto.VoteOptionView;
 import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -76,7 +81,8 @@ class GamePhaseServiceTest {
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final TaskScheduler gamePhaseDeadlineScheduler = mock(TaskScheduler.class);
     private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
-    private final ImageGenerationClient imageGenerationClient = mock(ImageGenerationClient.class);
+    private final ImageGenerator imageGenerator = mock(ImageGenerator.class);
+    private final ImageStorageClient imageStorageClient = mock(ImageStorageClient.class);
     private Runnable imageGenerationTask;
     private final Executor imageGenerationExecutor = command -> imageGenerationTask = command;
     private final ScheduledFuture<?> scheduledPromptExpiration = mock(ScheduledFuture.class);
@@ -88,7 +94,8 @@ class GamePhaseServiceTest {
     private final GameLobbyService gameLobbyService =
             new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher);
     private final ImageGenerationService imageGenerationService =
-            new ImageGenerationService(imageGenerationClient, imageGenerationExecutor);
+            new ImageGenerationService(
+                    imageGenerator, imageStorageClient, gameMetrics, imageGenerationExecutor, "gemini-3.1-flash-image", "2K");
     private final SamplePromptProvider samplePromptProvider =
             new SamplePromptProvider(new ObjectMapper(), SAMPLE_PROMPTS_JSON, "test");
     private final GamePhaseService gamePhaseService =
@@ -230,8 +237,7 @@ class GamePhaseServiceTest {
     void imageGeneration_성공하면_이미지_URL을_개인_전송하고_전체_상태를_브로드캐스트한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
-                .willReturn("https://cdn.example.com/prompt-1.png");
+        givenGeneratedImage("고양이가 피아노를 치는 장면", "https://cdn.example.com/prompt-1.png");
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -255,7 +261,7 @@ class GamePhaseServiceTest {
             softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
         });
-        verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
+        verifyGeneratedImage("고양이가 피아노를 치는 장면");
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
         assertThat(snapshot.promptEntries())
                 .filteredOn(promptEntry -> promptEntry.player().id().equals(guest1.playerId()))
@@ -348,8 +354,7 @@ class GamePhaseServiceTest {
                 200,
                 "gemini-3.1-flash-image",
                 "2K");
-        given(imageGenerationClient.generate("고양이가 피아노를 치는 장면"))
-                .willThrow(failure);
+        givenGenerationFailure("고양이가 피아노를 치는 장면", failure);
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -374,7 +379,7 @@ class GamePhaseServiceTest {
             softly.assertThat(result.imageUrl()).isNull();
             softly.assertThat(result.errorMessage()).isEqualTo("Gemini 응답이 이미지 대신 텍스트입니다.");
         });
-        verify(imageGenerationClient).generate("고양이가 피아노를 치는 장면");
+        verifyGeneratedImage("고양이가 피아노를 치는 장면");
         verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
         assertThat(snapshot.promptEntries())
@@ -389,15 +394,9 @@ class GamePhaseServiceTest {
     void submitPrompt_이미지_생성에_실패하면_마감_전_다시_제출할_수_있다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        given(imageGenerationClient.generate("실패한 프롬프트"))
-                .willThrow(new GeminiResponseException(
-                        "Gemini 응답이 이미지 대신 텍스트입니다.",
-                        List.of("text"),
-                        200,
-                        "gemini-3.1-flash-image",
-                        "2K"));
-        given(imageGenerationClient.generate("다시 입력한 프롬프트"))
-                .willReturn("https://cdn.example.com/retried.png");
+        givenGenerationFailure("실패한 프롬프트", new GeminiResponseException(
+                "Gemini 응답이 이미지 대신 텍스트입니다.", List.of("text"), 200, "gemini-3.1-flash-image", "2K"));
+        givenGeneratedImage("다시 입력한 프롬프트", "https://cdn.example.com/retried.png");
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -422,7 +421,7 @@ class GamePhaseServiceTest {
             softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(result.errorMessage()).isNull();
         });
-        verify(imageGenerationClient).generate("다시 입력한 프롬프트");
+        verifyGeneratedImage("다시 입력한 프롬프트");
     }
 
     @Test
@@ -514,9 +513,9 @@ class GamePhaseServiceTest {
     void promptExpiration_이미지_생성_실패자를_샘플로_채운다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        given(imageGenerationClient.generate("호스트 프롬프트")).willReturn("https://cdn.example.com/host.png");
-        given(imageGenerationClient.generate("참가자1 프롬프트")).willReturn("https://cdn.example.com/guest-1.png");
-        given(imageGenerationClient.generate("참가자2 프롬프트")).willThrow(new RuntimeException("이미지 생성 실패"));
+        givenGeneratedImage("호스트 프롬프트", "https://cdn.example.com/host.png");
+        givenGeneratedImage("참가자1 프롬프트", "https://cdn.example.com/guest-1.png");
+        givenGenerationFailure("참가자2 프롬프트", new RuntimeException("이미지 생성 실패"));
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -891,11 +890,10 @@ class GamePhaseServiceTest {
 
     private List<String> setUpRoomWithImagesReady() {
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        given(imageGenerationClient.generate(any()))
-                .willReturn(
-                        "https://cdn.example.com/host.png",
-                        "https://cdn.example.com/guest-1.png",
-                        "https://cdn.example.com/guest-2.png");
+        givenGeneratedImages(
+                "https://cdn.example.com/host.png",
+                "https://cdn.example.com/guest-1.png",
+                "https://cdn.example.com/guest-2.png");
         CreateGameResponse created = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -982,11 +980,10 @@ class GamePhaseServiceTest {
 
     private GameSession startGeneratingGame() {
         given(roomCodeGenerator.generate()).willReturn("ABCD");
-        given(imageGenerationClient.generate(any()))
-                .willReturn(
-                        "https://cdn.example.com/host.png",
-                        "https://cdn.example.com/guest-1.png",
-                        "https://cdn.example.com/guest-2.png");
+        givenGeneratedImages(
+                "https://cdn.example.com/host.png",
+                "https://cdn.example.com/guest-1.png",
+                "https://cdn.example.com/guest-2.png");
         CreateGameResponse host = gameLobbyService.createGame("호스트");
         JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
         JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
@@ -999,6 +996,30 @@ class GamePhaseServiceTest {
     private void submitPromptAndCompleteImage(String playerId, String prompt) {
         gamePhaseService.submitPrompt("ABCD", playerId, prompt);
         runImageGenerationTask();
+    }
+
+    private void givenGeneratedImage(String prompt, String imageUrl) {
+        byte[] image = prompt.getBytes(StandardCharsets.UTF_8);
+        given(imageGenerator.generate(new ImageGenerationRequest(prompt, "gemini-3.1-flash-image", "2K")))
+                .willReturn(new GeneratedImage(image, "image/jpeg"));
+        given(imageStorageClient.store(image, "image/jpeg")).willReturn(imageUrl);
+    }
+
+    private void givenGenerationFailure(String prompt, RuntimeException exception) {
+        given(imageGenerator.generate(new ImageGenerationRequest(prompt, "gemini-3.1-flash-image", "2K")))
+                .willThrow(exception);
+    }
+
+    private void givenGeneratedImages(String... imageUrls) {
+        AtomicInteger storedImageIndex = new AtomicInteger();
+        given(imageGenerator.generate(any(ImageGenerationRequest.class)))
+                .willReturn(new GeneratedImage("image".getBytes(StandardCharsets.UTF_8), "image/jpeg"));
+        given(imageStorageClient.store(any(byte[].class), eq("image/jpeg")))
+                .willAnswer(invocation -> imageUrls[storedImageIndex.getAndIncrement()]);
+    }
+
+    private void verifyGeneratedImage(String prompt) {
+        verify(imageGenerator).generate(new ImageGenerationRequest(prompt, "gemini-3.1-flash-image", "2K"));
     }
 
     // host: READY(실제 이미지), 참가자1: GENERATING(제출했지만 이미지 미완료), 참가자2: WAITING(무제출)
