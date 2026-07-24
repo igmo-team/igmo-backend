@@ -1,0 +1,37 @@
+:root {
+    color: #241634;
+    background: #f5f7fb;
+    font-family: "Pretendard", "Apple SD Gothic Neo", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body { background: radial-gradient(circle at 82% 0%, #f8ddff 0, transparent 28rem), #fbf9fc; margin: 0; min-height: 100vh; }
+
+.page-shell { max-width: 1120px; margin: 0 auto; padding: 72px 24px; }
+.hero { background: linear-gradient(135deg, #351462, #5b2087 48%, #cc38d6); border-radius: 24px; box-shadow: 0 22px 48px rgba(91, 32, 135, .25); color: #fff; margin-bottom: 40px; overflow: hidden; padding: 40px; position: relative; }
+.hero::after { background: rgba(255, 255, 255, .14); border-radius: 50%; content: ""; height: 260px; position: absolute; right: -90px; top: -145px; width: 260px; }
+.brand-row { align-items: center; color: #fff; display: flex; gap: 9px; position: relative; text-decoration: none; z-index: 1; }
+.brand-mark { background: #fff; border-radius: 9px; box-shadow: 0 4px 12px rgba(38, 12, 64, .25); display: block; height: 30px; overflow: hidden; position: relative; width: 30px; }
+.brand-mark img { display: block; left: -19px; max-width: none; position: absolute; top: -10px; width: 68px; }
+.brand-name { font-size: 16px; font-weight: 800; letter-spacing: -.04em; }
+.admin-badge { background: rgba(255, 255, 255, .15); border: 1px solid rgba(255, 255, 255, .2); border-radius: 99px; font-size: 10px; font-weight: 800; letter-spacing: .1em; padding: 4px 7px; }
+h1, h2 { margin: 0; }
+h1 { font-size: clamp(32px, 5vw, 44px); letter-spacing: -.04em; margin-top: 24px; position: relative; z-index: 1; }
+.hero > p:last-child { color: #e5e7ff; margin: 12px 0 0; max-width: 520px; position: relative; z-index: 1; }
+.section-heading p { color: #687084; margin: 8px 0 0; }
+.section-heading { margin-bottom: 16px; }
+
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 360px)); gap: 16px; }
+.tool-card { background: rgba(255, 255, 255, .9); border: 1px solid #e3e7f0; border-radius: 20px; box-shadow: 0 12px 30px rgba(31, 41, 55, .08); color: inherit; display: flex; flex-direction: column; min-height: 250px; padding: 26px; text-decoration: none; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.tool-card:hover, .tool-card:focus-visible { border-color: #9f9af9; box-shadow: 0 20px 38px rgba(79, 70, 229, .16); outline: none; transform: translateY(-4px); }
+.tool-icon { align-items: center; background: linear-gradient(135deg, #fbe8ff, #f2ddff); border-radius: 14px; color: #a329bb; display: flex; height: 50px; justify-content: center; padding: 12px; width: 50px; }
+.tool-meta { color: #a329bb; font-size: 11px; font-weight: 800; letter-spacing: .1em; margin-top: 22px; }
+.tool-name { font-size: 20px; font-weight: 750; letter-spacing: -.02em; margin-top: 6px; }
+.tool-description { color: #687084; line-height: 1.6; margin-top: 8px; }
+.tool-action { color: #8e249e; font-size: 14px; font-weight: 750; margin-top: auto; padding-top: 26px; }
+
+@media (max-width: 760px) {
+    .page-shell { padding: 32px 16px; }
+    .hero { border-radius: 20px; padding: 28px; }
+}

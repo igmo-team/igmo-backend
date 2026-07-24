@@ -17,6 +17,17 @@ igmo:
       api-key: ${GEMINI_API_KEY}
       model: ${IGMO_AI_GEMINI_MODEL}
       image-size: ${IGMO_AI_GEMINI_IMAGE_SIZE}
+  admin:
+    image-generation:
+      username: ${IGMO_ADMIN_IMAGE_GENERATION_USERNAME:}
+      password: ${IGMO_ADMIN_IMAGE_GENERATION_PASSWORD:}
+      allowed-models: ${IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS:${IGMO_AI_GEMINI_MODEL}}
+      allowed-image-sizes: ${IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES:${IGMO_AI_GEMINI_IMAGE_SIZE}}
+      max-concurrent-requests: ${IGMO_ADMIN_IMAGE_GENERATION_MAX_CONCURRENT_REQUESTS:1}
+      storage:
+        s3:
+          bucket: ${IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET:}
+          key-prefix: ${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX:generated-admin-images}
   image-storage:
     s3:
       bucket: ${IGMO_IMAGE_STORAGE_S3_BUCKET}
