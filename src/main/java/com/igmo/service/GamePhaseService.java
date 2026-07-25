@@ -10,6 +10,7 @@ import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.ImageGenerationResult;
+import com.igmo.web.dto.OwnVoteOptionResult;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
@@ -92,6 +93,7 @@ public class GamePhaseService {
                 gamePhaseScheduler.cancelGuess(code);
                 room.completeGuessSubmission(submittedAt, voteDuration);
                 scheduleVoteExpiration(code, room.getVoteDeadline());
+                sendOwnVoteOptions(code, room);
                 return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
             }
             return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
@@ -115,6 +117,13 @@ public class GamePhaseService {
             return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
         });
         eventPublisher.publish(code, message);
+    }
+
+    // 투표 진입 시 출제자를 제외한 각 플레이어에게 본인 프롬프트 보기를 개인큐로 알려준다.
+    private void sendOwnVoteOptions(String code, GameRoom room) {
+        int roundNumber = room.getCurrentRound().getRoundNumber();
+        room.getCurrentRoundOwnVoteOptions().forEach((playerId, optionId) ->
+                eventPublisher.sendOwnVoteOption(playerId, new OwnVoteOptionResult(code, roundNumber, optionId)));
     }
 
     private void schedulePromptExpiration(String code, Instant deadline) {
@@ -158,6 +167,7 @@ public class GamePhaseService {
                     lockedRoom.autoSubmitGuesses(expiredAt);
                     lockedRoom.completeGuessSubmission(expiredAt, voteDuration);
                     scheduleVoteExpiration(code, lockedRoom.getVoteDeadline());
+                    sendOwnVoteOptions(code, lockedRoom);
                     return VoteSnapshot.from(lockedRoom);
                 })
                 .ifPresent(snapshot -> eventPublisher.publishVote(code, snapshot));

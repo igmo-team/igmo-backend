@@ -14,6 +14,7 @@ import com.igmo.domain.exception.SelfVoteNotAllowedException;
 import com.igmo.domain.exception.VoteNotAllowedException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -206,6 +207,25 @@ class RoundTest {
             softly.assertThat(votes.get(0).getOptionId()).isEqualTo(answerOptionId);
             softly.assertThat(votes.get(0).getVotedAt()).isEqualTo(SUBMITTED_AT.plusSeconds(1));
         });
+    }
+
+    @Test
+    @DisplayName("추측자별 본인 보기 id를 반환하고 출제자는 포함하지 않는다.")
+    void getGuessOptionIdsByPlayerId_추측자별_본인_보기_id를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+        String guess1OptionId = round.getGuesses().get(0).getGuessId();
+        String guess2OptionId = round.getGuesses().get(1).getGuessId();
+
+        // when
+        Map<String, String> ownOptionIds = round.getGuessOptionIdsByPlayerId();
+
+        // then
+        assertThat(ownOptionIds).containsOnly(
+                entry("guesser-1", guess1OptionId),
+                entry("guesser-2", guess2OptionId));
     }
 
     @Test

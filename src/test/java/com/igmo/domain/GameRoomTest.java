@@ -3,6 +3,7 @@ package com.igmo.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
@@ -1019,6 +1020,39 @@ class GameRoomTest {
             softly.assertThat(room.getVoteStartedAt()).isEqualTo(VOTING_OPENED_AT);
             softly.assertThat(room.getVoteDeadline()).isEqualTo(VOTING_OPENED_AT.plus(VOTE_DURATION));
         });
+    }
+
+    @Test
+    @DisplayName("투표 단계에서 추측자별 본인 보기 id를 반환하고 출제자는 제외한다.")
+    void getCurrentRoundOwnVoteOptions_투표_단계에서_추측자별_본인_보기_id를_반환한다() throws Exception {
+        // given
+        GameRoom room = createRoomInVoting();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        List<GuessEntry> guesses = room.getCurrentRound().getGuesses();
+        String guess1OptionId = guessOf(guesses, guest1Id).getGuessId();
+        String guess2OptionId = guessOf(guesses, guest2Id).getGuessId();
+
+        // when
+        Map<String, String> ownVoteOptions = room.getCurrentRoundOwnVoteOptions();
+
+        // then
+        assertThat(ownVoteOptions).containsOnly(
+                entry(guest1Id, guess1OptionId),
+                entry(guest2Id, guess2OptionId));
+    }
+
+    @Test
+    @DisplayName("라운드가 시작되지 않았으면 본인 보기 매핑은 비어 있다.")
+    void getCurrentRoundOwnVoteOptions_라운드_시작_전이면_빈_매핑을_반환한다() {
+        // given
+        GameRoom room = createRoomWithGeneratedImages();
+
+        // when
+        Map<String, String> ownVoteOptions = room.getCurrentRoundOwnVoteOptions();
+
+        // then
+        assertThat(ownVoteOptions).isEmpty();
     }
 
     @Test
