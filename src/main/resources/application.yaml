@@ -6,12 +6,12 @@ spring:
 
 igmo:
   game:
-    disconnect-grace: 3s
-    prompt-duration: 30s
-    guess-duration: 10s
-    vote-duration: 10s
-    result-duration: 5s
-    image-generation-completion-delay: 3s
+    disconnect-grace: ${IGMO_GAME_DISCONNECT_GRACE}
+    prompt-duration: ${IGMO_GAME_PROMPT_DURATION}
+    guess-duration: ${IGMO_GAME_GUESS_DURATION}
+    vote-duration: ${IGMO_GAME_VOTE_DURATION}
+    result-duration: ${IGMO_GAME_RESULT_DURATION}
+    image-generation-completion-delay: ${IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY}
   ai:
     gemini:
       api-key: ${GEMINI_API_KEY}
