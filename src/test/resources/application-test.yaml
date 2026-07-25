@@ -1,7 +1,11 @@
 igmo:
   game:
-    disconnect-grace: 3s
-    prompt-duration: 30s
+    disconnect-grace: 1s
+    prompt-duration: 1s
+    guess-duration: 1s
+    vote-duration: 1s
+    result-duration: 1s
+    image-generation-completion-delay: 1s
   ai:
     gemini:
       api-key: test-gemini-api-key
