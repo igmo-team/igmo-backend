@@ -27,13 +27,13 @@ igmo:
       storage:
         s3:
           bucket: ${IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET:}
-          key-prefix: ${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX:generated-admin-images}
+          key-prefix: ${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX}
   image-storage:
     s3:
       bucket: ${IGMO_IMAGE_STORAGE_S3_BUCKET}
       region: ${IGMO_IMAGE_STORAGE_S3_REGION}
       key-prefix: ${IGMO_IMAGE_STORAGE_S3_KEY_PREFIX}
-      public-base-url: ${IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL:}
+      public-base-url: ${IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL}
 
 management:
   endpoints:
