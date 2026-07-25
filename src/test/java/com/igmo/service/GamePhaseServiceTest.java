@@ -39,6 +39,7 @@ import com.igmo.web.dto.GuessEntryView;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.OwnVoteOptionResult;
 import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
@@ -681,6 +682,44 @@ class GamePhaseServiceTest {
     }
 
     @Test
+    @DisplayName("전원이 추측을 제출해 투표가 열리면 추측자에게 본인 보기를 개인큐로 전송한다.")
+    void submitGuess_전원이_제출하면_추측자에게_본인_보기를_개인큐로_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+
+        // then
+        OwnVoteOptionResult guest1Option = captureOwnVoteOption(playerIds.get(1));
+        OwnVoteOptionResult guest2Option = captureOwnVoteOption(playerIds.get(2));
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest1Option)
+                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(1))));
+            softly.assertThat(guest2Option)
+                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(2))));
+        });
+    }
+
+    @Test
+    @DisplayName("전원이 추측을 제출해 투표가 열려도 출제자에게는 본인 보기를 전송하지 않는다.")
+    void submitGuess_전원이_제출해도_출제자에게는_전송하지_않는다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+
+        // then
+        verify(messagingTemplate, never())
+                .convertAndSendToUser(eq(playerIds.get(0)), eq("/queue/vote-own-option"), any());
+    }
+
+    @Test
     @DisplayName("방에 없는 플레이어가 추측을 제출하면 PlayerNotFoundException을 던진다.")
     void submitGuess_방에_없는_플레이어면_예외를_던진다() {
         // given
@@ -717,6 +756,28 @@ class GamePhaseServiceTest {
             softly.assertThat(voteSnapshot.voteEntries())
                     .extracting(VoteEntryView::voted)
                     .containsOnly(false);
+        });
+    }
+
+    @Test
+    @DisplayName("추측 마감으로 투표가 열리면 자동 추측이 채워진 추측자에게도 본인 보기를 개인큐로 전송한다.")
+    void guessDeadline_마감_작업이_실행되면_추측자에게_본인_보기를_개인큐로_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        Runnable guessExpiration = captureLastScheduledDeadline(2);
+        clearInvocations(messagingTemplate);
+
+        // when
+        guessExpiration.run();
+
+        // then
+        OwnVoteOptionResult guest1Option = captureOwnVoteOption(playerIds.get(1));
+        OwnVoteOptionResult guest2Option = captureOwnVoteOption(playerIds.get(2));
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest1Option)
+                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(1))));
+            softly.assertThat(guest2Option)
+                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
@@ -930,6 +991,19 @@ class GamePhaseServiceTest {
                 .getCurrentRound()
                 .getAnswerEntry()
                 .getPromptId();
+    }
+
+    private String findOwnOptionId(String code, String playerId) {
+        return gameRegistry.find(code)
+                .orElseThrow()
+                .getCurrentRoundOwnVoteOptions()
+                .get(playerId);
+    }
+
+    private OwnVoteOptionResult captureOwnVoteOption(String playerId) {
+        ArgumentCaptor<OwnVoteOptionResult> captor = ArgumentCaptor.forClass(OwnVoteOptionResult.class);
+        verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/vote-own-option"), captor.capture());
+        return captor.getValue();
     }
 
     private RoundSnapshot captureRoundSnapshotBroadcast() {
