@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.epages.restdocs.apispec.ResourceSnippetParameters;
 import com.igmo.admin.application.AdminImageGenerationService;
+import com.igmo.admin.exception.AdminImageStorageException;
 import com.igmo.admin.web.dto.AdminImageGenerationOptionsResponse;
 import com.igmo.admin.web.dto.AdminImageGenerationRequest;
 import com.igmo.admin.web.dto.AdminImageGenerationResponse;
@@ -109,6 +110,22 @@ class AdminImageGenerationControllerTest {
                                 )
                                 .responseFields(responseFields())
                                 .build())));
+    }
+
+    @Test
+    @DisplayName("이미지 저장에 실패하면 상세 사유 없이 일반 오류 메시지를 반환한다.")
+    void generate_저장실패면_상세사유없이_일반오류메시지를반환한다() throws Exception {
+        // given
+        given(adminImageGenerationService.generate(new AdminImageGenerationRequest("토끼", "gemini-image", "2K")))
+                .willThrow(new AdminImageStorageException(new IllegalStateException("AccessDenied")));
+
+        // when & then
+        mockMvc.perform(post("/admin/image-generation")
+                        .header(HttpHeaders.AUTHORIZATION, BASIC_AUTH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"토끼\",\"model\":\"gemini-image\",\"imageSize\":\"2K\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.message").value("이미지 생성에 실패했습니다. 잠시 후 다시 시도해주세요."));
     }
 
     private FieldDescriptor[] responseFields() {
