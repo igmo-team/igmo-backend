@@ -16,7 +16,7 @@ async function loadOptions() {
         const response = await fetch("/admin/image-generation/options");
         const options = await readJson(response);
         if (!response.ok) {
-            throw new Error(options.message || "옵션을 불러오지 못했습니다.");
+            throw new Error(errorMessage(response, "옵션을 불러오지 못했습니다."));
         }
         fillSelect(modelSelect, options.models);
         fillSelect(imageSizeSelect, options.imageSizes);
@@ -47,7 +47,7 @@ form.addEventListener("submit", async event => {
         });
         const result = await readJson(response);
         if (!response.ok) {
-            throw new Error(result.message || "이미지 생성에 실패했습니다.");
+            throw new Error(errorMessage(response, "이미지 생성에 실패했습니다."));
         }
         renderResult(result);
     } catch (error) {
@@ -75,6 +75,10 @@ function renderResult(result) {
     document.querySelector("#result-duration").textContent = `${result.durationMs} ms`;
     document.querySelector("#result-storage-uri").textContent = result.storageUri;
     showStatus("");
+}
+
+function errorMessage(response, fallback) {
+    return response.status === 401 ? "관리자 인증에 실패했습니다." : fallback;
 }
 
 function setLoading(loading) {
