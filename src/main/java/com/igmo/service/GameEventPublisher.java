@@ -3,6 +3,7 @@ package com.igmo.service;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.OwnVoteOptionResult;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
@@ -16,6 +17,7 @@ public class GameEventPublisher {
 
     private static final String ROOM_TOPIC_PREFIX = "/topic/rooms/";
     private static final String IMAGE_GENERATION_QUEUE = "/queue/image-generation";
+    private static final String VOTE_OWN_OPTION_QUEUE = "/queue/vote-own-option";
 
     private final SimpMessagingTemplate messagingTemplate;
     private final GameMetrics gameMetrics;
@@ -57,5 +59,10 @@ public class GameEventPublisher {
 
     public void sendImageGenerationResult(String playerId, ImageGenerationResult result) {
         messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, result);
+    }
+
+    // 투표 진입 시 각 플레이어에게 본인 프롬프트 보기를 개인큐로 알려 프론트에서 선택 불가 처리하도록 한다.
+    public void sendOwnVoteOption(String playerId, OwnVoteOptionResult result) {
+        messagingTemplate.convertAndSendToUser(playerId, VOTE_OWN_OPTION_QUEUE, result);
     }
 }
