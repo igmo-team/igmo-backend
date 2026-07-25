@@ -1,16 +1,13 @@
-package com.igmo.service;
+package com.igmo.imagegeneration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.igmo.monitoring.GameMetrics;
-import com.igmo.service.exception.GeminiRequestException;
-import com.igmo.service.exception.GeminiResponseException;
-import com.igmo.service.exception.ImageStorageException;
+import com.igmo.imagegeneration.exception.GeminiRequestException;
+import com.igmo.imagegeneration.exception.GeminiResponseException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-public class GeminiImageGenerationClient implements ImageGenerationClient {
+public class GeminiImageGenerationClient implements ImageGenerator {
 
     private static final URI IMAGE_GENERATION_URI = URI.create(
             "https://generativelanguage.googleapis.com/v1beta/interactions");
@@ -43,110 +40,86 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
-    private final ImageStorageClient imageStorageClient;
-    private final GameMetrics gameMetrics;
     private final URI imageGenerationUri;
     private final String apiKey;
-    private final String model;
-    private final String imageSize;
 
     @Autowired
     public GeminiImageGenerationClient(
             ObjectMapper objectMapper,
-            ImageStorageClient imageStorageClient,
-            GameMetrics gameMetrics,
-            @Value("${igmo.ai.gemini.api-key}") String apiKey,
-            @Value("${igmo.ai.gemini.model}") String model,
-            @Value("${igmo.ai.gemini.image-size}") String imageSize
+            @Value("${igmo.ai.gemini.api-key}") String apiKey
     ) {
-        this(objectMapper, HttpClient.newHttpClient(), imageStorageClient, gameMetrics, IMAGE_GENERATION_URI, apiKey, model,
-                imageSize);
+        this(objectMapper, HttpClient.newHttpClient(), IMAGE_GENERATION_URI, apiKey);
     }
 
     GeminiImageGenerationClient(
             ObjectMapper objectMapper,
             HttpClient httpClient,
-            ImageStorageClient imageStorageClient,
-            GameMetrics gameMetrics,
             URI imageGenerationUri,
-            String apiKey,
-            String model,
-            String imageSize
+            String apiKey
     ) {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
-        this.imageStorageClient = imageStorageClient;
-        this.gameMetrics = gameMetrics;
         this.imageGenerationUri = imageGenerationUri;
         this.apiKey = apiKey;
-        this.model = model;
-        this.imageSize = imageSize;
     }
 
     @Override
-    public String generate(String prompt) {
-        long startedAt = System.nanoTime();
-        byte[] image;
-        try {
-            if (apiKey == null || apiKey.isBlank()) {
-                throw new GeminiRequestException("Gemini API 키가 설정되지 않았습니다.", model, imageSize, null);
-            }
-
-            HttpResponse<String> response = sendRequest(createRequest(prompt));
-            verifySuccessfulResponse(response);
-            image = extractImage(response.body(), response.statusCode());
-        } catch (RuntimeException exception) {
-            gameMetrics.incrementImageGenerationFailure();
-            throw exception;
-        } finally {
-            gameMetrics.recordImageGenerationDuration(Duration.ofNanos(System.nanoTime() - startedAt));
+    public GeneratedImage generate(ImageGenerationRequest request) {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new GeminiRequestException(
+                    "Gemini API 키가 설정되지 않았습니다.", request.model(), request.imageSize(), null);
         }
-        return storeImage(image);
+
+        HttpResponse<String> response = sendRequest(createRequest(request), request);
+        verifySuccessfulResponse(response, request);
+        byte[] data = extractImage(response.body(), response.statusCode(), request);
+        return new GeneratedImage(data, IMAGE_CONTENT_TYPE);
     }
 
-    private HttpRequest createRequest(String prompt) {
+    private HttpRequest createRequest(ImageGenerationRequest request) {
         try {
+            String requestBody = objectMapper.writeValueAsString(Map.of(
+                    "model", request.model(),
+                    "system_instruction", IMAGE_GENERATION_SYSTEM_INSTRUCTION,
+                    "input", List.of(Map.of(
+                            "type", "text",
+                            "text", request.prompt())),
+                    "response_format", Map.of(
+                            "type", "image",
+                            "mime_type", IMAGE_CONTENT_TYPE,
+                            "image_size", request.imageSize())));
             return HttpRequest.newBuilder(imageGenerationUri)
                     .header("x-goog-api-key", apiKey)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(
-                            objectMapper.writeValueAsString(Map.of(
-                                    "model", model,
-                                    "system_instruction", IMAGE_GENERATION_SYSTEM_INSTRUCTION,
-                                    "input", List.of(Map.of(
-                                            "type", "text",
-                                            "text", prompt)),
-                                    "response_format", Map.of(
-                                            "type", "image",
-                                            "mime_type", IMAGE_CONTENT_TYPE,
-                                            "image_size", imageSize)))))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
         } catch (Exception exception) {
             throw new GeminiRequestException(
-                    "Gemini 이미지 생성 요청을 만들지 못했습니다.", model, imageSize, exception);
+                    "Gemini 이미지 생성 요청을 만들지 못했습니다.", request.model(), request.imageSize(), exception);
         }
     }
 
-    private HttpResponse<String> sendRequest(HttpRequest request) {
+    private HttpResponse<String> sendRequest(HttpRequest request, ImageGenerationRequest imageRequest) {
         try {
             return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new GeminiRequestException(
-                    "Gemini 이미지 생성 요청이 중단되었습니다.", model, imageSize, exception);
+                    "Gemini 이미지 생성 요청이 중단되었습니다.", imageRequest.model(), imageRequest.imageSize(), exception);
         } catch (Exception exception) {
-            throw new GeminiRequestException("Gemini 이미지 생성 요청에 실패했습니다.", model, imageSize, exception);
+            throw new GeminiRequestException(
+                    "Gemini 이미지 생성 요청에 실패했습니다.", imageRequest.model(), imageRequest.imageSize(), exception);
         }
     }
 
-    private void verifySuccessfulResponse(HttpResponse<String> response) {
+    private void verifySuccessfulResponse(HttpResponse<String> response, ImageGenerationRequest request) {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new GeminiRequestException(response.statusCode(), model, imageSize);
+            throw new GeminiRequestException(response.statusCode(), request.model(), request.imageSize());
         }
     }
 
-    private byte[] extractImage(String responseBody, int httpStatus) {
-        JsonNode response = readResponse(responseBody, httpStatus);
+    private byte[] extractImage(String responseBody, int httpStatus, ImageGenerationRequest request) {
+        JsonNode response = readResponse(responseBody, httpStatus, request);
         List<String> modelOutputContentTypes = extractModelOutputContentTypes(response);
         for (JsonNode step : response.path("steps")) {
             if (!"model_output".equals(step.path("type").asText())) {
@@ -162,8 +135,8 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                             "Gemini 응답에 이미지 바이트 데이터가 없습니다.",
                             modelOutputContentTypes,
                             httpStatus,
-                            model,
-                            imageSize);
+                            request.model(),
+                            request.imageSize());
                 }
                 try {
                     return Base64.getDecoder().decode(imageBase64.asText());
@@ -171,8 +144,8 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                     throw new GeminiResponseException(
                             "Gemini 응답의 이미지 데이터 형식이 올바르지 않습니다.",
                             httpStatus,
-                            model,
-                            imageSize,
+                            request.model(),
+                            request.imageSize(),
                             exception);
                 }
             }
@@ -182,26 +155,26 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
                     "Gemini 응답이 이미지 대신 텍스트입니다.",
                     modelOutputContentTypes,
                     httpStatus,
-                    model,
-                    imageSize);
+                    request.model(),
+                    request.imageSize());
         }
         throw new GeminiResponseException(
                 "Gemini 응답에 이미지 데이터가 없습니다.",
                 modelOutputContentTypes,
                 httpStatus,
-                model,
-                imageSize);
+                request.model(),
+                request.imageSize());
     }
 
-    private JsonNode readResponse(String responseBody, int httpStatus) {
+    private JsonNode readResponse(String responseBody, int httpStatus, ImageGenerationRequest request) {
         try {
             return objectMapper.readTree(responseBody);
         } catch (Exception exception) {
             throw new GeminiResponseException(
                     "Gemini 응답을 파싱하지 못했습니다.",
                     httpStatus,
-                    model,
-                    imageSize,
+                    request.model(),
+                    request.imageSize(),
                     exception);
         }
     }
@@ -221,11 +194,4 @@ public class GeminiImageGenerationClient implements ImageGenerationClient {
         return contentTypes;
     }
 
-    private String storeImage(byte[] image) {
-        try {
-            return imageStorageClient.store(image, IMAGE_CONTENT_TYPE);
-        } catch (Exception exception) {
-            throw new ImageStorageException(exception);
-        }
-    }
 }

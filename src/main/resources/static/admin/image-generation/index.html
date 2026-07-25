@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IGMO 관리자 이미지 생성 테스트</title>
+    <link rel="stylesheet" href="/admin/image-generation/admin-image-generation.css">
+</head>
+<body>
+<main class="page-shell">
+    <header>
+        <a class="brand-row" href="/admin" aria-label="이그모 관리자 홈">
+            <span class="brand-mark"><img src="/admin/assets/igmo-logo.png" alt="이그모 로고"></span>
+            <span class="brand-name">이그모</span>
+            <span class="admin-badge">ADMIN</span>
+        </a>
+        <div class="page-heading">
+            <h1>이미지 생성 테스트</h1>
+            <a class="home-link" href="/admin">대시보드</a>
+        </div>
+        <p class="description">운영 게임 이미지와 분리된 관리자 요청입니다. 결과는 이 브라우저에서만 확인합니다.</p>
+    </header>
+
+    <section class="workspace" aria-label="이미지 생성 테스트">
+        <form id="generation-form" class="panel form-panel">
+            <label for="prompt">프롬프트</label>
+            <textarea id="prompt" name="prompt" maxlength="2000" required
+                      placeholder="예: 비 오는 밤, 네온사인이 비치는 서울 골목"></textarea>
+
+            <label for="model">모델</label>
+            <select id="model" name="model" required disabled>
+                <option>옵션을 불러오는 중입니다.</option>
+            </select>
+
+            <label for="image-size">이미지 크기</label>
+            <select id="image-size" name="imageSize" required disabled>
+                <option>옵션을 불러오는 중입니다.</option>
+            </select>
+
+            <button id="submit-button" type="submit" disabled>이미지 생성</button>
+            <p id="form-status" class="status" aria-live="polite"></p>
+        </form>
+
+        <section class="panel result-panel" aria-labelledby="result-heading">
+            <div class="result-heading">
+                <h2 id="result-heading">결과</h2>
+                <button id="copy-button" class="copy-button" type="button" hidden>S3 URI 복사</button>
+            </div>
+            <div id="empty-result" class="empty-result">아직 생성된 이미지가 없습니다.</div>
+            <img id="generated-image" alt="생성된 이미지" hidden>
+            <dl id="result-meta" class="result-meta" hidden>
+                <div><dt>모델</dt><dd id="result-model"></dd></div>
+                <div><dt>크기</dt><dd id="result-size"></dd></div>
+                <div><dt>생성 시간</dt><dd id="result-duration"></dd></div>
+                <div><dt>S3 저장 위치</dt><dd id="result-storage-uri"></dd></div>
+            </dl>
+        </section>
+    </section>
+</main>
+<script src="/admin/image-generation/admin-image-generation.js"></script>
+</body>
+</html>

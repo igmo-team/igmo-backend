@@ -7,9 +7,20 @@ igmo:
       api-key: test-gemini-api-key
       model: test-gemini-model
       image-size: 1K
+  admin:
+    image-generation:
+      username: test-admin
+      password: test-password
+      allowed-models: test-gemini-model
+      allowed-image-sizes: 1K
+      max-concurrent-requests: 1
+      storage:
+        s3:
+          bucket: test-admin-image-bucket
+          key-prefix: generated-images
   image-storage:
     s3:
       bucket: test-image-bucket
       region: ap-northeast-2
       key-prefix: generated-images
-      public-base-url:
+      public-base-url: test-url

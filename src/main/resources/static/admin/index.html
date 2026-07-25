@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IGMO 관리자</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<main class="page-shell">
+    <header class="hero">
+        <a class="brand-row" href="/admin" aria-label="이그모 관리자 홈">
+            <span class="brand-mark"><img src="/admin/assets/igmo-logo.png" alt="이그모 로고"></span>
+            <span class="brand-name">이그모</span>
+            <span class="admin-badge">ADMIN</span>
+        </a>
+        <h1>관리자 대시보드</h1>
+        <p>운영 서비스와 분리된 도구를 빠르게 실행하고 결과를 확인합니다.</p>
+    </header>
+
+    <section aria-labelledby="tools-heading">
+        <div class="section-heading">
+            <h2 id="tools-heading">도구</h2>
+            <p>필요한 관리자 기능을 선택하세요.</p>
+        </div>
+        <div class="tool-grid">
+            <a class="tool-card" href="/admin/image-generation">
+                <span class="tool-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4" width="17" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="9" r="1.5" fill="currentColor"/><path d="m4 17 5.1-5.1a1.7 1.7 0 0 1 2.4 0l2.1 2.1 1.3-1.3a1.7 1.7 0 0 1 2.4 0L20 15.4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/></svg>
+                </span>
+                <span class="tool-meta">SANDBOX</span>
+                <span class="tool-name">이미지 생성 테스트</span>
+                <span class="tool-description">모델과 이미지 크기를 선택해 Gemini 이미지 생성을 검증합니다.</span>
+                <span class="tool-action">테스트 열기 <span aria-hidden="true">→</span></span>
+            </a>
+        </div>
+    </section>
+</main>
+</body>
+</html>

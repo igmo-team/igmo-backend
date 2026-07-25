@@ -1,4 +1,4 @@
-package com.igmo.service.exception;
+package com.igmo.imagegeneration.exception;
 
 public class ImageStorageException extends ImageGenerationException {
 

@@ -1,25 +1,43 @@
 package com.igmo.service;
 
-import com.igmo.service.exception.ImageStorageException;
+import com.igmo.imagegeneration.GeneratedImage;
+import com.igmo.imagegeneration.ImageGenerationRequest;
+import com.igmo.imagegeneration.ImageGenerator;
+import com.igmo.imagegeneration.exception.ImageStorageException;
+import com.igmo.monitoring.GameMetrics;
+import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
 public class ImageGenerationService {
 
-    private final ImageGenerationClient imageGenerationClient;
+    private final ImageGenerator imageGenerator;
+    private final ImageStorageClient imageStorageClient;
+    private final GameMetrics gameMetrics;
     private final Executor imageGenerationExecutor;
+    private final String model;
+    private final String imageSize;
 
     public ImageGenerationService(
-            ImageGenerationClient imageGenerationClient,
-            @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor
+            ImageGenerator imageGenerator,
+            ImageStorageClient imageStorageClient,
+            GameMetrics gameMetrics,
+            @Qualifier("imageGenerationExecutor") Executor imageGenerationExecutor,
+            @Value("${igmo.ai.gemini.model}") String model,
+            @Value("${igmo.ai.gemini.image-size}") String imageSize
     ) {
-        this.imageGenerationClient = imageGenerationClient;
+        this.imageGenerator = imageGenerator;
+        this.imageStorageClient = imageStorageClient;
+        this.gameMetrics = gameMetrics;
         this.imageGenerationExecutor = imageGenerationExecutor;
+        this.model = model;
+        this.imageSize = imageSize;
     }
 
     public void generate(
@@ -41,7 +59,7 @@ public class ImageGenerationService {
     ) {
         long startedAt = System.nanoTime();
         try {
-            String imageUrl = imageGenerationClient.generate(prompt);
+            String imageUrl = generateAndStore(prompt);
             onSuccess.accept(imageUrl);
             log.info(
                     "이미지 생성 완료. roomCode={}, playerId={}, durationMs={}",
@@ -49,8 +67,20 @@ public class ImageGenerationService {
                     playerId,
                     elapsedMillis(startedAt));
         } catch (Exception exception) {
+            gameMetrics.incrementImageGenerationFailure();
             logGenerationFailure(code, playerId, startedAt, exception);
             onFailure.accept(exception);
+        } finally {
+            gameMetrics.recordImageGenerationDuration(Duration.ofNanos(System.nanoTime() - startedAt));
+        }
+    }
+
+    private String generateAndStore(String prompt) {
+        GeneratedImage image = imageGenerator.generate(new ImageGenerationRequest(prompt, model, imageSize));
+        try {
+            return imageStorageClient.store(image.data(), image.contentType());
+        } catch (Exception exception) {
+            throw new ImageStorageException(exception);
         }
     }
 
