@@ -37,6 +37,12 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       IGMO_AI_GEMINI_MODEL: ${{ vars.IGMO_AI_GEMINI_MODEL }}
       IGMO_AI_GEMINI_IMAGE_SIZE: ${{ vars.IGMO_AI_GEMINI_IMAGE_SIZE }}
+      IGMO_GAME_DISCONNECT_GRACE: ${{ vars.IGMO_GAME_DISCONNECT_GRACE }}
+      IGMO_GAME_PROMPT_DURATION: ${{ vars.IGMO_GAME_PROMPT_DURATION }}
+      IGMO_GAME_GUESS_DURATION: ${{ vars.IGMO_GAME_GUESS_DURATION }}
+      IGMO_GAME_VOTE_DURATION: ${{ vars.IGMO_GAME_VOTE_DURATION }}
+      IGMO_GAME_RESULT_DURATION: ${{ vars.IGMO_GAME_RESULT_DURATION }}
+      IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY: ${{ vars.IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY }}
       IGMO_IMAGE_STORAGE_S3_BUCKET: ${{ vars.IGMO_IMAGE_STORAGE_S3_BUCKET }}
       IGMO_IMAGE_STORAGE_S3_REGION: ${{ vars.IGMO_IMAGE_STORAGE_S3_REGION }}
       IGMO_IMAGE_STORAGE_S3_KEY_PREFIX: ${{ vars.IGMO_IMAGE_STORAGE_S3_KEY_PREFIX }}
@@ -61,6 +67,12 @@ jobs:
           : "${GEMINI_API_KEY:?Set GEMINI_API_KEY in the production environment}"
           : "${IGMO_AI_GEMINI_MODEL:?Set IGMO_AI_GEMINI_MODEL in the production environment}"
           : "${IGMO_AI_GEMINI_IMAGE_SIZE:?Set IGMO_AI_GEMINI_IMAGE_SIZE in the production environment}"
+          : "${IGMO_GAME_DISCONNECT_GRACE:?Set IGMO_GAME_DISCONNECT_GRACE in the production environment}"
+          : "${IGMO_GAME_PROMPT_DURATION:?Set IGMO_GAME_PROMPT_DURATION in the production environment}"
+          : "${IGMO_GAME_GUESS_DURATION:?Set IGMO_GAME_GUESS_DURATION in the production environment}"
+          : "${IGMO_GAME_VOTE_DURATION:?Set IGMO_GAME_VOTE_DURATION in the production environment}"
+          : "${IGMO_GAME_RESULT_DURATION:?Set IGMO_GAME_RESULT_DURATION in the production environment}"
+          : "${IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY:?Set IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY in the production environment}"
           : "${IGMO_IMAGE_STORAGE_S3_BUCKET:?Set IGMO_IMAGE_STORAGE_S3_BUCKET in the production environment}"
           : "${IGMO_IMAGE_STORAGE_S3_REGION:?Set IGMO_IMAGE_STORAGE_S3_REGION in the production environment}"
           : "${IGMO_IMAGE_STORAGE_S3_KEY_PREFIX:?Set IGMO_IMAGE_STORAGE_S3_KEY_PREFIX in the production environment}"
