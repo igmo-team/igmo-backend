@@ -343,6 +343,15 @@ public class GameRoom {
         return rounds.get(currentRoundIndex);
     }
 
+    // 투표 진입 시 각 추측자에게 개인큐로 알려줄 본인 보기 id 매핑.
+    public synchronized Map<String, String> getCurrentRoundOwnVoteOptions() {
+        Round currentRound = getCurrentRound();
+        if (currentRound == null) {
+            return Map.of();
+        }
+        return currentRound.getGuessOptionIdsByPlayerId();
+    }
+
     public synchronized int getTotalRoundCount() {
         return rounds.size();
     }
