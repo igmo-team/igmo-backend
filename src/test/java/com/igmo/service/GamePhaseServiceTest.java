@@ -36,7 +36,7 @@ import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.GuessEntryView;
-import com.igmo.web.dto.ImageGenerationResult;
+import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.OwnVoteOptionNotice;
@@ -155,11 +155,11 @@ class GamePhaseServiceTest {
                     .isEqualTo(promptSnapshot.promptStartedAt().plusSeconds(30));
             softly.assertThat(promptSnapshot.promptEntries())
                     .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::submitted)
+                            PromptEntryView::status)
                     .containsExactly(
-                            tuple(created.playerId(), false),
-                            tuple(guest1.playerId(), false),
-                            tuple(guest2.playerId(), false)
+                            tuple(created.playerId(), PromptEntryStatus.WAITING),
+                            tuple(guest1.playerId(), PromptEntryStatus.WAITING),
+                            tuple(guest2.playerId(), PromptEntryStatus.WAITING)
                     );
         });
         verify(gamePhaseDeadlineScheduler).schedule(any(Runnable.class), eq(promptSnapshot.promptDeadline()));
@@ -190,8 +190,8 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("GENERATING 단계에서 프롬프트를 제출하면 플레이어의 프롬프트 상태를 저장하고 스냅샷을 브로드캐스트한다.")
-    void submitPrompt_GENERATING_단계이면_프롬프트를_저장하고_브로드캐스트한다() {
+    @DisplayName("GENERATING 단계에서 프롬프트를 제출하면 제출자에게 생성중 상태를 개인 전송한다.")
+    void submitPrompt_GENERATING_단계이면_프롬프트를_저장하고_생성중_상태를_개인_전송한다() {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameLobbyService.createGame("호스트");
@@ -200,37 +200,27 @@ class GamePhaseServiceTest {
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
         gamePhaseService.startGame("ABCD", created.playerId());
+        clearInvocations(messagingTemplate);
 
         // when
         gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        PromptSubmissionSnapshot snapshot = capturePromptSubmissionBroadcast();
-        PromptEntryView promptEntryView = findPromptEntryView(snapshot, guest1.playerId());
+        ImageGenerationEvent event = captureImageGenerationEvent(guest1.playerId());
 
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getPrompt()).isEqualTo("고양이가 피아노를 치는 장면");
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
             softly.assertThat(entry.getSubmittedAt()).isNotNull();
-            softly.assertThat(snapshot.roomCode()).isEqualTo("ABCD");
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.GENERATING);
-            softly.assertThat(snapshot.promptStartedAt()).isNotNull();
-            softly.assertThat(snapshot.promptDeadline()).isEqualTo(snapshot.promptStartedAt().plusSeconds(30));
-            softly.assertThat(snapshot.promptEntries()).hasSize(3);
-            softly.assertThat(snapshot.promptEntries())
-                    .extracting(promptEntry -> promptEntry.player().id(),
-                            PromptEntryView::submitted)
-                    .containsExactly(
-                            tuple(created.playerId(), false),
-                            tuple(guest1.playerId(), true),
-                            tuple(guest2.playerId(), false)
-                    );
-            softly.assertThat(promptEntryView.player().id()).isEqualTo(guest1.playerId());
-            softly.assertThat(promptEntryView.player().nickname()).isEqualTo("참가자1");
-            softly.assertThat(promptEntryView.submitted()).isTrue();
+            softly.assertThat(event.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(event.status()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(event.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
+            softly.assertThat(event.imageUrl()).isNull();
+            softly.assertThat(event.errorMessage()).isNull();
             softly.assertThat(imageGenerationTask).isNotNull();
         });
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
     }
 
     @Test
@@ -253,22 +243,22 @@ class GamePhaseServiceTest {
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        ImageGenerationResult result = captureImageGenerationResult(guest1.playerId());
+        ImageGenerationEvent event = captureImageGenerationEvent(guest1.playerId());
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
-            softly.assertThat(result.roomCode()).isEqualTo("ABCD");
-            softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
-            softly.assertThat(result.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
+            softly.assertThat(event.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(event.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(event.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
+            softly.assertThat(event.imageUrl()).isEqualTo("https://cdn.example.com/prompt-1.png");
         });
         verifyGeneratedImage("고양이가 피아노를 치는 장면");
         PromptSubmissionSnapshot snapshot = captureLastPromptSubmissionBroadcast();
         assertThat(snapshot.promptEntries())
                 .filteredOn(promptEntry -> promptEntry.player().id().equals(guest1.playerId()))
                 .singleElement()
-                .extracting(PromptEntryView::submitted)
-                .isEqualTo(true);
+                .extracting(PromptEntryView::status)
+                .isEqualTo(PromptEntryStatus.READY);
     }
 
     @Test
@@ -370,15 +360,15 @@ class GamePhaseServiceTest {
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        ImageGenerationResult result = captureImageGenerationResult(guest1.playerId());
+        ImageGenerationEvent event = captureImageGenerationEvent(guest1.playerId());
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.FAILED);
             softly.assertThat(entry.getImageUrl()).isNull();
-            softly.assertThat(result.roomCode()).isEqualTo("ABCD");
-            softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.FAILED);
-            softly.assertThat(result.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
-            softly.assertThat(result.imageUrl()).isNull();
-            softly.assertThat(result.errorMessage()).isEqualTo("Gemini 응답이 이미지 대신 텍스트입니다.");
+            softly.assertThat(event.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(event.status()).isEqualTo(PromptEntryStatus.FAILED);
+            softly.assertThat(event.prompt()).isEqualTo("고양이가 피아노를 치는 장면");
+            softly.assertThat(event.imageUrl()).isNull();
+            softly.assertThat(event.errorMessage()).isEqualTo("Gemini 응답이 이미지 대신 텍스트입니다.");
         });
         verifyGeneratedImage("고양이가 피아노를 치는 장면");
         verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
@@ -386,8 +376,8 @@ class GamePhaseServiceTest {
         assertThat(snapshot.promptEntries())
                 .filteredOn(promptEntry -> promptEntry.player().id().equals(guest1.playerId()))
                 .singleElement()
-                .extracting(PromptEntryView::submitted)
-                .isEqualTo(true);
+                .extracting(PromptEntryView::status)
+                .isEqualTo(PromptEntryStatus.FAILED);
     }
 
     @Test
@@ -414,13 +404,13 @@ class GamePhaseServiceTest {
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
-        ImageGenerationResult result = captureImageGenerationResult(guest1.playerId());
+        ImageGenerationEvent event = captureImageGenerationEvent(guest1.playerId());
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(entry.getPrompt()).isEqualTo("다시 입력한 프롬프트");
             softly.assertThat(entry.getImageUrl()).isEqualTo("https://cdn.example.com/retried.png");
-            softly.assertThat(result.status()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(result.errorMessage()).isNull();
+            softly.assertThat(event.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(event.errorMessage()).isNull();
         });
         verifyGeneratedImage("다시 입력한 프롬프트");
     }
@@ -464,15 +454,15 @@ class GamePhaseServiceTest {
         captureScheduledPromptExpiration().run();
 
         // then
-        ImageGenerationResult guest1Result = captureImageGenerationResult(session.guest1().playerId());
-        ImageGenerationResult guest2Result = captureImageGenerationResult(session.guest2().playerId());
+        ImageGenerationEvent guest1Event = captureImageGenerationEvent(session.guest1().playerId());
+        ImageGenerationEvent guest2Event = captureImageGenerationEvent(session.guest2().playerId());
         List<SamplePrompt> pool = samplePromptProvider.getAll();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(guest1Result.roomCode()).isEqualTo("ABCD");
-            softly.assertThat(guest1Result.status()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(pool).contains(new SamplePrompt(guest1Result.prompt(), guest1Result.imageUrl()));
-            softly.assertThat(guest2Result.status()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(pool).contains(new SamplePrompt(guest2Result.prompt(), guest2Result.imageUrl()));
+            softly.assertThat(guest1Event.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(guest1Event.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(pool).contains(new SamplePrompt(guest1Event.prompt(), guest1Event.imageUrl()));
+            softly.assertThat(guest2Event.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(pool).contains(new SamplePrompt(guest2Event.prompt(), guest2Event.imageUrl()));
         });
     }
 
@@ -1168,10 +1158,11 @@ class GamePhaseServiceTest {
         return (PromptSubmissionSnapshot) message.payload();
     }
 
-    private ImageGenerationResult captureImageGenerationResult(String playerId) {
-        ArgumentCaptor<ImageGenerationResult> captor = ArgumentCaptor.forClass(ImageGenerationResult.class);
-        verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/image-generation"), captor.capture());
-        return captor.getValue();
+    private ImageGenerationEvent captureImageGenerationEvent(String playerId) {
+        ArgumentCaptor<ImageGenerationEvent> captor = ArgumentCaptor.forClass(ImageGenerationEvent.class);
+        verify(messagingTemplate, atLeastOnce())
+                .convertAndSendToUser(eq(playerId), eq("/queue/image-generation"), captor.capture());
+        return captor.getAllValues().getLast();
     }
 
     private record GameSession(
@@ -1186,13 +1177,6 @@ class GamePhaseServiceTest {
                 .orElseThrow()
                 .getPromptEntries().stream()
                 .filter(entry -> entry.getPlayerId().equals(playerId))
-                .findFirst()
-                .orElseThrow();
-    }
-
-    private PromptEntryView findPromptEntryView(PromptSubmissionSnapshot snapshot, String playerId) {
-        return snapshot.promptEntries().stream()
-                .filter(entry -> entry.player().id().equals(playerId))
                 .findFirst()
                 .orElseThrow();
     }
