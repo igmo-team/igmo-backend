@@ -38,10 +38,6 @@ public class PromptEntry {
         this.status = PromptEntryStatus.READY;
     }
 
-    public boolean isSubmitted() {
-        return status != PromptEntryStatus.WAITING;
-    }
-
     public boolean canSubmitPrompt() {
         return status == PromptEntryStatus.WAITING || status == PromptEntryStatus.FAILED;
     }

@@ -9,7 +9,7 @@ import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.GameResultSnapshot;
-import com.igmo.web.dto.ImageGenerationResult;
+import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
@@ -70,16 +70,19 @@ public class GamePhaseService {
     }
 
     public void submitPrompt(String code, String playerId, String prompt) {
-        PromptSubmissionSnapshot snapshot = gameRoomRepository.update(code, room -> {
+        String submittedPrompt = prompt.trim();
+
+        ImageGenerationEvent eventSnapshot = gameRoomRepository.update(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             Instant submittedAt = Instant.now();
-            room.submitPrompt(playerId, prompt, submittedAt);
-            return PromptSubmissionSnapshot.from(room);
+            room.submitPrompt(playerId, submittedPrompt, submittedAt);
+            return new ImageGenerationEvent(code, PromptEntryStatus.GENERATING, submittedPrompt, null);
         });
-        eventPublisher.publishPromptSubmission(code, snapshot);
-        startImageGeneration(code, playerId, prompt);
+
+        eventPublisher.sendImageGenerationEvent(playerId, eventSnapshot);
+        startImageGeneration(code, playerId, submittedPrompt);
     }
 
     public void submitGuess(String code, String playerId, String guess) {
@@ -150,9 +153,9 @@ public class GamePhaseService {
     }
 
     private void publishSampleImageResults(String code, Map<String, SamplePrompt> assignments) {
-        assignments.forEach((playerId, sample) -> eventPublisher.sendImageGenerationResult(
+        assignments.forEach((playerId, sample) -> eventPublisher.sendImageGenerationEvent(
                 playerId,
-                new ImageGenerationResult(code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl())));
+                new ImageGenerationEvent(code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl())));
     }
 
     private void scheduleGuessExpiration(String code, Instant deadline) {
@@ -214,17 +217,16 @@ public class GamePhaseService {
     }
 
     private void startImageGeneration(String code, String playerId, String prompt) {
-        String submittedPrompt = prompt.trim();
         imageGenerationService.generate(
                 code,
                 playerId,
-                submittedPrompt,
+                prompt,
                 imageUrl -> updateImageGenerationResult(
                         code,
                         playerId,
                         room -> room.completeImageGeneration(playerId, imageUrl),
                         PromptEntryStatus.READY,
-                        submittedPrompt,
+                        prompt,
                         imageUrl,
                         null),
                 exception -> updateImageGenerationResult(
@@ -232,7 +234,7 @@ public class GamePhaseService {
                         playerId,
                         room -> room.failImageGeneration(playerId),
                         PromptEntryStatus.FAILED,
-                        submittedPrompt,
+                        prompt,
                         null,
                         failureMessage(exception)));
     }
@@ -254,9 +256,9 @@ public class GamePhaseService {
             }
             boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
             operation.accept(lockedRoom);
-            eventPublisher.sendImageGenerationResult(
+            eventPublisher.sendImageGenerationEvent(
                     playerId,
-                    new ImageGenerationResult(code, status, submittedPrompt, imageUrl, errorMessage));
+                    new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage));
             eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
             return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
         }).orElse(false);

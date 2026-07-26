@@ -1,7 +1,7 @@
 package com.igmo.service;
 
 import com.igmo.monitoring.GameMetrics;
-import com.igmo.web.dto.ImageGenerationResult;
+import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
@@ -57,8 +57,8 @@ public class GameEventPublisher {
         }
     }
 
-    public void sendImageGenerationResult(String playerId, ImageGenerationResult result) {
-        messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, result);
+    public void sendImageGenerationEvent(String playerId, ImageGenerationEvent eventSnapshot) {
+        messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, eventSnapshot);
     }
 
     // 투표 진입 시 각 플레이어에게 본인 프롬프트 보기를 개인큐로 알려 프론트에서 선택 불가 처리하도록 한다.

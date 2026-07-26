@@ -2,7 +2,7 @@ package com.igmo.web.dto;
 
 import com.igmo.domain.PromptEntryStatus;
 
-public record ImageGenerationResult(
+public record ImageGenerationEvent(
         String roomCode,
         PromptEntryStatus status,
         String prompt,
@@ -10,7 +10,7 @@ public record ImageGenerationResult(
         String errorMessage
 ) {
 
-    public ImageGenerationResult(String roomCode, PromptEntryStatus status, String prompt, String imageUrl) {
+    public ImageGenerationEvent(String roomCode, PromptEntryStatus status, String prompt, String imageUrl) {
         this(roomCode, status, prompt, imageUrl, null);
     }
 }
