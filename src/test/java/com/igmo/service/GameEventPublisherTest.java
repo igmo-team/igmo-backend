@@ -6,7 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.igmo.monitoring.GameMetrics;
-import com.igmo.web.dto.OwnVoteOptionResult;
+import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.RoomMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,12 +51,12 @@ class GameEventPublisherTest {
     @DisplayName("본인 투표 보기를 해당 플레이어의 개인큐로 전송한다.")
     void sendOwnVoteOption_개인큐로_본인_보기를_전송한다() {
         // given
-        OwnVoteOptionResult result = new OwnVoteOptionResult("ABCD", 1, "option-1");
+        OwnVoteOptionNotice notice = new OwnVoteOptionNotice("ABCD", 1, false, "option-1");
 
         // when
-        eventPublisher.sendOwnVoteOption("player-1", result);
+        eventPublisher.sendOwnVoteOption("player-1", notice);
 
         // then
-        verify(messagingTemplate).convertAndSendToUser("player-1", "/queue/vote-own-option", result);
+        verify(messagingTemplate).convertAndSendToUser("player-1", "/queue/vote-own-option", notice);
     }
 }

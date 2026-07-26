@@ -210,8 +210,8 @@ class RoundTest {
     }
 
     @Test
-    @DisplayName("추측자별 본인 보기 id를 반환하고 출제자는 포함하지 않는다.")
-    void getGuessOptionIdsByPlayerId_추측자별_본인_보기_id를_반환한다() {
+    @DisplayName("출제자는 본인 이미지(ownImage=true), 추측자는 본인 보기 id를 담아 반환한다.")
+    void getOwnVoteOptionsByPlayerId_출제자와_추측자별_본인_보기_정보를_반환한다() {
         // given
         Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
         round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
@@ -220,12 +220,13 @@ class RoundTest {
         String guess2OptionId = round.getGuesses().get(1).getGuessId();
 
         // when
-        Map<String, String> ownOptionIds = round.getGuessOptionIdsByPlayerId();
+        Map<String, OwnVoteOption> ownVoteOptions = round.getOwnVoteOptionsByPlayerId();
 
         // then
-        assertThat(ownOptionIds).containsOnly(
-                entry("guesser-1", guess1OptionId),
-                entry("guesser-2", guess2OptionId));
+        assertThat(ownVoteOptions).containsOnly(
+                entry("questioner", OwnVoteOption.forQuestioner()),
+                entry("guesser-1", OwnVoteOption.forGuesser(guess1OptionId)),
+                entry("guesser-2", OwnVoteOption.forGuesser(guess2OptionId)));
     }
 
     @Test

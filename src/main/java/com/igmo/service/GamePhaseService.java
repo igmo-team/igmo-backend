@@ -10,7 +10,7 @@ import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.ImageGenerationResult;
-import com.igmo.web.dto.OwnVoteOptionResult;
+import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
@@ -119,11 +119,12 @@ public class GamePhaseService {
         eventPublisher.publish(code, message);
     }
 
-    // 투표 진입 시 출제자를 제외한 각 플레이어에게 본인 프롬프트 보기를 개인큐로 알려준다.
+    // 투표 진입 시 각 플레이어에게 본인 보기 정보를 개인큐로 알려준다.
+    // 출제자는 본인 이미지라 투표할 수 없고, 추측자는 본인 보기 id를 받아 선택 불가 처리한다.
     private void sendOwnVoteOptions(String code, GameRoom room) {
         int roundNumber = room.getCurrentRound().getRoundNumber();
-        room.getCurrentRoundOwnVoteOptions().forEach((playerId, optionId) ->
-                eventPublisher.sendOwnVoteOption(playerId, new OwnVoteOptionResult(code, roundNumber, optionId)));
+        room.getCurrentRoundOwnVoteOptions().forEach((playerId, ownVoteOption) ->
+                eventPublisher.sendOwnVoteOption(playerId, OwnVoteOptionNotice.of(code, roundNumber, ownVoteOption)));
     }
 
     private void schedulePromptExpiration(String code, Instant deadline) {

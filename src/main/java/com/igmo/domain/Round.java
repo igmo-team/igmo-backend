@@ -113,11 +113,14 @@ public class Round {
         return List.copyOf(voteOptions);
     }
 
-    // 각 추측자에게 개인적으로 알려줄 본인 보기 id 매핑. 출제자는 추측이 없어 포함되지 않는다.
-    public Map<String, String> getGuessOptionIdsByPlayerId() {
-        Map<String, String> optionIds = new LinkedHashMap<>();
-        guessesByPlayerId.forEach((playerId, entry) -> optionIds.put(playerId, entry.getGuessId()));
-        return Collections.unmodifiableMap(optionIds);
+    // 각 플레이어에게 개인적으로 알려줄 본인 보기 정보 매핑.
+    // 출제자는 자신의 이미지라 투표할 수 없고, 추측자는 본인 보기 id를 받는다.
+    public Map<String, OwnVoteOption> getOwnVoteOptionsByPlayerId() {
+        Map<String, OwnVoteOption> ownVoteOptions = new LinkedHashMap<>();
+        ownVoteOptions.put(questionerId, OwnVoteOption.forQuestioner());
+        guessesByPlayerId.forEach((playerId, entry) ->
+                ownVoteOptions.put(playerId, OwnVoteOption.forGuesser(entry.getGuessId())));
+        return Collections.unmodifiableMap(ownVoteOptions);
     }
 
     public List<Vote> getVotes() {
