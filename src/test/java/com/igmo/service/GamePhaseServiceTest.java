@@ -39,7 +39,7 @@ import com.igmo.web.dto.GuessEntryView;
 import com.igmo.web.dto.ImageGenerationResult;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
-import com.igmo.web.dto.OwnVoteOptionResult;
+import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptEntryView;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
@@ -693,19 +693,19 @@ class GamePhaseServiceTest {
         gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
 
         // then
-        OwnVoteOptionResult guest1Option = captureOwnVoteOption(playerIds.get(1));
-        OwnVoteOptionResult guest2Option = captureOwnVoteOption(playerIds.get(2));
+        OwnVoteOptionNotice guest1Option = captureOwnVoteOption(playerIds.get(1));
+        OwnVoteOptionNotice guest2Option = captureOwnVoteOption(playerIds.get(2));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(guest1Option)
-                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(1))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(1))));
             softly.assertThat(guest2Option)
-                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(2))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
     @Test
-    @DisplayName("전원이 추측을 제출해 투표가 열려도 출제자에게는 본인 보기를 전송하지 않는다.")
-    void submitGuess_전원이_제출해도_출제자에게는_전송하지_않는다() {
+    @DisplayName("전원이 추측을 제출해 투표가 열리면 출제자에게 본인 이미지임을 개인큐로 전송한다.")
+    void submitGuess_전원이_제출하면_출제자에게_본인_이미지임을_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
         gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
@@ -715,8 +715,8 @@ class GamePhaseServiceTest {
         gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
 
         // then
-        verify(messagingTemplate, never())
-                .convertAndSendToUser(eq(playerIds.get(0)), eq("/queue/vote-own-option"), any());
+        OwnVoteOptionNotice hostOption = captureOwnVoteOption(playerIds.get(0));
+        assertThat(hostOption).isEqualTo(new OwnVoteOptionNotice("ABCD", 1, true, null));
     }
 
     @Test
@@ -771,13 +771,13 @@ class GamePhaseServiceTest {
         guessExpiration.run();
 
         // then
-        OwnVoteOptionResult guest1Option = captureOwnVoteOption(playerIds.get(1));
-        OwnVoteOptionResult guest2Option = captureOwnVoteOption(playerIds.get(2));
+        OwnVoteOptionNotice guest1Option = captureOwnVoteOption(playerIds.get(1));
+        OwnVoteOptionNotice guest2Option = captureOwnVoteOption(playerIds.get(2));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(guest1Option)
-                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(1))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(1))));
             softly.assertThat(guest2Option)
-                    .isEqualTo(new OwnVoteOptionResult("ABCD", 1, findOwnOptionId("ABCD", playerIds.get(2))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
@@ -997,11 +997,12 @@ class GamePhaseServiceTest {
         return gameRegistry.find(code)
                 .orElseThrow()
                 .getCurrentRoundOwnVoteOptions()
-                .get(playerId);
+                .get(playerId)
+                .optionId();
     }
 
-    private OwnVoteOptionResult captureOwnVoteOption(String playerId) {
-        ArgumentCaptor<OwnVoteOptionResult> captor = ArgumentCaptor.forClass(OwnVoteOptionResult.class);
+    private OwnVoteOptionNotice captureOwnVoteOption(String playerId) {
+        ArgumentCaptor<OwnVoteOptionNotice> captor = ArgumentCaptor.forClass(OwnVoteOptionNotice.class);
         verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/vote-own-option"), captor.capture());
         return captor.getValue();
     }

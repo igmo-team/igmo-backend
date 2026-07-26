@@ -1023,10 +1023,11 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("투표 단계에서 추측자별 본인 보기 id를 반환하고 출제자는 제외한다.")
-    void getCurrentRoundOwnVoteOptions_투표_단계에서_추측자별_본인_보기_id를_반환한다() throws Exception {
+    @DisplayName("투표 단계에서 출제자는 본인 이미지(ownImage=true), 추측자는 본인 보기 id를 담아 반환한다.")
+    void getCurrentRoundOwnVoteOptions_투표_단계에서_출제자와_추측자별_본인_보기_정보를_반환한다() throws Exception {
         // given
         GameRoom room = createRoomInVoting();
+        String hostId = room.getPlayers().get(0).getId();
         String guest1Id = room.getPlayers().get(1).getId();
         String guest2Id = room.getPlayers().get(2).getId();
         List<GuessEntry> guesses = room.getCurrentRound().getGuesses();
@@ -1034,12 +1035,13 @@ class GameRoomTest {
         String guess2OptionId = guessOf(guesses, guest2Id).getGuessId();
 
         // when
-        Map<String, String> ownVoteOptions = room.getCurrentRoundOwnVoteOptions();
+        Map<String, OwnVoteOption> ownVoteOptions = room.getCurrentRoundOwnVoteOptions();
 
         // then
         assertThat(ownVoteOptions).containsOnly(
-                entry(guest1Id, guess1OptionId),
-                entry(guest2Id, guess2OptionId));
+                entry(hostId, OwnVoteOption.forQuestioner()),
+                entry(guest1Id, OwnVoteOption.forGuesser(guess1OptionId)),
+                entry(guest2Id, OwnVoteOption.forGuesser(guess2OptionId)));
     }
 
     @Test
@@ -1049,7 +1051,7 @@ class GameRoomTest {
         GameRoom room = createRoomWithGeneratedImages();
 
         // when
-        Map<String, String> ownVoteOptions = room.getCurrentRoundOwnVoteOptions();
+        Map<String, OwnVoteOption> ownVoteOptions = room.getCurrentRoundOwnVoteOptions();
 
         // then
         assertThat(ownVoteOptions).isEmpty();
