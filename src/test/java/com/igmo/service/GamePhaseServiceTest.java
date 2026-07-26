@@ -1181,13 +1181,6 @@ class GamePhaseServiceTest {
                 .orElseThrow();
     }
 
-    private PromptEntryView findPromptEntryView(PromptSubmissionSnapshot snapshot, String playerId) {
-        return snapshot.promptEntries().stream()
-                .filter(entry -> entry.player().id().equals(playerId))
-                .findFirst()
-                .orElseThrow();
-    }
-
     private List<String> autoPromptCandidates(String nickname) {
         return Arrays.stream(AutoPromptPrefix.values())
                 .map(prefix -> prefix.value() + " " + nickname)
