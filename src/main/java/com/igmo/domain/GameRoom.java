@@ -30,7 +30,6 @@ import lombok.Getter;
 public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
-    private static final int MIN_PLAYERS_TO_START = 3;
     private static final AutoPromptPrefix[] AUTO_PROMPT_PREFIXES = AutoPromptPrefix.values();
 
     @Getter
@@ -58,17 +57,23 @@ public class GameRoom {
     private final Map<String, Player> players = new LinkedHashMap<>();
     private final Map<String, PromptEntry> promptEntriesByPlayerId = new LinkedHashMap<>();
     private final List<Round> rounds = new ArrayList<>();
+    private final GameStartPolicy gameStartPolicy;
     private int currentRoundIndex;
 
-    private GameRoom(String code, Player host) {
+    private GameRoom(String code, Player host, GameStartPolicy gameStartPolicy) {
         this.code = code;
         this.hostId = host.getId();
+        this.gameStartPolicy = gameStartPolicy;
         this.phase = GamePhase.LOBBY;
         this.players.put(host.getId(), host);
     }
 
     public static GameRoom create(String code, Player host) {
-        return new GameRoom(code, host);
+        return create(code, host, GameStartPolicy.standard());
+    }
+
+    public static GameRoom create(String code, Player host, GameStartPolicy gameStartPolicy) {
+        return new GameRoom(code, host, gameStartPolicy);
     }
 
     public synchronized String addPlayer(Player player) {
@@ -135,8 +140,8 @@ public class GameRoom {
         if (!requesterId.equals(hostId)) {
             throw new NotHostException();
         }
-        if (players.size() < MIN_PLAYERS_TO_START) {
-            throw new InsufficientPlayersException();
+        if (!gameStartPolicy.canStart(players.size())) {
+            throw new InsufficientPlayersException(gameStartPolicy.minimumPlayers());
         }
         if (!allOthersReady()) {
             throw new PlayersNotReadyException();

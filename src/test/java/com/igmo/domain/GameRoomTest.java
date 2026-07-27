@@ -737,6 +737,20 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("1명 시작 정책이면 호스트만으로 게임을 시작한다.")
+    void start_1명_시작_정책이면_호스트만으로_시작한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+
+        // when
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // then
+        assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
+    }
+
+    @Test
     @DisplayName("참가자가 3명 미만이면 시작할 때 InsufficientPlayersException을 던진다.")
     void start_참가자가_3명_미만이면_예외를_던진다() {
         // given

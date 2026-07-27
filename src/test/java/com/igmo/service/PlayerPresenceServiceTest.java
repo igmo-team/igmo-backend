@@ -16,6 +16,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
+import com.igmo.domain.GameStartPolicy;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -56,7 +57,8 @@ class PlayerPresenceServiceTest {
     private final GameLobbyService gameLobbyService = new GameLobbyService(
             new GameRoomRepository(gameRegistry),
             roomCodeGenerator,
-            new GameEventPublisher(messagingTemplate, gameMetrics));
+            new GameEventPublisher(messagingTemplate, gameMetrics),
+            GameStartPolicy.standard());
     private final PlayerPresenceService playerPresenceService = new PlayerPresenceService(
             new GameRoomRepository(gameRegistry),
             gamePhaseScheduler,
@@ -130,7 +132,8 @@ class PlayerPresenceServiceTest {
     void leaveGame_방이_비면_PLAYING_전환_예약을_취소한다() {
         // given
         GameSession session = createLobby();
-        gamePhaseScheduler.schedulePlayingTransition("ABCD", Instant.now(), () -> { });
+        gamePhaseScheduler.schedulePlayingTransition("ABCD", Instant.now(), () -> {
+        });
 
         // when
         playerPresenceService.leaveGame("ABCD", session.host().playerId(), session.host().secret());

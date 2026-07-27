@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.GameRoom;
+import com.igmo.domain.GameStartPolicy;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
@@ -44,13 +45,14 @@ class PlayerPresenceServiceConcurrencyTest {
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
     private final GameLobbyService gameLobbyService =
-            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher);
+            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher, GameStartPolicy.standard());
     private final PlayerPresenceService playerPresenceService =
             new PlayerPresenceService(
                     gameRoomRepository,
                     gamePhaseScheduler,
                     eventPublisher,
                     disconnectGraceScheduler);
+
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
         ReflectionTestUtils.setField(playerPresenceService, "disconnectGrace", Duration.ofSeconds(3));

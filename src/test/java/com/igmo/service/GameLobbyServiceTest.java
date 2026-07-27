@@ -1,10 +1,14 @@
 package com.igmo.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.igmo.domain.GamePhase;
+import com.igmo.domain.GameRoom;
+import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.PlayerNotFoundException;
@@ -17,6 +21,8 @@ import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
 import com.igmo.web.dto.RoomMessage;
+import java.time.Duration;
+import java.time.Instant;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +37,8 @@ class GameLobbyServiceTest {
     private final GameLobbyService gameLobbyService = new GameLobbyService(
             new GameRoomRepository(gameRegistry),
             roomCodeGenerator,
-            new GameEventPublisher(messagingTemplate, gameMetrics));
+            new GameEventPublisher(messagingTemplate, gameMetrics),
+            GameStartPolicy.local());
 
     @Test
     @DisplayName("게임을 생성하면 방 코드와 호스트 playerId를 반환하고 레지스트리에 저장한다.")
@@ -52,6 +59,21 @@ class GameLobbyServiceTest {
             softly.assertThat(response.snapshot().players().get(0).nickname()).isEqualTo("호스트");
             softly.assertThat(gameRegistry.find("ABCD")).isPresent();
         });
+    }
+
+    @Test
+    @DisplayName("선택된 시작 정책을 생성한 게임방에 전달한다.")
+    void createGame_시작_정책을_게임방에_전달한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+
+        // when
+        CreateGameResponse response = gameLobbyService.createGame("호스트");
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        room.start(response.playerId(), Instant.now(), Duration.ofSeconds(1));
+
+        // then
+        assertThat(room.getPhase()).isEqualTo(GamePhase.GENERATING);
     }
 
     @Test
