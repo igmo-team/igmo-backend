@@ -1,6 +1,7 @@
 package com.igmo.service;
 
 import com.igmo.domain.GameRoom;
+import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.Player;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
@@ -18,15 +19,18 @@ public class GameLobbyService {
     private final GameRoomRepository gameRoomRepository;
     private final RoomCodeGenerator roomCodeGenerator;
     private final GameEventPublisher eventPublisher;
+    private final GameStartPolicy gameStartPolicy;
 
     public GameLobbyService(
             GameRoomRepository gameRoomRepository,
             RoomCodeGenerator roomCodeGenerator,
-            GameEventPublisher eventPublisher
+            GameEventPublisher eventPublisher,
+            GameStartPolicy gameStartPolicy
     ) {
         this.gameRoomRepository = gameRoomRepository;
         this.roomCodeGenerator = roomCodeGenerator;
         this.eventPublisher = eventPublisher;
+        this.gameStartPolicy = gameStartPolicy;
     }
 
     public CreateGameResponse createGame(String nickname) {
@@ -58,7 +62,7 @@ public class GameLobbyService {
 
     private GameRoom createRoomWithUniqueCode(Player host) {
         for (int attempt = 0; attempt < MAX_ROOM_CODE_ATTEMPTS; attempt++) {
-            GameRoom room = GameRoom.create(roomCodeGenerator.generate(), host);
+            GameRoom room = GameRoom.create(roomCodeGenerator.generate(), host, gameStartPolicy);
             if (gameRoomRepository.saveIfAbsent(room)) {
                 return room;
             }

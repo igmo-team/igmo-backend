@@ -17,20 +17,21 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
+import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.SamplePrompt;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
-import com.igmo.monitoring.GameMetrics;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerationRequest;
 import com.igmo.imagegeneration.ImageGenerator;
+import com.igmo.imagegeneration.exception.GeminiResponseException;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
-import com.igmo.imagegeneration.exception.GeminiResponseException;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
@@ -49,9 +50,9 @@ import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteEntryView;
 import com.igmo.web.dto.VoteOptionView;
 import com.igmo.web.dto.VoteSnapshot;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -93,10 +94,11 @@ class GamePhaseServiceTest {
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
     private final GameLobbyService gameLobbyService =
-            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher);
+            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher, GameStartPolicy.standard());
     private final ImageGenerationService imageGenerationService =
             new ImageGenerationService(
-                    imageGenerator, imageStorageClient, gameMetrics, imageGenerationExecutor, "gemini-3.1-flash-image", "2K");
+                    imageGenerator, imageStorageClient, gameMetrics, imageGenerationExecutor, "gemini-3.1-flash-image",
+                    "2K");
     private final SamplePromptProvider samplePromptProvider =
             new SamplePromptProvider(new ObjectMapper(), SAMPLE_PROMPTS_JSON, "test");
     private final GamePhaseService gamePhaseService =
@@ -331,7 +333,6 @@ class GamePhaseServiceTest {
                 .convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
         verify(gamePhaseDeadlineScheduler, times(2)).schedule(any(Runnable.class), any(Instant.class));
     }
-
 
 
     @Test
