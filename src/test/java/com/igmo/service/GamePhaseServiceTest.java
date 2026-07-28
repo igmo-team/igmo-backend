@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -64,6 +65,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -666,6 +668,10 @@ class GamePhaseServiceTest {
         assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
                 "ABCD", 1, 3, true, "강아지가 기타를 치는 장면", null));
         captureRoundSnapshotBroadcast();
+        InOrder messageOrder = inOrder(messagingTemplate);
+        messageOrder.verify(messagingTemplate).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+        messageOrder.verify(messagingTemplate).convertAndSendToUser(
+                eq(playerIds.get(1)), eq("/queue/guess-submission"), any(GuessSubmissionSnapshot.class));
     }
 
     @Test

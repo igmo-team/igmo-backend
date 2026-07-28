@@ -117,10 +117,10 @@ public class GamePhaseService {
             }
             return new GuessSubmissionResult(snapshot, RoomMessage.roundSnapshot(RoundSnapshot.from(room)));
         });
-        eventPublisher.sendGuessSubmission(playerId, result.snapshot());
         if (result.hasRoomMessage()) {
             eventPublisher.publish(code, result.roomMessage());
         }
+        eventPublisher.sendGuessSubmission(playerId, result.snapshot());
     }
 
     public void submitVote(String code, String playerId, String optionId) {
