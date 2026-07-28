@@ -170,7 +170,7 @@ public class Round {
     }
 
     private String normalize(String prompt) {
-        return prompt.trim().replaceAll("\\s+", " ").toLowerCase();
+        return prompt.replaceAll("\\s+", "").toLowerCase();
     }
 
     private Map<String, Integer> aggregateVotesByOption() {
