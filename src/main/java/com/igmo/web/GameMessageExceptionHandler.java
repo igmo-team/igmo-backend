@@ -1,11 +1,9 @@
 package com.igmo.web;
 
-import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
 import com.igmo.domain.exception.GuessMatchesAnswerException;
-import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
@@ -49,10 +47,8 @@ public class GameMessageExceptionHandler {
             RoundStartNotAllowedException.class,
             GuessSubmissionNotAllowedException.class,
             GuessSubmissionExpiredException.class,
-            DuplicateGuessSubmissionException.class,
             GuessNotAllowedException.class,
             GuessMatchesAnswerException.class,
-            GuessMatchesOthersException.class,
             VoteSubmissionNotAllowedException.class,
             VoteSubmissionExpiredException.class,
             DuplicateVoteException.class,

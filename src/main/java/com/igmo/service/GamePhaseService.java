@@ -4,11 +4,14 @@ import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.SamplePrompt;
+import com.igmo.domain.exception.DuplicateGuessSubmissionException;
+import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.ImagesNotReadyException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.GameResultSnapshot;
+import com.igmo.web.dto.GuessSubmissionSnapshot;
 import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
@@ -86,22 +89,38 @@ public class GamePhaseService {
     }
 
     public void submitGuess(String code, String playerId, String guess) {
-        RoomMessage<?> message = gameRoomRepository.update(code, room -> {
+        GuessSubmissionResult result = gameRoomRepository.update(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             Instant submittedAt = Instant.now();
-            room.submitGuess(playerId, guess, submittedAt);
+            GuessSubmissionSnapshot snapshot;
+            try {
+                room.submitGuess(playerId, guess, submittedAt);
+                snapshot = GuessSubmissionSnapshot.submitted(room, guess);
+            } catch (DuplicateGuessSubmissionException | GuessMatchesOthersException exception) {
+                return new GuessSubmissionResult(
+                        GuessSubmissionSnapshot.rejected(
+                                room,
+                                guess,
+                                exception.getMessage()
+                        ),
+                        null
+                );
+            }
             if (room.hasAllCurrentRoundGuesses()) {
                 gamePhaseScheduler.cancelGuess(code);
                 room.completeGuessSubmission(submittedAt, voteDuration);
                 scheduleVoteExpiration(code, room.getVoteDeadline());
                 sendOwnVoteOptions(code, room);
-                return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
+                return new GuessSubmissionResult(snapshot, RoomMessage.voteSnapshot(VoteSnapshot.from(room)));
             }
-            return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
+            return new GuessSubmissionResult(snapshot, RoomMessage.roundSnapshot(RoundSnapshot.from(room)));
         });
-        eventPublisher.publish(code, message);
+        eventPublisher.sendGuessSubmission(playerId, result.snapshot());
+        if (result.hasRoomMessage()) {
+            eventPublisher.publish(code, result.roomMessage());
+        }
     }
 
     public void submitVote(String code, String playerId, String optionId) {
@@ -120,6 +139,12 @@ public class GamePhaseService {
             return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
         });
         eventPublisher.publish(code, message);
+    }
+
+    private record GuessSubmissionResult(GuessSubmissionSnapshot snapshot, RoomMessage<?> roomMessage) {
+        private boolean hasRoomMessage() {
+            return roomMessage != null;
+        }
     }
 
     // 투표 진입 시 각 플레이어에게 본인 보기 정보를 개인큐로 알려준다.

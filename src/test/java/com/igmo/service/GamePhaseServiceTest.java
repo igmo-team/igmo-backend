@@ -37,6 +37,7 @@ import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.GuessEntryView;
+import com.igmo.web.dto.GuessSubmissionSnapshot;
 import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
@@ -651,6 +652,60 @@ class GamePhaseServiceTest {
     }
 
     @Test
+    @DisplayName("추측을 제출하면 제출자 개인큐에 제출 결과를 전송한다.")
+    void submitGuess_추측을_제출하면_개인큐에_제출_결과를_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+
+        // then
+        GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
+        assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
+                "ABCD", 1, 3, true, "강아지가 기타를 치는 장면", null));
+        captureRoundSnapshotBroadcast();
+    }
+
+    @Test
+    @DisplayName("다른 플레이어의 추측과 중복되면 메시지를 제출자 개인큐로 전송하고 방에 브로드캐스트하지 않는다.")
+    void submitGuess_다른_플레이어의_추측과_중복되면_개인큐로_거절_메시지를_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "강아지가 기타를 치는 장면");
+
+        // then
+        GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(2));
+        assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
+                "ABCD", 1, 3, false, "강아지가 기타를 치는 장면",
+                "다른 플레이어의 추측과 동일한 추측은 제출할 수 없습니다."));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+    }
+
+    @Test
+    @DisplayName("같은 플레이어가 추측을 다시 제출하면 메시지를 개인큐로 전송하고 방에 브로드캐스트하지 않는다.")
+    void submitGuess_같은_플레이어가_재제출하면_개인큐로_거절_메시지를_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "고양이가 드럼을 치는 장면");
+
+        // then
+        GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
+        assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
+                "ABCD", 1, 3, false, "고양이가 드럼을 치는 장면", "이미 추측을 제출했습니다."));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+    }
+
+    @Test
     @DisplayName("출제자를 제외한 전원이 추측을 제출하면 VOTING 스냅샷을 브로드캐스트하고 마감 작업을 취소한다.")
     void submitGuess_전원이_제출하면_VOTING_스냅샷을_브로드캐스트하고_마감_작업을_취소한다() {
         // given
@@ -995,6 +1050,12 @@ class GamePhaseServiceTest {
     private OwnVoteOptionNotice captureOwnVoteOption(String playerId) {
         ArgumentCaptor<OwnVoteOptionNotice> captor = ArgumentCaptor.forClass(OwnVoteOptionNotice.class);
         verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/vote-own-option"), captor.capture());
+        return captor.getValue();
+    }
+
+    private GuessSubmissionSnapshot captureGuessSubmission(String playerId) {
+        ArgumentCaptor<GuessSubmissionSnapshot> captor = ArgumentCaptor.forClass(GuessSubmissionSnapshot.class);
+        verify(messagingTemplate).convertAndSendToUser(eq(playerId), eq("/queue/guess-submission"), captor.capture());
         return captor.getValue();
     }
 

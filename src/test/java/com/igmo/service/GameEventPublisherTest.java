@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.igmo.monitoring.GameMetrics;
+import com.igmo.web.dto.GuessSubmissionSnapshot;
 import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.RoomMessage;
 import org.junit.jupiter.api.DisplayName;
@@ -58,5 +59,19 @@ class GameEventPublisherTest {
 
         // then
         verify(messagingTemplate).convertAndSendToUser("player-1", "/queue/vote-own-option", notice);
+    }
+
+    @Test
+    @DisplayName("추측 제출 결과를 해당 플레이어의 개인큐로 전송한다.")
+    void sendGuessSubmission_개인큐로_추측_제출_결과를_전송한다() {
+        // given
+        GuessSubmissionSnapshot snapshot = new GuessSubmissionSnapshot(
+                "ABCD", 1, 3, true, "강아지가 기타를 치는 장면", null);
+
+        // when
+        eventPublisher.sendGuessSubmission("player-1", snapshot);
+
+        // then
+        verify(messagingTemplate).convertAndSendToUser("player-1", "/queue/guess-submission", snapshot);
     }
 }

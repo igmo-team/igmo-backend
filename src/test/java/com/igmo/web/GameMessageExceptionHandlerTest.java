@@ -57,7 +57,7 @@ class GameMessageExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("추측 제출 예외는 요청 세션의 오류 큐로 메시지를 반환하도록 핸들러에 등록된다.")
+    @DisplayName("개인 제출 결과로 처리되지 않는 추측 제출 예외는 요청 세션의 오류 큐로 메시지를 반환한다.")
     void handleGameException_추측_예외를_처리한다() throws NoSuchMethodException {
         // given
         GuessMatchesAnswerException exception = new GuessMatchesAnswerException();
@@ -75,9 +75,11 @@ class GameMessageExceptionHandlerTest {
                     RoundStartNotAllowedException.class,
                     GuessSubmissionNotAllowedException.class,
                     GuessSubmissionExpiredException.class,
-                    DuplicateGuessSubmissionException.class,
                     GuessNotAllowedException.class,
-                    GuessMatchesAnswerException.class,
+                    GuessMatchesAnswerException.class
+            );
+            softly.assertThat(annotation.value()).doesNotContain(
+                    DuplicateGuessSubmissionException.class,
                     GuessMatchesOthersException.class
             );
         });
