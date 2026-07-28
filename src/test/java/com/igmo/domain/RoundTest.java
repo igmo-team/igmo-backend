@@ -83,6 +83,21 @@ class RoundTest {
     }
 
     @Test
+    @DisplayName("정답 프롬프트에서 공백을 제거하거나 위치를 바꾼 추측도 정답으로 판정한다.")
+    void submitGuess_공백만_다른_정답도_동일로_판정한다() {
+        // given
+        Round round = createRound("questioner", "뛰어노는 강아지");
+
+        // when & then
+        assertThatThrownBy(() -> round.submitGuess("guesser-1", "뛰어노는강아지", SUBMITTED_AT))
+                .isInstanceOf(GuessMatchesAnswerException.class)
+                .hasMessage("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+        assertThatThrownBy(() -> round.submitGuess("guesser-2", "뛰어 노는 강아지", SUBMITTED_AT))
+                .isInstanceOf(GuessMatchesAnswerException.class)
+                .hasMessage("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+    }
+
+    @Test
     @DisplayName("영문 대소문자만 다른 추측도 정답과 동일한 것으로 판정한다.")
     void submitGuess_대소문자만_다른_정답도_동일로_판정한다() {
         // given
