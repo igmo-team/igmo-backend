@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 
 CONTAINER_NAME="igmo-backend"
-CLOUDWATCH_LOG_GROUP="/igmo/prod/app"
 
 require_value() {
   local name="$1"
@@ -140,10 +139,9 @@ start_container() {
     --env IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET="\$IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET" \
     --env IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX="\$IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX" \
     --publish 127.0.0.1:8080:8080 \
-    --log-driver awslogs \
-    --log-opt awslogs-region="\$AWS_REGION" \
-    --log-opt awslogs-group="\$CLOUDWATCH_LOG_GROUP" \
-    --log-opt awslogs-stream="\$CONTAINER_NAME/\$IMAGE_TAG" \
+    --log-driver local \
+    --log-opt max-size=10m \
+    --log-opt max-file=3 \
     "\$1"
 }
 
