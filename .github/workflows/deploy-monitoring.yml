@@ -44,4 +44,4 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy monitoring stack through AWS Systems Manager
-        run: ./deploy/monitoring/apply.sh
+        run: bash ./deploy/monitoring/apply.sh
