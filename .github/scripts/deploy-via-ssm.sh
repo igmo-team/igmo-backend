@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 
 CONTAINER_NAME="igmo-backend"
-CLOUDWATCH_LOG_GROUP="/igmo/prod/app"
 
 require_value() {
   local name="$1"
@@ -80,7 +79,6 @@ IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES='${IGMO_ADMIN_IMAGE_GENERATION_A
 IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET='${IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET}'
 IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX='${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX}'
 CONTAINER_NAME='${CONTAINER_NAME}'
-CLOUDWATCH_LOG_GROUP='${CLOUDWATCH_LOG_GROUP}'
 REGISTRY="\${IMAGE_URI%%/*}"
 
 if ! command -v aws >/dev/null 2>&1; then
@@ -140,10 +138,9 @@ start_container() {
     --env IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET="\$IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET" \
     --env IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX="\$IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX" \
     --publish 127.0.0.1:8080:8080 \
-    --log-driver awslogs \
-    --log-opt awslogs-region="\$AWS_REGION" \
-    --log-opt awslogs-group="\$CLOUDWATCH_LOG_GROUP" \
-    --log-opt awslogs-stream="\$CONTAINER_NAME/\$IMAGE_TAG" \
+    --log-driver local \
+    --log-opt max-size=10m \
+    --log-opt max-file=3 \
     "\$1"
 }
 
@@ -174,10 +171,7 @@ done
 
 if [ "\$HEALTHY" != 'true' ]; then
   echo 'The new container did not become healthy.' >&2
-  aws logs tail "\$CLOUDWATCH_LOG_GROUP" \
-    --region "\$AWS_REGION" \
-    --log-stream-names "\$CONTAINER_NAME/\${IMAGE_URI##*:}" \
-    --since 10m || true
+  docker logs --tail 200 "\$CONTAINER_NAME" || true
   rollback
   exit 1
 fi
