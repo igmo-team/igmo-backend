@@ -57,11 +57,28 @@ if ! docker compose -f \"\$STACK_ROOT/docker-compose.yml\" config -q; then
   exit 1
 fi
 
+ROLLBACK_NEEDED=true
+rollback() {
+  EXIT_STATUS=\"\$1\"
+  if [ \"\$ROLLBACK_NEEDED\" = true ]; then
+    docker compose -f \"\$STACK_ROOT/docker-compose.yml\" down --remove-orphans || true
+    if [ -n \"\$BACKUP_ROOT\" ]; then
+      rm -rf \"\$STACK_ROOT\"
+      mv \"\$BACKUP_ROOT\" \"\$STACK_ROOT\"
+      docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --remove-orphans || true
+    fi
+  fi
+  exit \"\$EXIT_STATUS\"
+}
+trap 'rollback \"\$?\"' EXIT
+
 docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --remove-orphans
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:9090/-/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3100/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3000/api/health
-docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps"
+docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps
+ROLLBACK_NEEDED=false
+trap - EXIT"
 
 SCRIPT_B64=$(printf '%s' "$REMOTE_SCRIPT" | base64 | tr -d '\n')
 PARAMS=$(jq -n --arg command "echo $SCRIPT_B64 | base64 -d | bash" '{commands: [$command], executionTimeout: ["600"]}')
