@@ -72,7 +72,7 @@ rollback() {
 }
 trap 'rollback \"\$?\"' EXIT
 
-docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --remove-orphans
+docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --force-recreate --remove-orphans
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:9090/-/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3100/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3000/api/health
