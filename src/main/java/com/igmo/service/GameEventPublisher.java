@@ -9,7 +9,6 @@ import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
-import com.igmo.web.dto.VoteSnapshot;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
@@ -39,10 +38,6 @@ public class GameEventPublisher {
 
     public void publishRound(String code, RoundSnapshot snapshot) {
         publish(code, RoomMessage.roundSnapshot(snapshot));
-    }
-
-    public void publishVote(String code, VoteSnapshot snapshot) {
-        publish(code, RoomMessage.voteSnapshot(snapshot));
     }
 
     public void publishRoundResult(String code, RoundResultSnapshot snapshot) {
