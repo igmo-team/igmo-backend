@@ -1,0 +1,71 @@
+name: Deploy Nginx
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "EC2에 적용할 Nginx 사이트 설정"
+        required: true
+        default: monitoring-bootstrap
+        type: choice
+        options:
+          - igmo
+          - monitoring-bootstrap
+          - monitoring
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: nginx-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.target }} Nginx configuration
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          : "${AWS_REGION:?Set AWS_REGION in the production environment}"
+          : "${AWS_ROLE_ARN:?Set AWS_ROLE_ARN in the production environment}"
+          : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: igmo-nginx-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Apply Nginx configuration through AWS Systems Manager
+        shell: bash
+        run: |
+          case "${{ inputs.target }}" in
+            igmo)
+              ./deploy/nginx/apply.sh deploy/nginx/igmo.conf igmo
+              ;;
+            monitoring-bootstrap)
+              ./deploy/nginx/apply.sh deploy/nginx/monitoring.bootstrap.conf monitoring
+              ;;
+            monitoring)
+              ./deploy/nginx/apply.sh deploy/nginx/monitoring.conf monitoring
+              ;;
+            *)
+              echo "Unsupported Nginx deployment target: ${{ inputs.target }}" >&2
+              exit 1
+              ;;
+          esac
