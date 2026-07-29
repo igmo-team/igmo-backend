@@ -400,6 +400,29 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("PERFECT 플레이어가 가짜 프롬프트를 내지 않으면 마감 시 자동 추측을 채운다.")
+    void autoSubmitGuesses_PERFECT_플레이어에게_가짜_프롬프트를_채운다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        String answerPrompt = room.getCurrentRound().getAnswerEntry().getPrompt();
+        room.submitGuess(guest1Id, answerPrompt.replaceAll("\\s+", ""), GUESS_STARTED_AT);
+        room.submitGuess(guest2Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
+
+        // when
+        room.autoSubmitGuesses(room.getGuessDeadline());
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.hasAllCurrentRoundGuesses()).isTrue();
+            softly.assertThat(room.getCurrentRound().getGuesses())
+                    .extracting(GuessEntry::getPlayerId)
+                    .containsExactlyInAnyOrder(guest1Id, guest2Id);
+        });
+    }
+
+    @Test
     @DisplayName("모든 제출 프롬프트의 이미지가 READY 상태가 되면 생성 완료로 판단한다.")
     void hasAllImagesGenerated_모든_이미지가_READY이면_true를_반환한다() {
         // given

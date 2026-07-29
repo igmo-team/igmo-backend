@@ -240,7 +240,7 @@ public class GameRoom {
         guessDeadline = startedAt.plus(guessDuration);
     }
 
-    public synchronized void submitGuess(String playerId, String guess, Instant submittedAt) {
+    public synchronized GuessSubmissionResult submitGuess(String playerId, String guess, Instant submittedAt) {
         Round currentRound = getCurrentRound();
         if (!isGuessing() || currentRound == null) {
             throw new GuessSubmissionNotAllowedException();
@@ -248,7 +248,7 @@ public class GameRoom {
         if (isGuessExpired(submittedAt)) {
             throw new GuessSubmissionExpiredException();
         }
-        currentRound.submitGuess(playerId, guess, submittedAt);
+        return currentRound.submitGuess(playerId, guess, submittedAt);
     }
 
     // 추측 마감 시 미제출자(출제자 제외)에게 닉네임 기반 자동 추측을 채워 넣어 투표 보기 수를 확보한다.

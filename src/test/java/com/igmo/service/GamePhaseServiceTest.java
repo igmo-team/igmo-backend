@@ -26,6 +26,7 @@ import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
+import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerationRequest;
 import com.igmo.imagegeneration.ImageGenerator;
@@ -39,6 +40,7 @@ import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.GuessEntryView;
 import com.igmo.web.dto.GuessSubmissionSnapshot;
+import com.igmo.web.dto.GuessSubmissionStatus;
 import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
@@ -49,7 +51,6 @@ import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
-import com.igmo.web.dto.VoteEntryView;
 import com.igmo.web.dto.VoteOptionView;
 import com.igmo.web.dto.VoteSnapshot;
 import java.nio.charset.StandardCharsets;
@@ -666,7 +667,7 @@ class GamePhaseServiceTest {
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
         assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
-                "ABCD", 1, 3, true, "강아지가 기타를 치는 장면", null));
+                "ABCD", 1, 3, GuessSubmissionStatus.SUBMITTED, "강아지가 기타를 치는 장면", null, null));
         captureRoundSnapshotBroadcast();
         InOrder messageOrder = inOrder(messagingTemplate);
         messageOrder.verify(messagingTemplate).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
@@ -688,7 +689,7 @@ class GamePhaseServiceTest {
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(2));
         assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
-                "ABCD", 1, 3, false, "강아지가 기타를 치는 장면",
+                "ABCD", 1, 3, GuessSubmissionStatus.REJECTED, "강아지가 기타를 치는 장면", null,
                 "다른 플레이어의 추측과 동일한 추측은 제출할 수 없습니다."));
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
     }
@@ -707,8 +708,143 @@ class GamePhaseServiceTest {
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
         assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
-                "ABCD", 1, 3, false, "고양이가 드럼을 치는 장면", "이미 추측을 제출했습니다."));
+                "ABCD", 1, 3, GuessSubmissionStatus.REJECTED, "고양이가 드럼을 치는 장면", null,
+                "이미 추측을 제출했습니다."));
         verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+    }
+
+    @Test
+    @DisplayName("정답 프롬프트를 제출하면 PERFECT 개인 응답만 전송하고 방에는 브로드캐스트하지 않는다.")
+    void submitGuess_정답이면_PERFECT_개인_응답만_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+
+        // then
+        GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
+                    "ABCD",
+                    1,
+                    3,
+                    GuessSubmissionStatus.PERFECT_RETRY_REQUIRED,
+                    "호스트프롬프트",
+                    3,
+                    null
+            ));
+            softly.assertThat(gameRegistry.find("ABCD").orElseThrow().getCurrentRound().getGuesses()).isEmpty();
+        });
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+    }
+
+    @Test
+    @DisplayName("PERFECT를 다시 제출하면 이미 확정된 정답 사유만 개인큐로 전송한다.")
+    void submitGuess_PERFECT를_재제출하면_개인큐로_거절_사유를_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+
+        // then
+        GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
+        assertThat(snapshot).isEqualTo(new GuessSubmissionSnapshot(
+                "ABCD",
+                1,
+                3,
+                GuessSubmissionStatus.REJECTED,
+                "호스트프롬프트",
+                null,
+                "이미 완벽 정답을 맞혔습니다. 투표용 가짜 프롬프트를 입력하세요."
+        ));
+        assertThat(gameRegistry.find("ABCD").orElseThrow().getCurrentRound().getGuesses()).isEmpty();
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(RoomMessage.class));
+    }
+
+    @Test
+    @DisplayName("PERFECT를 맞힌 뒤 가짜 프롬프트를 제출하면 일반 제출 결과와 진행 스냅샷을 전송한다.")
+    void submitGuess_PERFECT_후_가짜_프롬프트를_제출한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+
+        // then
+        GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
+        assertThat(snapshot.status()).isEqualTo(GuessSubmissionStatus.SUBMITTED);
+        captureRoundSnapshotBroadcast();
+    }
+
+    @Test
+    @DisplayName("PERFECT 플레이어가 포함된 투표는 집계 진행도를 공개하고 해당 플레이어에게 투표 불가를 알린다.")
+    void submitGuess_PERFECT_플레이어가_있으면_집계_진행도와_투표_불가를_전송한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+
+        // then
+        VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
+        OwnVoteOptionNotice perfectPlayerOption = captureOwnVoteOption(playerIds.get(1));
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(voteSnapshot.completedVoteCount()).isEqualTo(1);
+            softly.assertThat(voteSnapshot.totalVoteCount()).isEqualTo(2);
+            softly.assertThat(voteSnapshot.perfectGuessExists()).isTrue();
+            softly.assertThat(perfectPlayerOption.ownImage()).isFalse();
+            softly.assertThat(perfectPlayerOption.voteAllowed()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("PERFECT 플레이어가 투표를 요청하면 서버가 거절한다.")
+    void submitVote_PERFECT_플레이어면_예외를_던진다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        String answerOptionId = findAnswerOptionId("ABCD");
+
+        // when & then
+        assertThatThrownBy(() -> gamePhaseService.submitVote("ABCD", playerIds.get(1), answerOptionId))
+                .isInstanceOf(PerfectGuesserVoteNotAllowedException.class)
+                .hasMessage("완벽 정답자는 투표할 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("출제자를 제외한 전원이 PERFECT면 가짜 프롬프트 제출 후 바로 결과를 공개한다.")
+    void submitGuess_전원이_PERFECT면_바로_결과를_공개한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "호스트프롬프트");
+        clearInvocations(messagingTemplate);
+
+        // when
+        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+
+        // then
+        RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
+            softly.assertThat(snapshot.players())
+                    .filteredOn(player -> player.id().equals(playerIds.get(1)) || player.id().equals(playerIds.get(2)))
+                    .extracting(player -> player.score())
+                    .containsOnly(3);
+        });
     }
 
     @Test
@@ -749,9 +885,9 @@ class GamePhaseServiceTest {
         OwnVoteOptionNotice guest2Option = captureOwnVoteOption(playerIds.get(2));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(guest1Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(1))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(1))));
             softly.assertThat(guest2Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(2))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
@@ -768,7 +904,7 @@ class GamePhaseServiceTest {
 
         // then
         OwnVoteOptionNotice hostOption = captureOwnVoteOption(playerIds.get(0));
-        assertThat(hostOption).isEqualTo(new OwnVoteOptionNotice("ABCD", 1, true, null));
+        assertThat(hostOption).isEqualTo(new OwnVoteOptionNotice("ABCD", 1, true, false, null));
     }
 
     @Test
@@ -805,9 +941,9 @@ class GamePhaseServiceTest {
             softly.assertThat(voteSnapshot.voteOptions()).hasSize(3);
             softly.assertThat(optionTexts).anyMatch(text -> autoPromptCandidates("참가자1").contains(text));
             softly.assertThat(optionTexts).anyMatch(text -> autoPromptCandidates("참가자2").contains(text));
-            softly.assertThat(voteSnapshot.voteEntries())
-                    .extracting(VoteEntryView::voted)
-                    .containsOnly(false);
+            softly.assertThat(voteSnapshot.completedVoteCount()).isZero();
+            softly.assertThat(voteSnapshot.totalVoteCount()).isEqualTo(2);
+            softly.assertThat(voteSnapshot.perfectGuessExists()).isFalse();
         });
     }
 
@@ -827,9 +963,9 @@ class GamePhaseServiceTest {
         OwnVoteOptionNotice guest2Option = captureOwnVoteOption(playerIds.get(2));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(guest1Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(1))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(1))));
             softly.assertThat(guest2Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, findOwnOptionId("ABCD", playerIds.get(2))));
+                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
@@ -865,12 +1001,9 @@ class GamePhaseServiceTest {
         VoteSnapshot snapshot = captureVoteSnapshotBroadcast();
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.VOTING);
-            softly.assertThat(snapshot.voteEntries())
-                    .extracting(entry -> entry.player().id(), VoteEntryView::voted)
-                    .containsExactly(
-                            tuple(playerIds.get(1), true),
-                            tuple(playerIds.get(2), false)
-                    );
+            softly.assertThat(snapshot.completedVoteCount()).isEqualTo(1);
+            softly.assertThat(snapshot.totalVoteCount()).isEqualTo(2);
+            softly.assertThat(snapshot.perfectGuessExists()).isFalse();
         });
     }
 

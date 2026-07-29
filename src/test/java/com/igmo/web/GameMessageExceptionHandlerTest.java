@@ -4,13 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
-import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.InvalidVoteOptionException;
 import com.igmo.domain.exception.PlayersNotReadyException;
+import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.domain.exception.RoundStartNotAllowedException;
 import com.igmo.domain.exception.SelfVoteNotAllowedException;
 import com.igmo.domain.exception.VoteNotAllowedException;
@@ -57,10 +57,10 @@ class GameMessageExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("개인 제출 결과로 처리되지 않는 추측 제출 예외는 요청 세션의 오류 큐로 메시지를 반환한다.")
-    void handleGameException_추측_예외를_처리한다() throws NoSuchMethodException {
+    @DisplayName("완벽 정답자의 투표 예외는 요청 세션의 오류 큐로 메시지를 반환한다.")
+    void handleGameException_PERFECT_투표_예외를_처리한다() throws NoSuchMethodException {
         // given
-        GuessMatchesAnswerException exception = new GuessMatchesAnswerException();
+        PerfectGuesserVoteNotAllowedException exception = new PerfectGuesserVoteNotAllowedException();
         Method handlerMethod = GameMessageExceptionHandler.class
                 .getDeclaredMethod("handleGameException", RuntimeException.class);
 
@@ -70,13 +70,13 @@ class GameMessageExceptionHandlerTest {
         // then
         MessageExceptionHandler annotation = handlerMethod.getAnnotation(MessageExceptionHandler.class);
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(response.message()).isEqualTo("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+            softly.assertThat(response.message()).isEqualTo("완벽 정답자는 투표할 수 없습니다.");
             softly.assertThat(annotation.value()).contains(
                     RoundStartNotAllowedException.class,
                     GuessSubmissionNotAllowedException.class,
                     GuessSubmissionExpiredException.class,
                     GuessNotAllowedException.class,
-                    GuessMatchesAnswerException.class
+                    PerfectGuesserVoteNotAllowedException.class
             );
             softly.assertThat(annotation.value()).doesNotContain(
                     DuplicateGuessSubmissionException.class,

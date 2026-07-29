@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.web.dto.GuessSubmissionSnapshot;
+import com.igmo.web.dto.GuessSubmissionStatus;
 import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.RoomMessage;
 import org.junit.jupiter.api.DisplayName;
@@ -52,7 +53,7 @@ class GameEventPublisherTest {
     @DisplayName("본인 투표 보기를 해당 플레이어의 개인큐로 전송한다.")
     void sendOwnVoteOption_개인큐로_본인_보기를_전송한다() {
         // given
-        OwnVoteOptionNotice notice = new OwnVoteOptionNotice("ABCD", 1, false, "option-1");
+        OwnVoteOptionNotice notice = new OwnVoteOptionNotice("ABCD", 1, false, true, "option-1");
 
         // when
         eventPublisher.sendOwnVoteOption("player-1", notice);
@@ -66,7 +67,7 @@ class GameEventPublisherTest {
     void sendGuessSubmission_개인큐로_추측_제출_결과를_전송한다() {
         // given
         GuessSubmissionSnapshot snapshot = new GuessSubmissionSnapshot(
-                "ABCD", 1, 3, true, "강아지가 기타를 치는 장면", null);
+                "ABCD", 1, 3, GuessSubmissionStatus.SUBMITTED, "강아지가 기타를 치는 장면", null, null);
 
         // when
         eventPublisher.sendGuessSubmission("player-1", snapshot);
