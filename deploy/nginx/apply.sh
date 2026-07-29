@@ -2,8 +2,9 @@
 # 저장소의 nginx 설정을 EC2에 반영한다 (SSM 경유, 무중단 reload).
 #
 # 사용법:
-#   ./deploy/nginx/apply.sh [conf-file]
+#   ./deploy/nginx/apply.sh [conf-file] [site-name]
 #     conf-file 생략 시 deploy/nginx/igmo.conf
+#     site-name 생략 시 igmo
 #
 # 환경변수:
 #   EC2_INSTANCE_ID  대상 인스턴스 (기본 i-0d44e815cf354804c)
@@ -14,34 +15,48 @@ set -Eeuo pipefail
 
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 EC2_INSTANCE_ID="${EC2_INSTANCE_ID:-i-0d44e815cf354804c}"
-REMOTE_TARGET="/etc/nginx/sites-available/igmo"
-ENABLED_LINK="/etc/nginx/sites-enabled/igmo"
-
 CONF_FILE="${1:-deploy/nginx/igmo.conf}"
+SITE_NAME="${2:-igmo}"
+
+if [[ ! "$SITE_NAME" =~ ^[a-z0-9-]+$ ]]; then
+  echo "유효하지 않은 site-name입니다: $SITE_NAME" >&2
+  exit 1
+fi
+
+REMOTE_TARGET="/etc/nginx/sites-available/$SITE_NAME"
+ENABLED_LINK="/etc/nginx/sites-enabled/$SITE_NAME"
+
 if [[ ! -f "$CONF_FILE" ]]; then
   echo "설정 파일을 찾을 수 없습니다: $CONF_FILE" >&2
   exit 1
 fi
 
-CONF_B64=$(base64 -w0 "$CONF_FILE")
+CONF_B64=$(base64 < "$CONF_FILE" | tr -d '\n')
 
 # EC2에서 실행할 스크립트: 백업 -> 교체 -> 심볼릭 링크 보장 -> nginx -t -> reload(실패 시 복원)
 REMOTE_SCRIPT="set -eu
 TS=\$(date +%s)
-BACKUP='$REMOTE_TARGET.bak.'\$TS
-cp -a '$REMOTE_TARGET' \"\$BACKUP\"
+BACKUP=''
+if [ -e '$REMOTE_TARGET' ]; then
+  BACKUP='$REMOTE_TARGET.bak.'\$TS
+  cp -a '$REMOTE_TARGET' \"\$BACKUP\"
+fi
 echo '$CONF_B64' | base64 -d > '$REMOTE_TARGET'
 ln -sfn '$REMOTE_TARGET' '$ENABLED_LINK'
 if nginx -t; then
   systemctl reload nginx
-  echo \"RESULT=RELOADED_OK (backup: \$BACKUP)\"
+  echo \"RESULT=RELOADED_OK\"
 else
-  cp -a \"\$BACKUP\" '$REMOTE_TARGET'
-  echo \"RESULT=RESTORED_BACKUP (nginx -t failed)\"
+  if [ -n \"\$BACKUP\" ]; then
+    cp -a \"\$BACKUP\" '$REMOTE_TARGET'
+  else
+    rm -f '$ENABLED_LINK' '$REMOTE_TARGET'
+  fi
+  echo \"RESULT=RESTORED_AFTER_NGINX_TEST_FAILURE\"
   exit 1
 fi"
 
-SCRIPT_B64=$(printf '%s' "$REMOTE_SCRIPT" | base64 -w0)
+SCRIPT_B64=$(printf '%s' "$REMOTE_SCRIPT" | base64 | tr -d '\n')
 PARAMS="{\"commands\":[\"echo $SCRIPT_B64 | base64 -d | bash\"],\"executionTimeout\":[\"120\"]}"
 
 echo "대상: $EC2_INSTANCE_ID ($AWS_REGION)"
