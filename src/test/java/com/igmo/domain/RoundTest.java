@@ -458,6 +458,31 @@ class RoundTest {
     }
 
     @Test
+    @DisplayName("PERFECT 참가자와 정답 투표자로 비출제자 전원이 정답을 인지하면 출제자 점수는 0점이다.")
+    void settleResult_PERFECT와_정답_투표자로_전원이_정답을_인지하면_출제자_점수는_0점이다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT.plusSeconds(2));
+        round.openVoting();
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+        round.submitVote("guesser-2", answerOptionId, SUBMITTED_AT.plusSeconds(3));
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result.getRoundScore("questioner")).isZero();
+            softly.assertThat(result.getRoundScore("guesser-1")).isEqualTo(3);
+            softly.assertThat(result.getRoundScore("guesser-2")).isEqualTo(2);
+        });
+    }
+
+    @Test
     @DisplayName("일부만 정답을 맞히면 출제자 점수는 정답 투표수의 2배다.")
     void settleResult_일부만_정답을_맞히면_출제자_점수는_정답_투표수의_2배다() {
         // given

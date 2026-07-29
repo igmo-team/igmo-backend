@@ -265,7 +265,6 @@ public class Round {
                         .merge(ScoreReason.CORRECT_ANSWER, CORRECT_ANSWER_SCORE, Integer::sum));
     }
 
-    // 출제자 점수: 정답 투표자가 1명 이상이고 전원이 아닐 때만 투표수에 비례해 득점한다.
     private void addQuestionerScore(
             Map<String, Map<ScoreReason, Integer>> scoreDetails,
             Collection<String> participantIds,
@@ -279,10 +278,14 @@ public class Round {
     }
 
     private boolean isQuestionerRewarded(int correctVoterCount, Collection<String> participantIds) {
-        long eligibleVoterCount = participantIds.stream()
+        long nonQuestionerCount = participantIds.stream()
                 .filter(participantId -> !questionerId.equals(participantId))
                 .count();
-        return correctVoterCount > 0 && correctVoterCount < eligibleVoterCount;
+        long perfectGuesserCount = participantIds.stream()
+                .filter(this::isPerfectGuesser)
+                .count();
+        long answerRecognizerCount = correctVoterCount + perfectGuesserCount;
+        return correctVoterCount > 0 && answerRecognizerCount < nonQuestionerCount;
     }
 
     private boolean isCorrectVote(Vote vote) {
