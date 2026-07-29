@@ -9,10 +9,17 @@ public record OwnVoteOptionNotice(
         String roomCode,
         int roundNumber,
         boolean ownImage,
+        boolean voteAllowed,
         String optionId
 ) {
 
     public static OwnVoteOptionNotice of(String roomCode, int roundNumber, OwnVoteOption ownVoteOption) {
-        return new OwnVoteOptionNotice(roomCode, roundNumber, ownVoteOption.ownImage(), ownVoteOption.optionId());
+        return new OwnVoteOptionNotice(
+                roomCode,
+                roundNumber,
+                ownVoteOption.ownImage(),
+                ownVoteOption.voteAllowed(),
+                ownVoteOption.optionId()
+        );
     }
 }

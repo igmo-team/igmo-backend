@@ -7,9 +7,10 @@ import static org.assertj.core.api.Assertions.entry;
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GuessNotAllowedException;
-import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.InvalidVoteOptionException;
+import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
+import com.igmo.domain.exception.PerfectGuessAlreadyConfirmedException;
 import com.igmo.domain.exception.SelfVoteNotAllowedException;
 import com.igmo.domain.exception.VoteNotAllowedException;
 import java.time.Instant;
@@ -71,42 +72,70 @@ class RoundTest {
     }
 
     @Test
-    @DisplayName("정답 프롬프트와 정규화 후 동일한 추측은 GuessMatchesAnswerException을 던진다.")
-    void submitGuess_정답과_동일하면_예외를_던진다() {
+    @DisplayName("정답 프롬프트와 공백만 다른 추측은 PERFECT 재입력 상태를 반환한다.")
+    void submitGuess_정답과_동일하면_PERFECT_재입력_상태를_반환한다() {
         // given
         Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
 
-        // when & then
-        assertThatThrownBy(() -> round.submitGuess("guesser-1", "  고양이가   피아노를 치는   장면 ", SUBMITTED_AT))
-                .isInstanceOf(GuessMatchesAnswerException.class)
-                .hasMessage("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+        // when
+        GuessSubmissionResult result = round.submitGuess(
+                "guesser-1",
+                "  고양이가   피아노를 치는   장면 ",
+                SUBMITTED_AT
+        );
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result).isEqualTo(GuessSubmissionResult.PERFECT_RETRY_REQUIRED);
+            softly.assertThat(round.getGuesses()).isEmpty();
+        });
     }
 
     @Test
-    @DisplayName("정답 프롬프트에서 공백을 제거하거나 위치를 바꾼 추측도 정답으로 판정한다.")
-    void submitGuess_공백만_다른_정답도_동일로_판정한다() {
+    @DisplayName("PERFECT를 다시 제출하면 PerfectGuessAlreadyConfirmedException을 던진다.")
+    void submitGuess_PERFECT를_재제출하면_예외를_던진다() {
         // given
         Round round = createRound("questioner", "뛰어노는 강아지");
 
-        // when & then
-        assertThatThrownBy(() -> round.submitGuess("guesser-1", "뛰어노는강아지", SUBMITTED_AT))
-                .isInstanceOf(GuessMatchesAnswerException.class)
-                .hasMessage("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
-        assertThatThrownBy(() -> round.submitGuess("guesser-2", "뛰어 노는 강아지", SUBMITTED_AT))
-                .isInstanceOf(GuessMatchesAnswerException.class)
-                .hasMessage("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+        // when
+        GuessSubmissionResult first = round.submitGuess("guesser-1", "뛰어노는강아지", SUBMITTED_AT);
+        // then
+        assertThat(first).isEqualTo(GuessSubmissionResult.PERFECT_RETRY_REQUIRED);
+        assertThatThrownBy(() -> round.submitGuess("guesser-1", "뛰어 노는 강아지", SUBMITTED_AT.plusSeconds(1)))
+                .isInstanceOf(PerfectGuessAlreadyConfirmedException.class)
+                .hasMessage("이미 완벽 정답을 맞혔습니다. 투표용 가짜 프롬프트를 입력하세요.");
+        assertThat(round.getGuesses()).isEmpty();
     }
 
     @Test
-    @DisplayName("영문 대소문자만 다른 추측도 정답과 동일한 것으로 판정한다.")
-    void submitGuess_대소문자만_다른_정답도_동일로_판정한다() {
+    @DisplayName("영문 대소문자만 다른 추측은 가짜 프롬프트로 저장한다.")
+    void submitGuess_대소문자만_다르면_가짜_프롬프트로_저장한다() {
         // given
         Round round = createRound("questioner", "AI Robot이 그린 그림");
 
-        // when & then
-        assertThatThrownBy(() -> round.submitGuess("guesser-1", "ai robot이 그린 그림", SUBMITTED_AT))
-                .isInstanceOf(GuessMatchesAnswerException.class)
-                .hasMessage("정답 프롬프트와 동일한 추측은 제출할 수 없습니다.");
+        // when
+        GuessSubmissionResult result = round.submitGuess("guesser-1", "ai robot이 그린 그림", SUBMITTED_AT);
+
+        // then
+        assertThat(result).isEqualTo(GuessSubmissionResult.SUBMITTED);
+        assertThat(round.getGuesses()).singleElement().extracting(GuessEntry::getGuess)
+                .isEqualTo("ai robot이 그린 그림");
+    }
+
+    @Test
+    @DisplayName("PERFECT를 맞힌 플레이어는 가짜 프롬프트를 별도로 제출할 수 있다.")
+    void submitGuess_PERFECT_후_가짜_프롬프트를_제출할_수_있다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+
+        // when
+        GuessSubmissionResult result = round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+
+        // then
+        assertThat(result).isEqualTo(GuessSubmissionResult.SUBMITTED);
+        assertThat(round.getGuesses()).singleElement().extracting(GuessEntry::getPlayerId)
+                .isEqualTo("guesser-1");
     }
 
     @Test
@@ -136,6 +165,19 @@ class RoundTest {
         round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
 
         assertThat(round.hasAllGuesses(participantIds)).isTrue();
+    }
+
+    @Test
+    @DisplayName("PERFECT만 맞힌 플레이어는 가짜 프롬프트를 내기 전까지 추측 완료로 계산하지 않는다.")
+    void hasAllGuesses_PERFECT만_맞히면_false를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+
+        // when & then
+        assertThat(round.hasAllGuesses(participantIds)).isFalse();
     }
 
     @Test
@@ -305,6 +347,22 @@ class RoundTest {
     }
 
     @Test
+    @DisplayName("PERFECT 플레이어가 투표하면 PerfectGuesserVoteNotAllowedException을 던진다.")
+    void submitVote_PERFECT_플레이어가_투표하면_예외를_던진다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.openVoting();
+        String answerOptionId = round.getAnswerEntry().getPromptId();
+
+        // when & then
+        assertThatThrownBy(() -> round.submitVote("guesser-1", answerOptionId, SUBMITTED_AT.plusSeconds(2)))
+                .isInstanceOf(PerfectGuesserVoteNotAllowedException.class)
+                .hasMessage("완벽 정답자는 투표할 수 없습니다.");
+    }
+
+    @Test
     @DisplayName("추측을 제출하지 않은 참가자도 투표할 수 있고, 출제자를 제외한 전원이 투표하면 완료로 판단한다.")
     void hasAllVotes_출제자_제외_전원이_투표하면_true를_반환한다() {
         // given
@@ -325,6 +383,27 @@ class RoundTest {
         round.submitVote("guesser-3", answerOptionId, SUBMITTED_AT);
 
         assertThat(round.hasAllVotes(participantIds)).isTrue();
+    }
+
+    @Test
+    @DisplayName("PERFECT 플레이어는 투표 없이 완료 인원으로 계산한다.")
+    void hasAllVotes_PERFECT_플레이어를_완료_인원으로_계산한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT.plusSeconds(2));
+        round.openVoting();
+        round.submitVote("guesser-2", round.getAnswerEntry().getPromptId(), SUBMITTED_AT.plusSeconds(3));
+
+        // when & then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(round.hasAllVotes(participantIds)).isTrue();
+            softly.assertThat(round.getCompletedVoteCount(participantIds)).isEqualTo(2);
+            softly.assertThat(round.getTotalVoteCount(participantIds)).isEqualTo(2);
+            softly.assertThat(round.hasPerfectGuesser(participantIds)).isTrue();
+        });
     }
 
     @Test
@@ -432,6 +511,34 @@ class RoundTest {
             softly.assertThat(result.getScoreDetails("guesser-2"))
                     .containsOnly(entry(ScoreReason.CORRECT_ANSWER, 2));
             softly.assertThat(result.getScoreDetails("guesser-3")).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("PERFECT 점수는 한 번 반영되고 낚시 점수와 합산된다.")
+    void settleResult_PERFECT_점수는_한번만_반영하고_낚시_점수와_합산한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT.plusSeconds(2));
+        round.openVoting();
+        String perfectGuesserOptionId = round.getGuesses().get(0).getGuessId();
+        round.submitVote("guesser-2", perfectGuesserOptionId, SUBMITTED_AT.plusSeconds(3));
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        RoundResult result = round.getResult();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result.getScoreDetails("guesser-1"))
+                    .containsOnly(
+                            entry(ScoreReason.PERFECT_GUESS, 3),
+                            entry(ScoreReason.FOOLED_PLAYER, 1)
+                    );
+            softly.assertThat(result.getRoundScore("guesser-1")).isEqualTo(4);
         });
     }
 

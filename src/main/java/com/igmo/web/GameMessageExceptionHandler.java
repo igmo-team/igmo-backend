@@ -3,13 +3,13 @@ package com.igmo.web;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GameAlreadyStartedException;
-import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
 import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.InvalidVoteOptionException;
 import com.igmo.domain.exception.NotHostException;
+import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PromptSubmissionExpiredException;
 import com.igmo.domain.exception.PromptSubmissionNotAllowedException;
@@ -48,11 +48,11 @@ public class GameMessageExceptionHandler {
             GuessSubmissionNotAllowedException.class,
             GuessSubmissionExpiredException.class,
             GuessNotAllowedException.class,
-            GuessMatchesAnswerException.class,
             VoteSubmissionNotAllowedException.class,
             VoteSubmissionExpiredException.class,
             DuplicateVoteException.class,
             VoteNotAllowedException.class,
+            PerfectGuesserVoteNotAllowedException.class,
             SelfVoteNotAllowedException.class,
             InvalidVoteOptionException.class
     })

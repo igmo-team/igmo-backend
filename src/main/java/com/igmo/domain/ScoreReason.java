@@ -1,6 +1,7 @@
 package com.igmo.domain;
 
 public enum ScoreReason {
+    PERFECT_GUESS("완벽 정답"),
     CORRECT_ANSWER("정답"),
     FOOLED_PLAYER("낚시"),
     QUESTIONER("출제자");

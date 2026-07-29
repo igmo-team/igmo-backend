@@ -99,6 +99,29 @@ class RoundResultSnapshotTest {
         });
     }
 
+    @Test
+    @DisplayName("결과 스냅샷은 PERFECT 점수와 낚시 점수를 분리해 공개한다.")
+    void from_PERFECT_점수와_낚시_점수를_분리해_공개한다() throws Exception {
+        // given
+        GameRoom room = createRoomInResultsWithPerfect();
+        String guest1Id = room.getPlayers().get(1).getId();
+
+        // when
+        RoundResultSnapshot snapshot = RoundResultSnapshot.from(room);
+
+        // then
+        RoundResultView perfectGuesserView = findResult(snapshot, guest1Id);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(perfectGuesserView.roundScore()).isEqualTo(4);
+            softly.assertThat(perfectGuesserView.scoreDetails())
+                    .extracting(ScoreDetailView::reason, ScoreDetailView::label, ScoreDetailView::score)
+                    .containsExactly(
+                            tuple("PERFECT_GUESS", "완벽 정답", 3),
+                            tuple("FOOLED_PLAYER", "낚시", 1)
+                    );
+        });
+    }
+
     private RoundResultView findResult(RoundResultSnapshot snapshot, String playerId) {
         return snapshot.results().stream()
                 .filter(view -> view.player().id().equals(playerId))
@@ -125,6 +148,14 @@ class RoundResultSnapshotTest {
 
     // guest1: 정답(+2) + guest2에게 낚임(+1)=3, host(출제자): 정답자 1명(+2)=2, guest2: 오답=0
     private GameRoom createRoomInResults() throws Exception {
+        return createRoomInResults(false);
+    }
+
+    private GameRoom createRoomInResultsWithPerfect() throws Exception {
+        return createRoomInResults(true);
+    }
+
+    private GameRoom createRoomInResults(boolean perfectGuess) throws Exception {
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
         Player guest1 = new Player("참가자1");
@@ -142,13 +173,20 @@ class RoundResultSnapshotTest {
         room.completeImageGeneration(guest2.getId(), "https://cdn.example.com/guest-2.png");
         setPhase(room, GamePhase.PLAYING);
         room.startRounds(GUESS_STARTED_AT, GUESS_DURATION);
+        if (perfectGuess) {
+            room.submitGuess(guest1.getId(), "호스트프롬프트", GUESS_STARTED_AT);
+        }
         room.submitGuess(guest1.getId(), "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
         room.submitGuess(guest2.getId(), "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
         room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
         String answerOptionId = room.getCurrentRound().getAnswerEntry().getPromptId();
         String guess1OptionId = room.getCurrentRound().getGuesses().get(0).getGuessId();
-        room.submitVote(guest1.getId(), answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
-        room.submitVote(guest2.getId(), guess1OptionId, VOTING_OPENED_AT.plusSeconds(2));
+        if (perfectGuess) {
+            room.submitVote(guest2.getId(), guess1OptionId, VOTING_OPENED_AT.plusSeconds(1));
+        } else {
+            room.submitVote(guest1.getId(), answerOptionId, VOTING_OPENED_AT.plusSeconds(1));
+            room.submitVote(guest2.getId(), guess1OptionId, VOTING_OPENED_AT.plusSeconds(2));
+        }
         room.completeVoting(RESULTS_OPENED_AT, RESULT_DURATION);
         return room;
     }

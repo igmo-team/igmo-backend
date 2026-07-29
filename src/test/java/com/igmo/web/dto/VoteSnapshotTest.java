@@ -24,7 +24,7 @@ class VoteSnapshotTest {
     private static final Duration VOTE_DURATION = Duration.ofSeconds(30);
 
     @Test
-    @DisplayName("현재 라운드의 투표 상태를 보기 목록과 플레이어별 투표 여부로 변환한다.")
+    @DisplayName("현재 라운드의 투표 상태를 보기 목록과 집계된 진행도로 변환한다.")
     void from_현재_라운드_투표_상태를_변환한다() throws Exception {
         // given
         GameRoom room = createRoomInVoting();
@@ -49,12 +49,9 @@ class VoteSnapshotTest {
                     .containsExactlyElementsOf(fixedOptions.stream()
                             .map(option -> tuple(option.getOptionId(), option.getText()))
                             .toList());
-            softly.assertThat(snapshot.voteEntries())
-                    .extracting(entry -> entry.player().id(), VoteEntryView::voted)
-                    .containsExactly(
-                            tuple(guest1Id, true),
-                            tuple(guest2Id, false)
-                    );
+            softly.assertThat(snapshot.completedVoteCount()).isEqualTo(1);
+            softly.assertThat(snapshot.totalVoteCount()).isEqualTo(2);
+            softly.assertThat(snapshot.perfectGuessExists()).isFalse();
         });
     }
 

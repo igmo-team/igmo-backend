@@ -3,9 +3,10 @@ package com.igmo.domain;
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GuessNotAllowedException;
-import com.igmo.domain.exception.GuessMatchesAnswerException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.InvalidVoteOptionException;
+import com.igmo.domain.exception.PerfectGuessAlreadyConfirmedException;
+import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.domain.exception.SelfVoteNotAllowedException;
 import com.igmo.domain.exception.VoteNotAllowedException;
 import java.time.Instant;
@@ -14,14 +15,17 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.Getter;
 
 public class Round {
 
     private static final int CORRECT_ANSWER_SCORE = 2;
+    private static final int PERFECT_GUESS_SCORE = 3;
     private static final int QUESTIONER_SCORE_PER_CORRECT_VOTE = 2;
 
     @Getter
@@ -31,6 +35,7 @@ public class Round {
     @Getter
     private final PromptEntry answerEntry;
     private final Map<String, GuessEntry> guessesByPlayerId = new LinkedHashMap<>();
+    private final Set<String> perfectGuesserIds = new LinkedHashSet<>();
     private final List<VoteOption> voteOptions = new ArrayList<>();
     private final Map<String, Vote> votesByVoterId = new LinkedHashMap<>();
     private RoundResult result;
@@ -45,15 +50,23 @@ public class Round {
         return new Round(roundNumber, questionerId, answerEntry);
     }
 
-    public void submitGuess(String playerId, String guess, Instant submittedAt) {
+    public GuessSubmissionResult submitGuess(String playerId, String guess, Instant submittedAt) {
         if (questionerId.equals(playerId)) {
             throw new GuessNotAllowedException();
         }
         if (guessesByPlayerId.containsKey(playerId)) {
             throw new DuplicateGuessSubmissionException();
         }
-        rejectMatchingGuess(guess);
+        if (matchesAnswer(guess)) {
+            if (isPerfectGuesser(playerId)) {
+                throw new PerfectGuessAlreadyConfirmedException();
+            }
+            perfectGuesserIds.add(playerId);
+            return GuessSubmissionResult.PERFECT_RETRY_REQUIRED;
+        }
+        rejectMatchingOtherGuess(guess);
         guessesByPlayerId.put(playerId, GuessEntry.of(playerId, guess, submittedAt));
+        return GuessSubmissionResult.SUBMITTED;
     }
 
     public boolean hasAllGuesses(Collection<String> participantIds) {
@@ -68,8 +81,7 @@ public class Round {
 
     // 자동 추측 생성 시 정답이나 기존 추측과 겹치는지 검사한다.
     public boolean hasMatchingGuess(String guess) {
-        String normalizedGuess = normalize(guess);
-        return matchesAnswer(normalizedGuess) || matchesOtherGuess(normalizedGuess);
+        return matchesAnswer(guess) || matchesOtherGuess(guess);
     }
 
     public List<GuessEntry> getGuesses() {
@@ -91,6 +103,9 @@ public class Round {
         if (questionerId.equals(voterId)) {
             throw new VoteNotAllowedException();
         }
+        if (isPerfectGuesser(voterId)) {
+            throw new PerfectGuesserVoteNotAllowedException();
+        }
         if (votesByVoterId.containsKey(voterId)) {
             throw new DuplicateVoteException();
         }
@@ -105,21 +120,36 @@ public class Round {
 
     public boolean hasAllVotes(Collection<String> participantIds) {
         return participantIds.stream()
-                .filter(participantId -> !questionerId.equals(participantId))
+                .filter(this::isVoteRequired)
                 .allMatch(votesByVoterId::containsKey);
+    }
+
+    public int getCompletedVoteCount(Collection<String> participantIds) {
+        return (int) participantIds.stream()
+                .filter(participantId -> !questionerId.equals(participantId))
+                .filter(participantId -> isPerfectGuesser(participantId) || votesByVoterId.containsKey(participantId))
+                .count();
+    }
+
+    public int getTotalVoteCount(Collection<String> participantIds) {
+        return (int) participantIds.stream()
+                .filter(participantId -> !questionerId.equals(participantId))
+                .count();
+    }
+
+    public boolean hasPerfectGuesser(Collection<String> participantIds) {
+        return participantIds.stream().anyMatch(this::isPerfectGuesser);
     }
 
     public List<VoteOption> getVoteOptions() {
         return List.copyOf(voteOptions);
     }
 
-    // 각 플레이어에게 개인적으로 알려줄 본인 보기 정보 매핑.
-    // 출제자는 자신의 이미지라 투표할 수 없고, 추측자는 본인 보기 id를 받는다.
     public Map<String, OwnVoteOption> getOwnVoteOptionsByPlayerId() {
         Map<String, OwnVoteOption> ownVoteOptions = new LinkedHashMap<>();
         ownVoteOptions.put(questionerId, OwnVoteOption.forQuestioner());
         guessesByPlayerId.forEach((playerId, entry) ->
-                ownVoteOptions.put(playerId, OwnVoteOption.forGuesser(entry.getGuessId())));
+                ownVoteOptions.put(playerId, toOwnVoteOption(playerId, entry)));
         return Collections.unmodifiableMap(ownVoteOptions);
     }
 
@@ -150,26 +180,34 @@ public class Round {
         return ownGuess != null && ownGuess.getGuessId().equals(optionId);
     }
 
-    private void rejectMatchingGuess(String guess) {
-        String normalizedGuess = normalize(guess);
-        if (matchesAnswer(normalizedGuess)) {
-            throw new GuessMatchesAnswerException();
+    private OwnVoteOption toOwnVoteOption(String playerId, GuessEntry entry) {
+        if (isPerfectGuesser(playerId)) {
+            return OwnVoteOption.forPerfectGuesser(entry.getGuessId());
         }
-        if (matchesOtherGuess(normalizedGuess)) {
+        return OwnVoteOption.forGuesser(entry.getGuessId());
+    }
+
+    private void rejectMatchingOtherGuess(String guess) {
+        if (matchesOtherGuess(guess)) {
             throw new GuessMatchesOthersException();
         }
     }
 
-    private boolean matchesAnswer(String normalizedGuess) {
-        return normalizedGuess.equals(normalize(answerEntry.getPrompt()));
+    private boolean matchesAnswer(String guess) {
+        return normalizeAnswer(guess).equals(normalizeAnswer(answerEntry.getPrompt()));
     }
 
-    private boolean matchesOtherGuess(String normalizedGuess) {
+    private boolean matchesOtherGuess(String guess) {
+        String normalizedGuess = normalizeGuess(guess);
         return guessesByPlayerId.values().stream()
-                .anyMatch(entry -> normalize(entry.getGuess()).equals(normalizedGuess));
+                .anyMatch(entry -> normalizeGuess(entry.getGuess()).equals(normalizedGuess));
     }
 
-    private String normalize(String prompt) {
+    private String normalizeAnswer(String prompt) {
+        return prompt.replaceAll("\\s+", "");
+    }
+
+    private String normalizeGuess(String prompt) {
         return prompt.replaceAll("\\s+", "").toLowerCase();
     }
 
@@ -190,10 +228,19 @@ public class Round {
         participantIds.forEach(participantId -> scoreDetails.put(participantId, new EnumMap<>(ScoreReason.class)));
 
         addCatchScore(scoreDetails, voteCounts);
+        addPerfectGuessScore(scoreDetails);
         addCorrectAnswerScore(scoreDetails);
         addQuestionerScore(scoreDetails, participantIds, voteCounts);
 
         return scoreDetails;
+    }
+
+    private void addPerfectGuessScore(Map<String, Map<ScoreReason, Integer>> scoreDetails) {
+        perfectGuesserIds.forEach(playerId -> {
+            if (scoreDetails.containsKey(playerId)) {
+                scoreDetails.get(playerId).merge(ScoreReason.PERFECT_GUESS, PERFECT_GUESS_SCORE, Integer::sum);
+            }
+        });
     }
 
     // 낚시 점수: 내 추측에 투표한 사람 수만큼 득점한다.
@@ -212,6 +259,7 @@ public class Round {
     // 정답 점수: 정답 프롬프트를 맞힌 사람은 각각 득점한다.
     private void addCorrectAnswerScore(Map<String, Map<ScoreReason, Integer>> scoreDetails) {
         votesByVoterId.values().stream()
+                .filter(vote -> !isPerfectGuesser(vote.getVoterId()))
                 .filter(this::isCorrectVote)
                 .forEach(vote -> scoreDetails.get(vote.getVoterId())
                         .merge(ScoreReason.CORRECT_ANSWER, CORRECT_ANSWER_SCORE, Integer::sum));
@@ -239,5 +287,13 @@ public class Round {
 
     private boolean isCorrectVote(Vote vote) {
         return vote.getOptionId().equals(answerEntry.getPromptId());
+    }
+
+    private boolean isPerfectGuesser(String playerId) {
+        return perfectGuesserIds.contains(playerId);
+    }
+
+    private boolean isVoteRequired(String playerId) {
+        return !questionerId.equals(playerId) && !isPerfectGuesser(playerId);
     }
 }
