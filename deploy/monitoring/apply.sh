@@ -72,6 +72,18 @@ rollback() {
 }
 trap 'rollback \"\$?\"' EXIT
 
+GRAFANA_VOLUME_MOUNT=\$(docker volume inspect igmo-monitoring_grafana-data \
+  --format '{{.Mountpoint}}' 2>/dev/null || true)
+if [ -n \"\$GRAFANA_VOLUME_MOUNT\" ] && [ -f \"\$GRAFANA_VOLUME_MOUNT/grafana.db\" ]; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo 'Grafana datasource UID 마이그레이션에 python3가 필요합니다.' >&2
+    exit 1
+  fi
+  docker compose -f \"\$STACK_ROOT/docker-compose.yml\" stop grafana
+  python3 \"\$STACK_ROOT/grafana/migrate_datasource_uids.py\" \
+    \"\$GRAFANA_VOLUME_MOUNT/grafana.db\"
+fi
+
 docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --force-recreate --remove-orphans
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:9090/-/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3100/ready
