@@ -18,7 +18,13 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
     private static final String REQUEST_ID_MDC_KEY = "requestId";
+    private static final String PROMETHEUS_METRICS_PATH = "/actuator/prometheus";
     private static final int MAX_REQUEST_ID_LENGTH = 128;
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return PROMETHEUS_METRICS_PATH.equals(request.getRequestURI());
+    }
 
     @Override
     protected void doFilterInternal(

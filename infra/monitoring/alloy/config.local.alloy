@@ -1,0 +1,39 @@
+logging {
+  level = "warn"
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "igmo_backend" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/igmo-backend-local"
+    action        = "keep"
+  }
+
+  rule {
+    target_label = "service"
+    replacement  = "igmo-backend"
+  }
+
+  rule {
+    target_label = "environment"
+    replacement  = "local"
+  }
+}
+
+loki.source.docker "igmo_backend" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.igmo_backend.output
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
