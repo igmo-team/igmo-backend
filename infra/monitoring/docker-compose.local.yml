@@ -1,0 +1,74 @@
+name: igmo-local-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=1d
+      - --storage.tsdb.retention.size=256MB
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    env_file:
+      - path: ../../.env
+        required: true
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        : "$${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}"
+        export GF_SECURITY_ADMIN_PASSWORD="$$GRAFANA_ADMIN_PASSWORD"
+        exec /run.sh
+    environment:
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SERVER_HTTP_PORT: 3000
+      GF_SECURITY_ADMIN_USER: igmo-admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources.local.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./loki/config.local.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    networks:
+      - monitoring
+
+  alloy:
+    image: grafana/alloy:v1.18.0
+    command: run /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.local.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:

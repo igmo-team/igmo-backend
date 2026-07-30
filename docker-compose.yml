@@ -1,5 +1,6 @@
 services:
   app:
+    container_name: igmo-backend-local
     env_file:
       - path: .env
         required: false
@@ -11,6 +12,12 @@ services:
     environment:
       SERVER_PORT: ${SERVER_PORT:-8080}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: logstash
     ports:
       - "8080:8080"
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
     restart: always
