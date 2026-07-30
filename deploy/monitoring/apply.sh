@@ -61,6 +61,8 @@ ROLLBACK_NEEDED=true
 rollback() {
   EXIT_STATUS=\"\$1\"
   if [ \"\$ROLLBACK_NEEDED\" = true ]; then
+    docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps || true
+    docker compose -f \"\$STACK_ROOT/docker-compose.yml\" logs --tail 100 grafana || true
     docker compose -f \"\$STACK_ROOT/docker-compose.yml\" down --remove-orphans || true
     if [ -n \"\$BACKUP_ROOT\" ]; then
       rm -rf \"\$STACK_ROOT\"
@@ -88,6 +90,40 @@ docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --force-recreate --r
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:9090/-/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3100/ready
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3000/api/health
+
+sleep 10
+for SERVICE in prometheus grafana loki alloy node-exporter; do
+  CONTAINER_ID=\$(docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps -q \"\$SERVICE\")
+  if [ -z \"\$CONTAINER_ID\" ]; then
+    echo \"관측 컨테이너를 찾지 못했습니다: \$SERVICE\" >&2
+    exit 1
+  fi
+
+  CONTAINER_STATUS=\$(docker inspect --format '{{.State.Status}}' \"\$CONTAINER_ID\")
+  RESTART_COUNT=\$(docker inspect --format '{{.RestartCount}}' \"\$CONTAINER_ID\")
+  if [ \"\$CONTAINER_STATUS\" != running ] || [ \"\$RESTART_COUNT\" -ne 0 ]; then
+    echo \"관측 컨테이너가 안정적으로 실행되지 않습니다: \$SERVICE status=\$CONTAINER_STATUS restarts=\$RESTART_COUNT\" >&2
+    exit 1
+  fi
+done
+
+curl --fail http://127.0.0.1:9090/-/ready
+curl --fail http://127.0.0.1:3100/ready
+curl --fail http://127.0.0.1:3000/api/health
+
+GRAFANA_PASSWORD=\$(cat \"\$SECRETS_ROOT/grafana-admin-password\")
+for RESOURCE in \
+  datasources/uid/prometheus/health \
+  datasources/uid/loki/health \
+  dashboards/uid/igmo-instance \
+  dashboards/uid/igmo-spring-app \
+  dashboards/uid/igmo-websocket-game; do
+  curl --fail --silent --show-error \
+    --retry 10 --retry-all-errors --retry-connrefused --retry-delay 2 \
+    --user \"igmo-admin:\$GRAFANA_PASSWORD\" \
+    \"http://127.0.0.1:3000/api/\$RESOURCE\" >/dev/null
+done
+
 docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps
 ROLLBACK_NEEDED=false
 trap - EXIT"
