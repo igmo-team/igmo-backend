@@ -21,6 +21,24 @@ class RequestLoggingFilterTest {
     private final RequestLoggingFilter filter = new RequestLoggingFilter();
 
     @Test
+    @DisplayName("Prometheus 메트릭 수집 요청은 요청 로그 필터를 건너뛴다.")
+    void skipRequestLoggingForPrometheusMetrics() throws Exception {
+        // given
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/actuator/prometheus");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<String> requestIdInChain = new AtomicReference<>();
+        FilterChain chain = (servletRequest, servletResponse) ->
+                requestIdInChain.set(MDC.get(REQUEST_ID_MDC_KEY));
+
+        // when
+        filter.doFilter(request, response, chain);
+
+        // then
+        assertThat(requestIdInChain.get()).isNull();
+        assertThat(response.getHeader(REQUEST_ID_HEADER)).isNull();
+    }
+
+    @Test
     @DisplayName("요청 ID가 없으면 새로 생성하고 응답 헤더와 MDC에 저장한다.")
     void generateRequestIdWhenHeaderIsMissing() throws Exception {
         // given
