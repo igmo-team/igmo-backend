@@ -24,6 +24,9 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
 
+      - name: Run monitoring deployment tests
+        run: python3 -B -m unittest discover -s deploy/monitoring/tests -p 'test_*.py' -v
+
       - name: Create failed test report fallback
         if: failure()
         run: |
