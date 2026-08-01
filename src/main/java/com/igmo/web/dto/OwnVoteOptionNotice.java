@@ -10,6 +10,7 @@ public record OwnVoteOptionNotice(
         int roundNumber,
         boolean ownImage,
         boolean voteAllowed,
+        VoteDisabledReason voteDisabledReason,
         String optionId
 ) {
 
@@ -19,7 +20,18 @@ public record OwnVoteOptionNotice(
                 roundNumber,
                 ownVoteOption.ownImage(),
                 ownVoteOption.voteAllowed(),
+                voteDisabledReasonOf(ownVoteOption),
                 ownVoteOption.optionId()
         );
+    }
+
+    private static VoteDisabledReason voteDisabledReasonOf(OwnVoteOption ownVoteOption) {
+        if (ownVoteOption.voteAllowed()) {
+            return null;
+        }
+        if (ownVoteOption.ownImage()) {
+            return VoteDisabledReason.QUESTIONER;
+        }
+        return VoteDisabledReason.PERFECT_GUESS;
     }
 }

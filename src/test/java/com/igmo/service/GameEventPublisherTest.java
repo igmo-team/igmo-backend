@@ -53,7 +53,7 @@ class GameEventPublisherTest {
     @DisplayName("본인 투표 보기를 해당 플레이어의 개인큐로 전송한다.")
     void sendOwnVoteOption_개인큐로_본인_보기를_전송한다() {
         // given
-        OwnVoteOptionNotice notice = new OwnVoteOptionNotice("ABCD", 1, false, true, "option-1");
+        OwnVoteOptionNotice notice = new OwnVoteOptionNotice("ABCD", 1, false, true, null, "option-1");
 
         // when
         eventPublisher.sendOwnVoteOption("player-1", notice);

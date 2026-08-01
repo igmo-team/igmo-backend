@@ -52,6 +52,7 @@ import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteOptionView;
+import com.igmo.web.dto.VoteDisabledReason;
 import com.igmo.web.dto.VoteSnapshot;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -804,6 +805,7 @@ class GamePhaseServiceTest {
             softly.assertThat(voteSnapshot.perfectGuessExists()).isTrue();
             softly.assertThat(perfectPlayerOption.ownImage()).isFalse();
             softly.assertThat(perfectPlayerOption.voteAllowed()).isFalse();
+            softly.assertThat(perfectPlayerOption.voteDisabledReason()).isEqualTo(VoteDisabledReason.PERFECT_GUESS);
         });
     }
 
@@ -885,9 +887,11 @@ class GamePhaseServiceTest {
         OwnVoteOptionNotice guest2Option = captureOwnVoteOption(playerIds.get(2));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(guest1Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(1))));
+                    .isEqualTo(new OwnVoteOptionNotice(
+                            "ABCD", 1, false, true, null, findOwnOptionId("ABCD", playerIds.get(1))));
             softly.assertThat(guest2Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(2))));
+                    .isEqualTo(new OwnVoteOptionNotice(
+                            "ABCD", 1, false, true, null, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
@@ -904,7 +908,8 @@ class GamePhaseServiceTest {
 
         // then
         OwnVoteOptionNotice hostOption = captureOwnVoteOption(playerIds.get(0));
-        assertThat(hostOption).isEqualTo(new OwnVoteOptionNotice("ABCD", 1, true, false, null));
+        assertThat(hostOption).isEqualTo(new OwnVoteOptionNotice(
+                "ABCD", 1, true, false, VoteDisabledReason.QUESTIONER, null));
     }
 
     @Test
@@ -963,9 +968,11 @@ class GamePhaseServiceTest {
         OwnVoteOptionNotice guest2Option = captureOwnVoteOption(playerIds.get(2));
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(guest1Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(1))));
+                    .isEqualTo(new OwnVoteOptionNotice(
+                            "ABCD", 1, false, true, null, findOwnOptionId("ABCD", playerIds.get(1))));
             softly.assertThat(guest2Option)
-                    .isEqualTo(new OwnVoteOptionNotice("ABCD", 1, false, true, findOwnOptionId("ABCD", playerIds.get(2))));
+                    .isEqualTo(new OwnVoteOptionNotice(
+                            "ABCD", 1, false, true, null, findOwnOptionId("ABCD", playerIds.get(2))));
         });
     }
 
