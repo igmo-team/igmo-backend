@@ -29,7 +29,23 @@ discovery.relabel "igmo_backend" {
 loki.source.docker "igmo_backend" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.relabel.igmo_backend.output
+  forward_to = [loki.process.igmo_backend.receiver]
+}
+
+loki.process "igmo_backend" {
   forward_to = [loki.write.default.receiver]
+
+  stage.json {
+    expressions = {
+      level = "level",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
 }
 
 loki.write "default" {
