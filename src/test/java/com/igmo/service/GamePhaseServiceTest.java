@@ -14,6 +14,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
@@ -59,15 +62,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -113,9 +120,14 @@ class GamePhaseServiceTest {
                     eventPublisher,
                     imageGenerationService,
                     samplePromptProvider);
+    private final Logger gamePhaseLogger = (Logger) LoggerFactory.getLogger(GamePhaseService.class);
+    private ListAppender<ILoggingEvent> gamePhaseLogAppender;
 
     @BeforeEach
     void 게임_단계_전환_스케줄러를_설정한다() {
+        gamePhaseLogAppender = new ListAppender<>();
+        gamePhaseLogAppender.start();
+        gamePhaseLogger.addAppender(gamePhaseLogAppender);
         imageGenerationTask = null;
         ReflectionTestUtils.setField(gamePhaseService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gamePhaseService, "guessDuration", Duration.ofSeconds(60));
@@ -129,6 +141,11 @@ class GamePhaseServiceTest {
                 .willAnswer(invocation -> scheduledPromptExpiration);
         given(imageGenerationCompletionScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledPlayingTransition);
+    }
+
+    @AfterEach
+    void 게임_단계_전환_로그_appender를_제거한다() {
+        gamePhaseLogger.detachAppender(gamePhaseLogAppender);
     }
 
 
@@ -173,12 +190,46 @@ class GamePhaseServiceTest {
     }
 
     @Test
+    @DisplayName("게임 시작으로 단계가 바뀌면 완료 로그를 한 번 남긴다.")
+    void startGame_단계가_바뀌면_완료로그를_한번_남긴다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        CreateGameResponse created = gameLobbyService.createGame("호스트");
+        JoinGameResponse guest1 = gameLobbyService.joinGame("ABCD", "참가자1");
+        JoinGameResponse guest2 = gameLobbyService.joinGame("ABCD", "참가자2");
+        gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
+        gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
+
+        // when
+        gamePhaseService.startGame("ABCD", created.playerId());
+
+        // then
+        ILoggingEvent logEvent = gamePhaseLogAppender.list.stream()
+                .filter(event -> event.getFormattedMessage().equals("game phase transition completed"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(keyValues(logEvent))
+                .containsEntry("event", "game_phase_transition_completed")
+                .containsEntry("roomCode", "ABCD")
+                .containsEntry("fromPhase", GamePhase.LOBBY)
+                .containsEntry("toPhase", GamePhase.GENERATING);
+    }
+
+    @Test
     @DisplayName("존재하지 않는 방을 시작하면 RoomNotFoundException을 던진다.")
     void startGame_없는_방이면_예외를_던진다() {
         // when & then
         assertThatThrownBy(() -> gamePhaseService.startGame("ZZZZ", "player-id"))
                 .isInstanceOf(RoomNotFoundException.class)
                 .hasMessage("방을 찾을 수 없습니다.");
+        assertThat(gamePhaseLogAppender.list)
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .doesNotContain("game phase transition completed");
+    }
+
+    private Map<String, Object> keyValues(ILoggingEvent logEvent) {
+        return logEvent.getKeyValuePairs().stream()
+                .collect(Collectors.toMap(pair -> pair.key, pair -> pair.value));
     }
 
     @Test

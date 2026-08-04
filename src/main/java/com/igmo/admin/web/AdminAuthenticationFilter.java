@@ -48,7 +48,12 @@ public class AdminAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         String failureMessage = authenticationFailureMessage(request.getHeader(HttpHeaders.AUTHORIZATION));
         if (failureMessage != null) {
-            log.warn("관리자 인증 실패. path={}, reason={}", request.getRequestURI(), failureMessage);
+            log.atWarn()
+                    .addKeyValue("event", "admin_authentication_failed")
+                    .addKeyValue("path", request.getRequestURI())
+                    .addKeyValue("status", HttpServletResponse.SC_UNAUTHORIZED)
+                    .addKeyValue("reason", failureMessage)
+                    .log("admin authentication failed");
             writeAuthenticationFailure(response);
             return;
         }

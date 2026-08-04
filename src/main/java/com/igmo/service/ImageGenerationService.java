@@ -61,11 +61,12 @@ public class ImageGenerationService {
         try {
             String imageUrl = generateAndStore(prompt);
             onSuccess.accept(imageUrl);
-            log.info(
-                    "이미지 생성 완료. roomCode={}, playerId={}, durationMs={}",
-                    code,
-                    playerId,
-                    elapsedMillis(startedAt));
+            log.atInfo()
+                    .addKeyValue("event", "image_generation_completed")
+                    .addKeyValue("roomCode", code)
+                    .addKeyValue("playerId", playerId)
+                    .addKeyValue("durationMs", elapsedMillis(startedAt))
+                    .log("image generation completed");
         } catch (Exception exception) {
             gameMetrics.incrementImageGenerationFailure();
             logGenerationFailure(code, playerId, startedAt, exception);
@@ -86,22 +87,24 @@ public class ImageGenerationService {
 
     private void logGenerationFailure(String code, String playerId, long startedAt, Exception exception) {
         if (exception instanceof ImageStorageException) {
-            log.warn(
-                    "S3 이미지 저장 실패. roomCode={}, playerId={}, reason={}, durationMs={}",
-                    code,
-                    playerId,
-                    exception.getMessage(),
-                    elapsedMillis(startedAt),
-                    exception);
+            log.atWarn()
+                    .addKeyValue("event", "s3_image_upload_failed")
+                    .addKeyValue("roomCode", code)
+                    .addKeyValue("playerId", playerId)
+                    .addKeyValue("durationMs", elapsedMillis(startedAt))
+                    .addKeyValue("exceptionType", exception.getClass().getSimpleName())
+                    .setCause(exception)
+                    .log("image upload failed");
             return;
         }
-        log.warn(
-                "이미지 생성 실패. roomCode={}, playerId={}, reason={}, durationMs={}",
-                code,
-                playerId,
-                exception.getMessage(),
-                elapsedMillis(startedAt),
-                exception);
+        log.atWarn()
+                .addKeyValue("event", "gemini_request_failed")
+                .addKeyValue("roomCode", code)
+                .addKeyValue("playerId", playerId)
+                .addKeyValue("durationMs", elapsedMillis(startedAt))
+                .addKeyValue("exceptionType", exception.getClass().getSimpleName())
+                .setCause(exception)
+                .log("image generation failed");
     }
 
     private long elapsedMillis(long startedAt) {
