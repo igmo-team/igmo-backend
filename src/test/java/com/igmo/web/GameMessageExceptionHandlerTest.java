@@ -1,7 +1,12 @@
 package com.igmo.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static java.util.stream.Collectors.toMap;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
@@ -19,6 +24,9 @@ import com.igmo.domain.exception.VoteSubmissionNotAllowedException;
 import com.igmo.web.dto.ErrorResponse;
 import com.igmo.web.dto.PromptRequest;
 import java.lang.reflect.Method;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.core.MethodParameter;
 import org.springframework.messaging.Message;
@@ -29,11 +37,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
+import org.slf4j.LoggerFactory;
 import org.springframework.validation.BeanPropertyBindingResult;
 
 class GameMessageExceptionHandlerTest {
 
     private final GameMessageExceptionHandler handler = new GameMessageExceptionHandler();
+    private final Logger logger = (Logger) LoggerFactory.getLogger(GameMessageExceptionHandler.class);
+    private final ListAppender<ILoggingEvent> logAppender = new ListAppender<>();
+
+    @BeforeEach
+    void attachLogAppender() {
+        logAppender.start();
+        logger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        logger.detachAppender(logAppender);
+        logAppender.stop();
+    }
 
     @Test
     @DisplayName("예상 가능한 게임 예외는 요청 세션의 오류 큐로 메시지를 반환한다.")
@@ -41,10 +65,10 @@ class GameMessageExceptionHandlerTest {
         // given
         PlayersNotReadyException exception = new PlayersNotReadyException();
         Method handlerMethod = GameMessageExceptionHandler.class
-                .getDeclaredMethod("handleGameException", RuntimeException.class);
+                .getDeclaredMethod("handleGameException", RuntimeException.class, Message.class);
 
         // when
-        ErrorResponse response = handler.handleGameException(exception);
+        ErrorResponse response = handler.handleGameException(exception, gameMessage("payload", "/app/rooms/ABCD/start"));
 
         // then
         SendToUser sendToUser = handlerMethod.getAnnotation(SendToUser.class);
@@ -62,10 +86,10 @@ class GameMessageExceptionHandlerTest {
         // given
         PerfectGuesserVoteNotAllowedException exception = new PerfectGuesserVoteNotAllowedException();
         Method handlerMethod = GameMessageExceptionHandler.class
-                .getDeclaredMethod("handleGameException", RuntimeException.class);
+                .getDeclaredMethod("handleGameException", RuntimeException.class, Message.class);
 
         // when
-        ErrorResponse response = handler.handleGameException(exception);
+        ErrorResponse response = handler.handleGameException(exception, gameMessage("payload", "/app/rooms/ABCD/votes"));
 
         // then
         MessageExceptionHandler annotation = handlerMethod.getAnnotation(MessageExceptionHandler.class);
@@ -91,10 +115,10 @@ class GameMessageExceptionHandlerTest {
         // given
         SelfVoteNotAllowedException exception = new SelfVoteNotAllowedException();
         Method handlerMethod = GameMessageExceptionHandler.class
-                .getDeclaredMethod("handleGameException", RuntimeException.class);
+                .getDeclaredMethod("handleGameException", RuntimeException.class, Message.class);
 
         // when
-        ErrorResponse response = handler.handleGameException(exception);
+        ErrorResponse response = handler.handleGameException(exception, gameMessage("payload", "/app/rooms/ABCD/votes"));
 
         // then
         MessageExceptionHandler annotation = handlerMethod.getAnnotation(MessageExceptionHandler.class);
@@ -116,7 +140,7 @@ class GameMessageExceptionHandlerTest {
     void handleValidationException_요청_세션에_오류를_반환한다() throws NoSuchMethodException {
         // given
         Method handlerMethod = GameMessageExceptionHandler.class
-                .getDeclaredMethod("handleValidationException", MethodArgumentNotValidException.class);
+                .getDeclaredMethod("handleValidationException", MethodArgumentNotValidException.class, Message.class);
         Method controllerMethod = GameMessageController.class.getDeclaredMethod(
                 "submitPrompt",
                 String.class,
@@ -126,7 +150,7 @@ class GameMessageExceptionHandlerTest {
         PromptRequest request = new PromptRequest(" ");
         BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(request, "promptRequest");
         bindingResult.rejectValue("prompt", "NotBlank", "프롬프트를 입력해주세요.");
-        Message<PromptRequest> message = MessageBuilder.withPayload(request).build();
+        Message<PromptRequest> message = gameMessage(request, "/app/rooms/ABCD/prompts");
         MethodArgumentNotValidException exception = new MethodArgumentNotValidException(
                 message,
                 new MethodParameter(controllerMethod, 1),
@@ -134,7 +158,7 @@ class GameMessageExceptionHandlerTest {
         );
 
         // when
-        ErrorResponse response = handler.handleValidationException(exception);
+        ErrorResponse response = handler.handleValidationException(exception, message);
 
         // then
         SendToUser sendToUser = handlerMethod.getAnnotation(SendToUser.class);
@@ -144,5 +168,64 @@ class GameMessageExceptionHandlerTest {
             softly.assertThat(sendToUser.destinations()).containsExactly("/queue/errors");
             softly.assertThat(sendToUser.broadcast()).isFalse();
         });
+    }
+
+    @Test
+    @DisplayName("예상 가능한 게임 예외는 구조화된 WARN 로그로 남긴다.")
+    void handleGameException_구조화된_WARN_로그를_남긴다() {
+        // given
+        PlayersNotReadyException exception = new PlayersNotReadyException();
+        Message<String> message = gameMessage("payload", "/app/rooms/ABCD/start");
+
+        // when
+        handler.handleGameException(exception, message);
+
+        // then
+        ILoggingEvent loggingEvent = logAppender.list.getLast();
+        Map<String, Object> keyValues = keyValues(loggingEvent);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(loggingEvent.getLevel()).isEqualTo(Level.WARN);
+            softly.assertThat(loggingEvent.getThrowableProxy()).isNull();
+            softly.assertThat(keyValues).containsEntry("event", "game_message_rejected");
+            softly.assertThat(keyValues).containsEntry("outcome", "REJECTED");
+            softly.assertThat(keyValues).containsEntry("exceptionType", "PlayersNotReadyException");
+            softly.assertThat(keyValues).containsEntry("destination", "/app/rooms/ABCD/start");
+            softly.assertThat(keyValues).containsEntry("roomCode", "ABCD");
+        });
+    }
+
+    @Test
+    @DisplayName("예기치 않은 게임 예외는 구조화된 WARN 로그와 stack trace를 남긴다.")
+    void handleUnexpectedException_구조화된_WARN_로그와_stack_trace를_남긴다() {
+        // given
+        IllegalStateException exception = new IllegalStateException("unexpected");
+        Message<String> message = gameMessage("payload", "/app/rooms/ABCD/guesses");
+
+        // when
+        handler.handleUnexpectedException(exception, message);
+
+        // then
+        ILoggingEvent loggingEvent = logAppender.list.getLast();
+        Map<String, Object> keyValues = keyValues(loggingEvent);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(loggingEvent.getLevel()).isEqualTo(Level.WARN);
+            softly.assertThat(loggingEvent.getThrowableProxy()).isNotNull();
+            softly.assertThat(keyValues).containsEntry("event", "game_message_failed");
+            softly.assertThat(keyValues).containsEntry("outcome", "FAILURE");
+            softly.assertThat(keyValues).containsEntry("exceptionType", "IllegalStateException");
+            softly.assertThat(keyValues).containsEntry("destination", "/app/rooms/ABCD/guesses");
+            softly.assertThat(keyValues).containsEntry("roomCode", "ABCD");
+        });
+    }
+
+    private <T> Message<T> gameMessage(T payload, String destination) {
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+        headerAccessor.setDestination(destination);
+        return MessageBuilder.createMessage(payload, headerAccessor.getMessageHeaders());
+    }
+
+    private Map<String, Object> keyValues(ILoggingEvent loggingEvent) {
+        return loggingEvent.getKeyValuePairs().stream()
+                .collect(toMap(pair -> pair.key, pair -> pair.value));
     }
 }

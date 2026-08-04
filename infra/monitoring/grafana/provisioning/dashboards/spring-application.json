@@ -1211,7 +1211,7 @@
         "multi": true,
         "name": "event_type",
         "options": [],
-        "query": "game_phase_transition_completed,room_broadcast_failed,private_event_send_failed,image_generation_completed,gemini_request_failed,s3_image_upload_failed,admin_authentication_failed",
+        "query": "game_phase_transition_completed,room_broadcast_failed,private_event_send_failed,game_message_rejected,game_message_validation_failed,game_message_failed,image_generation_completed,gemini_request_failed,s3_image_upload_failed,admin_authentication_failed",
         "type": "custom"
       },
       {
