@@ -15,7 +15,9 @@ import com.igmo.imagegeneration.exception.GeminiResponseException;
 import com.igmo.imagegeneration.exception.ImageStorageException;
 import com.igmo.monitoring.GameMetrics;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -66,8 +68,12 @@ class ImageGenerationServiceTest {
         assertThat(generatedImageUrl).hasValue("https://cdn.example.com/image.png");
         verify(imageGenerator).generate(new ImageGenerationRequest("고양이가 피아노를 치는 장면", "gemini-image", "2K"));
         verify(imageStorageClient).store("image".getBytes(), "image/jpeg");
-        assertThat(lastLogMessage("이미지 생성 완료"))
-                .contains("roomCode=ABCD", "playerId=player-1", "durationMs=");
+        ILoggingEvent logEvent = lastLogEvent("image generation completed");
+        assertThat(keyValues(logEvent))
+                .containsEntry("event", "image_generation_completed")
+                .containsEntry("roomCode", "ABCD")
+                .containsEntry("playerId", "player-1")
+                .containsKey("durationMs");
     }
 
     @Test
@@ -94,9 +100,14 @@ class ImageGenerationServiceTest {
         // then
         assertThat(capturedException).hasValue(exception);
         verify(imageGenerator).generate(new ImageGenerationRequest("실패 프롬프트", "gemini-image", "2K"));
-        assertThat(lastLogMessage("이미지 생성 실패"))
-                .contains("roomCode=ABCD", "playerId=player-1", "durationMs=")
-                .contains("reason=Gemini 응답에 이미지 데이터가 없습니다.");
+        ILoggingEvent logEvent = lastLogEvent("image generation failed");
+        assertThat(keyValues(logEvent))
+                .containsEntry("event", "gemini_request_failed")
+                .containsEntry("roomCode", "ABCD")
+                .containsEntry("playerId", "player-1")
+                .containsEntry("exceptionType", "GeminiResponseException")
+                .containsKey("durationMs");
+        assertThat(logEvent.getThrowableProxy().getClassName()).isEqualTo(GeminiResponseException.class.getName());
     }
 
     @Test
@@ -115,13 +126,24 @@ class ImageGenerationServiceTest {
         // then
         assertThat(capturedException.get()).isInstanceOf(ImageStorageException.class)
                 .hasCauseInstanceOf(IllegalStateException.class);
+        ILoggingEvent logEvent = lastLogEvent("image upload failed");
+        assertThat(keyValues(logEvent))
+                .containsEntry("event", "s3_image_upload_failed")
+                .containsEntry("roomCode", "ABCD")
+                .containsEntry("playerId", "player-1")
+                .containsEntry("exceptionType", "ImageStorageException")
+                .containsKey("durationMs");
     }
 
-    private String lastLogMessage(String messagePrefix) {
+    private ILoggingEvent lastLogEvent(String message) {
         return imageGenerationLogAppender.list.stream()
-                .filter(loggingEvent -> loggingEvent.getFormattedMessage().startsWith(messagePrefix))
+                .filter(loggingEvent -> loggingEvent.getFormattedMessage().equals(message))
                 .reduce((previous, current) -> current)
-                .orElseThrow()
-                .getFormattedMessage();
+                .orElseThrow();
+    }
+
+    private Map<String, Object> keyValues(ILoggingEvent logEvent) {
+        return logEvent.getKeyValuePairs().stream()
+                .collect(Collectors.toMap(pair -> pair.key, pair -> pair.value));
     }
 }

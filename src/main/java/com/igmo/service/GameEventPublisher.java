@@ -1,6 +1,10 @@
 package com.igmo.service;
 
 import com.igmo.monitoring.GameMetrics;
+import com.igmo.monitoring.WebSocketChannelType;
+import com.igmo.monitoring.WebSocketMessageOutcome;
+import com.igmo.monitoring.WebSocketMessageType;
+import com.igmo.domain.GamePhase;
 import com.igmo.web.dto.GuessSubmissionSnapshot;
 import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.LobbySnapshot;
@@ -11,8 +15,10 @@ import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
+@Slf4j
 public class GameEventPublisher {
 
     private static final String ROOM_TOPIC_PREFIX = "/topic/rooms/";
@@ -45,25 +51,108 @@ public class GameEventPublisher {
     }
 
     public void publish(String code, RoomMessage<?> message) {
+        String destination = ROOM_TOPIC_PREFIX + code;
+        WebSocketMessageType messageType = WebSocketMessageType.from(message.type());
         try {
-            messagingTemplate.convertAndSend(ROOM_TOPIC_PREFIX + code, message);
-            gameMetrics.incrementWebsocketBroadcastCount();
+            messagingTemplate.convertAndSend(destination, message);
+            gameMetrics.recordWebSocketMessageSend(
+                    messageType,
+                    WebSocketChannelType.ROOM_TOPIC,
+                    WebSocketMessageOutcome.SUCCESS);
         } catch (RuntimeException exception) {
-            gameMetrics.incrementWebsocketBroadcastFailure();
+            gameMetrics.recordWebSocketMessageSend(
+                    messageType,
+                    WebSocketChannelType.ROOM_TOPIC,
+                    WebSocketMessageOutcome.FAILURE);
+            log.atError()
+                    .addKeyValue("event", "room_broadcast_failed")
+                    .addKeyValue("roomCode", code)
+                    .addKeyValue("phase", phaseOf(message.type()))
+                    .addKeyValue("messageType", messageType)
+                    .addKeyValue("destination", destination)
+                    .addKeyValue("channelType", WebSocketChannelType.ROOM_TOPIC)
+                    .addKeyValue("outcome", WebSocketMessageOutcome.FAILURE)
+                    .addKeyValue("exceptionType", exception.getClass().getSimpleName())
+                    .setCause(exception)
+                    .log("room broadcast failed");
             throw exception;
         }
     }
 
     public void sendImageGenerationEvent(String playerId, ImageGenerationEvent eventSnapshot) {
-        messagingTemplate.convertAndSendToUser(playerId, IMAGE_GENERATION_QUEUE, eventSnapshot);
+        sendPrivateEvent(
+                playerId,
+                eventSnapshot.roomCode(),
+                GamePhase.GENERATING,
+                WebSocketMessageType.IMAGE_GENERATION_EVENT,
+                IMAGE_GENERATION_QUEUE,
+                eventSnapshot);
     }
 
-    public void sendGuessSubmission(String playerId, GuessSubmissionSnapshot snapshot) {
-        messagingTemplate.convertAndSendToUser(playerId, GUESS_SUBMISSION_QUEUE, snapshot);
+    public void sendGuessSubmission(String playerId, GamePhase phase, GuessSubmissionSnapshot snapshot) {
+        sendPrivateEvent(
+                playerId,
+                snapshot.roomCode(),
+                phase,
+                WebSocketMessageType.GUESS_SUBMISSION_RESULT,
+                GUESS_SUBMISSION_QUEUE,
+                snapshot);
     }
 
     // 투표 진입 시 각 플레이어에게 본인 프롬프트 보기를 개인큐로 알려 프론트에서 선택 불가 처리하도록 한다.
     public void sendOwnVoteOption(String playerId, OwnVoteOptionNotice notice) {
-        messagingTemplate.convertAndSendToUser(playerId, VOTE_OWN_OPTION_QUEUE, notice);
+        sendPrivateEvent(
+                playerId,
+                notice.roomCode(),
+                GamePhase.VOTING,
+                WebSocketMessageType.OWN_VOTE_OPTION_NOTICE,
+                VOTE_OWN_OPTION_QUEUE,
+                notice);
+    }
+
+    private void sendPrivateEvent(
+            String playerId,
+            String roomCode,
+            GamePhase phase,
+            WebSocketMessageType messageType,
+            String destination,
+            Object payload
+    ) {
+        try {
+            messagingTemplate.convertAndSendToUser(playerId, destination, payload);
+            gameMetrics.recordWebSocketMessageSend(
+                    messageType,
+                    WebSocketChannelType.PRIVATE_QUEUE,
+                    WebSocketMessageOutcome.SUCCESS);
+        } catch (RuntimeException exception) {
+            gameMetrics.recordWebSocketMessageSend(
+                    messageType,
+                    WebSocketChannelType.PRIVATE_QUEUE,
+                    WebSocketMessageOutcome.FAILURE);
+            log.atError()
+                    .addKeyValue("event", "private_event_send_failed")
+                    .addKeyValue("roomCode", roomCode)
+                    .addKeyValue("phase", phase)
+                    .addKeyValue("messageType", messageType)
+                    .addKeyValue("destination", destination)
+                    .addKeyValue("channelType", WebSocketChannelType.PRIVATE_QUEUE)
+                    .addKeyValue("outcome", WebSocketMessageOutcome.FAILURE)
+                    .addKeyValue("playerId", playerId)
+                    .addKeyValue("exceptionType", exception.getClass().getSimpleName())
+                    .setCause(exception)
+                    .log("private event send failed");
+            throw exception;
+        }
+    }
+
+    private GamePhase phaseOf(com.igmo.web.dto.RoomMessageType messageType) {
+        return switch (messageType) {
+            case LOBBY_SNAPSHOT -> GamePhase.LOBBY;
+            case PROMPT_SUBMISSION_SNAPSHOT -> GamePhase.GENERATING;
+            case ROUND_SNAPSHOT -> GamePhase.PLAYING;
+            case VOTE_SNAPSHOT -> GamePhase.VOTING;
+            case ROUND_RESULT_SNAPSHOT -> GamePhase.RESULTS;
+            case GAME_RESULT_SNAPSHOT -> GamePhase.ENDED;
+        };
     }
 }

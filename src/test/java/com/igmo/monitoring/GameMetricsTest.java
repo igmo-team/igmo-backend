@@ -23,4 +23,34 @@ class GameMetricsTest {
 
         assertThat(meterRegistry.get("game.room.active").gauge().value()).isEqualTo(1.0);
     }
+
+    @Test
+    void 메시지타입_전송경로_결과별로_전송_메트릭을_기록한다() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GameMetrics gameMetrics = new GameMetrics(meterRegistry, new GameRegistry());
+
+        gameMetrics.recordWebSocketMessageSend(
+                WebSocketMessageType.ROUND_SNAPSHOT,
+                WebSocketChannelType.ROOM_TOPIC,
+                WebSocketMessageOutcome.SUCCESS);
+        gameMetrics.recordWebSocketMessageSend(
+                WebSocketMessageType.GUESS_SUBMISSION_RESULT,
+                WebSocketChannelType.PRIVATE_QUEUE,
+                WebSocketMessageOutcome.FAILURE);
+
+        assertThat(meterRegistry.get("websocket.message.send")
+                .tags(
+                        "messageType", "ROUND_SNAPSHOT",
+                        "channelType", "ROOM_TOPIC",
+                        "outcome", "SUCCESS")
+                .counter()
+                .count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("websocket.message.send")
+                .tags(
+                        "messageType", "GUESS_SUBMISSION_RESULT",
+                        "channelType", "PRIVATE_QUEUE",
+                        "outcome", "FAILURE")
+                .counter()
+                .count()).isEqualTo(1.0);
+    }
 }
