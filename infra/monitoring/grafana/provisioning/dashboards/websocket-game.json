@@ -68,7 +68,7 @@
       "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
       "fieldConfig": {"defaults": {}, "overrides": []},
       "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false},
-      "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=~\"(com\\\\.igmo\\\\.web\\\\..*|com\\\\.igmo\\\\.service\\\\.GamePhaseService)\" | level=~\"$log_level\" | roomCode=~\"$room_code\" | event=~\"$event_type\" | fromPhase=~\"$from_phase\" | toPhase=~\"$to_phase\" |~ \"$log_keyword\" | line_format \"{{.level}} event={{.event}} roomCode={{.roomCode}} messageType={{.messageType}} fromPhase={{.fromPhase}} toPhase={{.toPhase}} exceptionType={{.exceptionType}} - {{.message}}\"", "refId": "A"}]
+      "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=~\"(com\\\\.igmo\\\\.web\\\\..*|com\\\\.igmo\\\\.service\\\\.(GamePhaseService|GameEventPublisher))\" | level=~\"$log_level\" | roomCode=~\"$room_code\" | event=~\"$event_type\" | fromPhase=~\"$from_phase\" | toPhase=~\"$to_phase\" |~ \"$log_keyword\" | line_format \"{{.level}} event={{.event}} roomCode={{.roomCode}} messageType={{.messageType}} fromPhase={{.fromPhase}} toPhase={{.toPhase}} exceptionType={{.exceptionType}} - {{.message}}\"", "refId": "A"}]
     },
     {
       "id": 7,
