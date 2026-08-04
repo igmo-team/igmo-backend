@@ -117,7 +117,7 @@ start_container() {
     --memory 1280m \
     --env SPRING_PROFILES_ACTIVE=prod \
     --env SERVER_PORT="\$SERVER_PORT" \
-    --env 'JAVA_TOOL_OPTIONS=-Xms128m -Xmx768m' \
+    --env 'JAVA_TOOL_OPTIONS=-Xms128m -Xmx768m -Duser.timezone=Asia/Seoul' \
     --env GEMINI_API_KEY="\$GEMINI_API_KEY" \
     --env IGMO_AI_GEMINI_MODEL="\$IGMO_AI_GEMINI_MODEL" \
     --env IGMO_AI_GEMINI_IMAGE_SIZE="\$IGMO_AI_GEMINI_IMAGE_SIZE" \
