@@ -1,37 +1,1278 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
   "description": "Spring Boot 앱의 기동 상태, HTTP 품질, JVM, 이미지 생성과 로그를 확인한다.",
   "editable": false,
   "id": null,
   "panels": [
-    {"id": 1, "title": "앱 지표 수집", "description": "Prometheus가 앱의 /actuator/prometheus endpoint에 연결할 수 있는지 보여준다. UP은 endpoint 응답 가능 상태다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "DOWN"}, "1": {"text": "UP"}}}]}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto"}, "targets": [{"expr": "up{job=\"igmo-app\"}", "refId": "A"}]},
-    {"id": 2, "title": "앱 시작 시각", "description": "Spring Boot 프로세스가 마지막으로 시작된 시각이다. 변경되면 앱 컨테이너가 재시작된 것이다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0}, "fieldConfig": {"defaults": {"unit": "dateTimeAsLocal", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto"}, "targets": [{"expr": "process_start_time_seconds{job=\"igmo-app\"} * 1000", "refId": "A"}]},
-    {"id": 3, "title": "앱 가동 시간", "description": "Spring Boot 프로세스 시작 후 경과 시간이다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0}, "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto"}, "targets": [{"expr": "time() - process_start_time_seconds{job=\"igmo-app\"}", "refId": "A"}]},
-    {"id": 4, "title": "누적 요청 수", "description": "앱 시작 이후 처리한 HTTP 요청 수다. Prometheus 수집 endpoint 요청은 제외한다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 0, "y": 6}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"})", "refId": "A"}]},
-    {"id": 5, "title": "요청 처리량", "description": "초당 처리한 HTTP 요청 수다. 트래픽 급증·급감을 확인한다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 8, "y": 6}, "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval]))", "refId": "A"}]},
-    {"id": 6, "title": "서버 오류 비율", "description": "전체 HTTP 요청 중 5xx 응답 비율이다. 1%부터 위험으로 표시한다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 16, "y": 6}, "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.01}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{application=~\".*\",status=~\"5..\",uri!=\"/actuator/prometheus\"}[$__rate_interval])) / clamp_min(sum(rate(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval])), 1e-9)", "refId": "A"}]},
-    {"id": 7, "title": "느린 요청", "description": "URI별 p95·p99 처리 시간이다. 사용자 체감 지연을 확인한다.", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}, "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "spanNulls": false}}, "overrides": []}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}, "targets": [{"expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval])))", "legendFormat": "p95 {{uri}}", "refId": "A"}, {"expr": "histogram_quantile(0.99, sum by (le, uri) (rate(http_server_requests_seconds_bucket{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval])))", "legendFormat": "p99 {{uri}}", "refId": "B"}]},
-    {"id": 8, "title": "응답 상태", "description": "HTTP 상태 코드별 초당 처리량이다. 4xx·5xx 비중 변화를 확인한다.", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}, "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}}}, "overrides": []}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}, "targets": [{"expr": "sum by (status) (rate(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval]))", "legendFormat": "{{status}}", "refId": "A"}]},
-    {"id": 9, "title": "JVM Heap 사용률", "description": "JVM Heap 최대값 대비 사용 비율이다. 85% 이상이면 메모리 부족 위험으로 표시한다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 6, "x": 0, "y": 20}, "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.7}, {"color": "red", "value": 0.85}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(jvm_memory_used_bytes{application=~\".*\",area=\"heap\"}) / sum(jvm_memory_max_bytes{application=~\".*\",area=\"heap\"})", "refId": "A"}]},
-    {"id": 10, "title": "JVM Heap 사용량", "description": "JVM Heap의 실제 사용량 변화다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 6, "x": 6, "y": 20}, "fieldConfig": {"defaults": {"unit": "bytes", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(jvm_memory_used_bytes{application=~\".*\",area=\"heap\"})", "refId": "A"}]},
-    {"id": 11, "title": "앱 CPU 사용률", "description": "Spring Boot 프로세스가 사용하는 CPU 비율이다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 6, "x": 12, "y": 20}, "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.7}, {"color": "red", "value": 0.85}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "process_cpu_usage{application=~\".*\"}", "refId": "A"}]},
-    {"id": 12, "title": "GC 평균 정지 시간", "description": "가비지 컬렉션 한 번당 평균 정지 시간이다. 길어지면 요청 지연 원인이 될 수 있다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 6, "x": 18, "y": 20}, "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 0.5}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(rate(jvm_gc_pause_seconds_sum{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(jvm_gc_pause_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)", "refId": "A"}]},
-    {"id": 13, "title": "이미지 처리량", "description": "초당 완료된 이미지 생성 작업 수다. 실패한 작업도 완료 시점 기준으로 포함한다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 0, "y": 26}, "fieldConfig": {"defaults": {"unit": "ops", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(rate(image_generation_duration_seconds_count{application=~\".*\"}[$__rate_interval]))", "refId": "A"}]},
-    {"id": 14, "title": "이미지 처리 시간", "description": "이미지 생성과 S3 업로드의 평균 완료 시간이다.", "type": "timeseries", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 8, "w": 8, "x": 8, "y": 26}, "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "spanNulls": false}}, "overrides": []}, "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}, "targets": [{"expr": "sum(rate(image_generation_duration_seconds_sum{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(image_generation_duration_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)", "legendFormat": "생성", "refId": "A"}, {"expr": "sum(rate(image_upload_duration_seconds_sum{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(image_upload_duration_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)", "legendFormat": "업로드", "refId": "B"}]},
-    {"id": 15, "title": "이미지 생성 실패율", "description": "완료된 이미지 생성 작업 중 실패 비율이다. S3 저장 실패도 생성 실패에 포함된다.", "type": "stat", "datasource": {"type": "prometheus", "uid": "prometheus"}, "gridPos": {"h": 6, "w": 8, "x": 16, "y": 26}, "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.05}, {"color": "red", "value": 0.1}]}, "mappings": []}, "overrides": []}, "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"}, "targets": [{"expr": "sum(rate(image_generation_failure_total{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(image_generation_duration_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)", "refId": "A"}]},
-    {"id": 16, "title": "오류·경고", "description": "전체 애플리케이션의 WARN·ERROR 로그다. 문제 발생 시 가장 먼저 확인한다.", "type": "logs", "datasource": {"type": "loki", "uid": "loki"}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 34}, "fieldConfig": {"defaults": {}, "overrides": []}, "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false}, "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | level=~\"WARN|ERROR\" |~ \"$log_keyword\" | line_format \"{{.level}} {{.logger_name}} - {{.message}}\"", "refId": "A"}]},
-    {"id": 17, "title": "HTTP 요청", "description": "완료된 HTTP 요청의 상태 코드, 메서드, 경로, 처리 시간과 requestId를 표시한다.", "type": "logs", "datasource": {"type": "loki", "uid": "loki"}, "gridPos": {"h": 10, "w": 12, "x": 0, "y": 42}, "fieldConfig": {"defaults": {}, "overrides": []}, "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false}, "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=\"com.igmo.logging.RequestLoggingFilter\" | level=~\"$log_level\" |~ \"$log_keyword\" | line_format \"{{.status}} {{.method}} {{.normalizedPath}} {{.durationMs}}ms requestId={{.requestId}}\"", "refId": "A"}]},
-    {"id": 18, "title": "이미지 처리", "description": "사용자·관리자 이미지 생성과 S3 저장의 성공·실패 로그다. 행을 펼치면 roomCode, playerId 등 원본 필드를 확인할 수 있다.", "type": "logs", "datasource": {"type": "loki", "uid": "loki"}, "gridPos": {"h": 10, "w": 12, "x": 12, "y": 42}, "fieldConfig": {"defaults": {}, "overrides": []}, "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false}, "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=~\"(com\\\\.igmo\\\\.service\\\\.ImageGenerationService|com\\\\.igmo\\\\.admin\\\\.infrastructure\\\\.AdminImageStorageClient|com\\\\.igmo\\\\.admin\\\\.web\\\\.AdminImageGenerationExceptionHandler)\" | level=~\"$log_level\" |~ \"$log_keyword\" | line_format \"{{.level}} {{.message}}\"", "refId": "A"}]},
-    {"id": 19, "title": "관리자 인증", "description": "관리자 API 인증 실패 로그다. 실패 경로와 원인은 행을 펼쳐 확인한다.", "type": "logs", "datasource": {"type": "loki", "uid": "loki"}, "gridPos": {"h": 10, "w": 12, "x": 0, "y": 52}, "fieldConfig": {"defaults": {}, "overrides": []}, "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false}, "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=\"com.igmo.admin.web.AdminAuthenticationFilter\" | level=~\"$log_level\" |~ \"$log_keyword\" | line_format \"{{.level}} {{.logger_name}} - {{.message}}\"", "refId": "A"}]},
-    {"id": 20, "title": "앱 런타임", "description": "Spring Boot 시작, 종료, 설정 등 프레임워크 로그다. 서비스 기능 로그와 분리해 표시한다.", "type": "logs", "datasource": {"type": "loki", "uid": "loki"}, "gridPos": {"h": 10, "w": 12, "x": 12, "y": 52}, "fieldConfig": {"defaults": {}, "overrides": []}, "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false}, "targets": [{"expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name!~\"com\\\\.igmo\\\\..*\" | logger_name!~\"org\\\\.springframework\\\\.web\\\\.socket.*\" | level=~\"$log_level\" |~ \"$log_keyword\" | line_format \"{{.level}} {{.logger_name}} - {{.message}}\"", "refId": "A"}]}
+    {
+      "id": 1,
+      "title": "앱 지표 수집",
+      "description": "Prometheus가 앱의 /actuator/prometheus endpoint에 연결할 수 있는지 보여준다. UP은 endpoint 응답 가능 상태다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN"
+                },
+                "1": {
+                  "text": "UP"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"igmo-app\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "앱 시작 시각",
+      "description": "Spring Boot 프로세스가 마지막으로 시작된 시각이다. 변경되면 앱 컨테이너가 재시작된 것이다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "process_start_time_seconds{job=\"igmo-app\"} * 1000",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "앱 가동 시간",
+      "description": "Spring Boot 프로세스 시작 후 경과 시간이다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "time() - process_start_time_seconds{job=\"igmo-app\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "누적 요청 수",
+      "description": "앱 시작 이후 처리한 HTTP 요청 수다. Prometheus 수집 endpoint 요청은 제외한다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "요청 처리량",
+      "description": "초당 처리한 HTTP 요청 수다. 트래픽 급증·급감을 확인한다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "서버 오류 비율",
+      "description": "전체 HTTP 요청 중 5xx 응답 비율이다. 1%부터 위험으로 표시한다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=~\".*\",status=~\"5..\",uri!=\"/actuator/prometheus\"}[$__rate_interval])) / clamp_min(sum(rate(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval])), 1e-9)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "느린 요청",
+      "description": "URI별 p95·p99 처리 시간이다. 사용자 체감 지연을 확인한다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval])))",
+          "legendFormat": "p95 {{uri}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, uri) (rate(http_server_requests_seconds_bucket{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval])))",
+          "legendFormat": "p99 {{uri}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "응답 상태",
+      "description": "HTTP 상태 코드별 초당 처리량이다. 4xx·5xx 비중 변화를 확인한다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=~\".*\",uri!=\"/actuator/prometheus\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "JVM Heap 사용률",
+      "description": "JVM Heap 최대값 대비 사용 비율이다. 85% 이상이면 메모리 부족 위험으로 표시한다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{application=~\".*\",area=\"heap\"}) / sum(jvm_memory_max_bytes{application=~\".*\",area=\"heap\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "JVM Heap 사용량",
+      "description": "JVM Heap의 실제 사용량 변화다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{application=~\".*\",area=\"heap\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "앱 CPU 사용률",
+      "description": "Spring Boot 프로세스가 사용하는 CPU 비율이다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage{application=~\".*\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "GC 평균 정지 시간",
+      "description": "가비지 컬렉션 한 번당 평균 정지 시간이다. 길어지면 요청 지연 원인이 될 수 있다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(jvm_gc_pause_seconds_sum{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(jvm_gc_pause_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "이미지 처리량",
+      "description": "초당 완료된 이미지 생성 작업 수다. 실패한 작업도 완료 시점 기준으로 포함한다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(image_generation_duration_seconds_count{application=~\".*\"}[$__rate_interval]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "이미지 처리 시간",
+      "description": "이미지 생성과 S3 업로드의 평균 완료 시간이다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(image_generation_duration_seconds_sum{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(image_generation_duration_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)",
+          "legendFormat": "생성",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(image_upload_duration_seconds_sum{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(image_upload_duration_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)",
+          "legendFormat": "업로드",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "이미지 생성 실패율",
+      "description": "완료된 이미지 생성 작업 중 실패 비율이다. S3 저장 실패도 생성 실패에 포함된다.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(image_generation_failure_total{application=~\".*\"}[$__rate_interval])) / clamp_min(sum(rate(image_generation_duration_seconds_count{application=~\".*\"}[$__rate_interval])), 1e-9)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "애플리케이션 로그",
+      "description": "전체 애플리케이션 로그다. 선택한 레벨, 로거, 이벤트, 방 코드, 예외 타입과 키워드로 원인을 좁힌다.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | level=~\"$log_level\" | logger_name=~\"$logger_name\" | event=~\"$event_type\" | roomCode=~\"$room_code\" | exceptionType=~\"$exception_type\" |~ \"$log_keyword\" | line_format \"{{.level}} event={{.event}} roomCode={{.roomCode}} exceptionType={{.exceptionType}} {{.logger_name}} - {{.message}}\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "HTTP 요청",
+      "description": "완료된 HTTP 요청을 requestId, 메서드, 정규화 경로, 상태 코드와 키워드로 조회한다.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=\"com.igmo.logging.RequestLoggingFilter\" | level=~\"$log_level\" | requestId=~\"$request_id\" | method=~\"$http_method\" | normalizedPath=~\"$request_path\" | status=~\"$http_status\" |~ \"$log_keyword\" | line_format \"{{.status}} {{.method}} {{.normalizedPath}} {{.durationMs}}ms requestId={{.requestId}}\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "이미지 처리",
+      "description": "사용자·관리자 이미지 생성과 S3 저장 로그다. 로거, 이벤트, 방 코드, 예외 타입과 키워드로 조회한다.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=~\"(com\\\\.igmo\\\\.service\\\\.ImageGenerationService|com\\\\.igmo\\\\.admin\\\\.infrastructure\\\\.AdminImageStorageClient|com\\\\.igmo\\\\.admin\\\\.web\\\\.AdminImageGenerationExceptionHandler)\" | logger_name=~\"$logger_name\" | level=~\"$log_level\" | event=~\"$event_type\" | roomCode=~\"$room_code\" | exceptionType=~\"$exception_type\" |~ \"$log_keyword\" | line_format \"{{.level}} event={{.event}} roomCode={{.roomCode}} exceptionType={{.exceptionType}} - {{.message}}\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "관리자 인증",
+      "description": "관리자 API 인증 실패 로그다. 경로, 상태 코드, 이벤트와 키워드로 조회한다.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name=\"com.igmo.admin.web.AdminAuthenticationFilter\" | level=~\"$log_level\" | event=~\"$event_type\" | path=~\"$request_path\" | status=~\"$http_status\" |~ \"$log_keyword\" | line_format \"{{.level}} event={{.event}} path={{.path}} status={{.status}} reason={{.reason}} - {{.message}}\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "앱 런타임",
+      "description": "Spring Boot 시작, 종료, 설정 등 프레임워크 로그다. 로거, 레벨과 키워드로 조회한다.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "expr": "{service=\"igmo-backend\",environment=~\"$environment\"} | json | logger_name!~\"com\\\\.igmo\\\\..*\" | logger_name!~\"org\\\\.springframework\\\\.web\\\\.socket.*\" | logger_name=~\"$logger_name\" | level=~\"$log_level\" |~ \"$log_keyword\" | line_format \"{{.level}} {{.logger_name}} - {{.message}}\"",
+          "refId": "A"
+        }
+      ]
+    }
   ],
   "refresh": "30s",
   "schemaVersion": 41,
-  "tags": ["igmo", "application"],
-  "templating": {"list": [{"current": {"selected": true, "text": "production", "value": "production"}, "label": "환경", "name": "environment", "options": [{"selected": true, "text": "production", "value": "production"}, {"selected": false, "text": "local", "value": "local"}], "query": "production,local", "type": "custom"}, {"allValue": ".*", "current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "loki", "uid": "loki"}, "definition": "label_values({service=\"igmo-backend\",environment=~\"$environment\"}, detected_level)", "includeAll": true, "label": "로그 레벨", "name": "log_level", "options": [], "query": {"query": "label_values({service=\"igmo-backend\",environment=~\"$environment\"}, detected_level)", "refId": "LokiVariableQuery"}, "refresh": 1, "type": "query"}, {"current": {"selected": true, "text": "", "value": ""}, "label": "로그 검색", "name": "log_keyword", "options": [{"selected": true, "text": "", "value": ""}], "query": "", "type": "textbox"}]},
-  "time": {"from": "now-6h", "to": "now"},
+  "tags": [
+    "igmo",
+    "application"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "production",
+          "value": "production"
+        },
+        "label": "환경",
+        "name": "environment",
+        "options": [
+          {
+            "selected": true,
+            "text": "production",
+            "value": "production"
+          },
+          {
+            "selected": false,
+            "text": "local",
+            "value": "local"
+          }
+        ],
+        "query": "production,local",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "로거",
+        "name": "logger_name",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "Request ID",
+        "name": "request_id",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "HTTP 메서드",
+        "multi": true,
+        "name": "http_method",
+        "options": [],
+        "query": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "요청 경로",
+        "name": "request_path",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "HTTP 상태",
+        "name": "http_status",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "방 코드",
+        "name": "room_code",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "이벤트",
+        "multi": true,
+        "name": "event_type",
+        "options": [],
+        "query": "game_phase_transition_completed,room_broadcast_failed,private_event_send_failed,image_generation_completed,gemini_request_failed,s3_image_upload_failed,admin_authentication_failed",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": ".*",
+          "value": ".*"
+        },
+        "label": "예외 타입",
+        "name": "exception_type",
+        "options": [
+          {
+            "selected": true,
+            "text": ".*",
+            "value": ".*"
+          }
+        ],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "로그 레벨",
+        "multi": true,
+        "name": "log_level",
+        "options": [],
+        "query": "DEBUG,INFO,WARN,ERROR",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "",
+          "value": ""
+        },
+        "label": "로그 검색",
+        "name": "log_keyword",
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timezone": "browser",
   "title": "애플리케이션 상태",
   "uid": "igmo-spring-app",
-  "version": 8
+  "version": 20
 }
