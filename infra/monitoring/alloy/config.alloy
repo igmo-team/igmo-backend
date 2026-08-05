@@ -2,6 +2,51 @@ logging {
   level = "warn"
 }
 
+local.file "grafana_cloud_ingest_token" {
+  filename  = "/run/secrets/grafana-cloud-ingest-token"
+  is_secret = true
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = "https://prometheus-prod-49-prod-ap-northeast-0.grafana.net/api/prom/push"
+
+    basic_auth {
+      username = "3427242"
+      password = local.file.grafana_cloud_ingest_token.content
+    }
+  }
+}
+
+prometheus.scrape "igmo_app" {
+  targets = [
+    {
+      "__address__" = "127.0.0.1:8080",
+      "service"     = "igmo",
+      "environment" = "production",
+    },
+  ]
+  forward_to     = [prometheus.remote_write.grafana_cloud.receiver]
+  job_name       = "igmo-app"
+  metrics_path   = "/actuator/prometheus"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+}
+
+prometheus.scrape "ec2_host" {
+  targets = [
+    {
+      "__address__" = "127.0.0.1:9100",
+      "instance"    = "igmo-production",
+      "environment" = "production",
+    },
+  ]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  job_name        = "ec2-host"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+}
+
 discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
 }
@@ -33,7 +78,10 @@ loki.source.docker "igmo_backend" {
 }
 
 loki.process "igmo_backend" {
-  forward_to = [loki.write.default.receiver]
+  forward_to = [
+    loki.write.local.receiver,
+    loki.write.grafana_cloud.receiver,
+  ]
 
   stage.json {
     expressions = {
@@ -48,8 +96,19 @@ loki.process "igmo_backend" {
   }
 }
 
-loki.write "default" {
+loki.write "local" {
   endpoint {
     url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}
+
+loki.write "grafana_cloud" {
+  endpoint {
+    url = "https://logs-prod-030.grafana.net/loki/api/v1/push"
+
+    basic_auth {
+      username = "1709296"
+      password = local.file.grafana_cloud_ingest_token.content
+    }
   }
 }

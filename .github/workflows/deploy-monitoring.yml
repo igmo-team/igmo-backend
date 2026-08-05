@@ -23,6 +23,7 @@ jobs:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
       GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+      GRAFANA_CLOUD_INGEST_TOKEN: ${{ secrets.GRAFANA_CLOUD_INGEST_TOKEN }}
 
     steps:
       - name: Validate deployment configuration
@@ -32,6 +33,7 @@ jobs:
           : "${AWS_ROLE_ARN:?Set AWS_ROLE_ARN in the production environment}"
           : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
           : "${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD secret in the production environment}"
+          : "${GRAFANA_CLOUD_INGEST_TOKEN:?Set GRAFANA_CLOUD_INGEST_TOKEN secret in the production environment}"
 
       - name: Checkout repository
         uses: actions/checkout@v7
