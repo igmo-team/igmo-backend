@@ -59,6 +59,19 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
 
+    def test_deployment_collects_alloy_diagnostics_before_rollback(self):
+        deploy_script = MONITORING_DEPLOY_SCRIPT.read_text()
+
+        self.assertIn("diagnose_alloy()", deploy_script)
+        self.assertIn("docker inspect --format", deploy_script)
+        self.assertIn("docker top", deploy_script)
+        self.assertIn("docker logs --tail 200", deploy_script)
+        self.assertIn("ss -ltnp 'sport = :12345'", deploy_script)
+        self.assertLess(
+            deploy_script.index("diagnose_alloy"),
+            deploy_script.index("down --remove-orphans"),
+        )
+
     def test_monitoring_domain_redirects_to_grafana_cloud(self):
         nginx_configuration = MONITORING_NGINX_CONFIG.read_text()
 

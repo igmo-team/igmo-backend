@@ -58,11 +58,33 @@ if ! docker compose -f \"\$STACK_ROOT/docker-compose.yml\" config -q; then
 fi
 
 ROLLBACK_NEEDED=true
+diagnose_alloy() {
+  echo '=== Alloy diagnostics before rollback ===' >&2
+  docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps alloy || true
+
+  ALLOY_CONTAINER_ID=\$(docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps -q alloy || true)
+  if [ -z \"\$ALLOY_CONTAINER_ID\" ]; then
+    echo 'Alloy container was not created.' >&2
+  else
+    docker inspect --format \
+      'alloy status={{.State.Status}} pid={{.State.Pid}} restartCount={{.RestartCount}} error={{.State.Error}} command={{json .Config.Cmd}}' \
+      \"\$ALLOY_CONTAINER_ID\" || true
+    docker top \"\$ALLOY_CONTAINER_ID\" || true
+    docker logs --tail 200 \"\$ALLOY_CONTAINER_ID\" || true
+  fi
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 'sport = :12345' || true
+  else
+    echo 'ss command is unavailable; Alloy HTTP listener could not be inspected.' >&2
+  fi
+}
+
 rollback() {
   EXIT_STATUS=\"\$1\"
   if [ \"\$ROLLBACK_NEEDED\" = true ]; then
     docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps || true
-    docker compose -f \"\$STACK_ROOT/docker-compose.yml\" logs --tail 100 alloy || true
+    diagnose_alloy
     docker compose -f \"\$STACK_ROOT/docker-compose.yml\" down --remove-orphans || true
     if [ -n \"\$BACKUP_ROOT\" ]; then
       rm -rf \"\$STACK_ROOT\"
