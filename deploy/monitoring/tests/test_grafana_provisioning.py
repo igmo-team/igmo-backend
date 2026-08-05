@@ -9,6 +9,7 @@ PRODUCTION_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.yml
 PRODUCTION_ALLOY_FILE = REPOSITORY_ROOT / "infra/monitoring/alloy/config.alloy"
 MONITORING_DEPLOY_SCRIPT = REPOSITORY_ROOT / "deploy/monitoring/apply.sh"
 MONITORING_DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/deploy-monitoring.yml"
+MONITORING_NGINX_CONFIG = REPOSITORY_ROOT / "deploy/nginx/monitoring.conf"
 
 
 class MonitoringDeploymentTest(unittest.TestCase):
@@ -57,6 +58,17 @@ class MonitoringDeploymentTest(unittest.TestCase):
         )
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
+
+    def test_monitoring_domain_redirects_to_grafana_cloud(self):
+        nginx_configuration = MONITORING_NGINX_CONFIG.read_text()
+
+        self.assertEqual(
+            2,
+            nginx_configuration.count(
+                "return 302 https://largeivy1754.grafana.net$request_uri;"
+            ),
+        )
+        self.assertNotIn("127.0.0.1:3000", nginx_configuration)
 
 
 if __name__ == "__main__":
