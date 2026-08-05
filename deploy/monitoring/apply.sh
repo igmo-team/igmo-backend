@@ -3,6 +3,7 @@
 #
 # 필요 환경변수:
 #   GRAFANA_ADMIN_PASSWORD  Grafana igmo-admin 계정 비밀번호
+#   GRAFANA_CLOUD_INGEST_TOKEN  Grafana Cloud Access Policy token (metrics:write, logs:write)
 # 선택 환경변수:
 #   EC2_INSTANCE_ID         대상 인스턴스 (기본 i-0d44e815cf354804c)
 #   AWS_REGION              리전 (기본 ap-northeast-2)
@@ -11,6 +12,7 @@ set -Eeuo pipefail
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 EC2_INSTANCE_ID="${EC2_INSTANCE_ID:-i-0d44e815cf354804c}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}"
+GRAFANA_CLOUD_INGEST_TOKEN="${GRAFANA_CLOUD_INGEST_TOKEN:?GRAFANA_CLOUD_INGEST_TOKEN is required}"
 
 if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ ]]; then
   echo "유효하지 않은 AWS_REGION입니다: $AWS_REGION" >&2
@@ -24,6 +26,7 @@ fi
 
 STACK_ARCHIVE_B64=$(tar -C . -czf - infra/monitoring | base64 | tr -d '\n')
 GRAFANA_PASSWORD_B64=$(printf '%s' "$GRAFANA_ADMIN_PASSWORD" | base64 | tr -d '\n')
+GRAFANA_CLOUD_INGEST_TOKEN_B64=$(printf '%s' "$GRAFANA_CLOUD_INGEST_TOKEN" | base64 | tr -d '\n')
 
 REMOTE_SCRIPT="set -eu
 STACK_ROOT=/opt/igmo/monitoring
@@ -39,6 +42,9 @@ mkdir -p \"\$SECRETS_ROOT\"
 echo '$GRAFANA_PASSWORD_B64' | base64 -d > \"\$SECRETS_ROOT/grafana-admin-password\"
 chown 472:472 \"\$SECRETS_ROOT/grafana-admin-password\"
 chmod 600 \"\$SECRETS_ROOT/grafana-admin-password\"
+echo '$GRAFANA_CLOUD_INGEST_TOKEN_B64' | base64 -d > \"\$SECRETS_ROOT/grafana-cloud-ingest-token\"
+chown 0:0 \"\$SECRETS_ROOT/grafana-cloud-ingest-token\"
+chmod 600 \"\$SECRETS_ROOT/grafana-cloud-ingest-token\"
 
 echo '$STACK_ARCHIVE_B64' | base64 -d | tar -xzf - -C \"\$TEMP_ROOT\"
 BACKUP_ROOT=''
