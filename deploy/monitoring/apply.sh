@@ -2,7 +2,6 @@
 # 저장소의 관측 스택 설정을 EC2에 반영한다 (SSM 경유).
 #
 # 필요 환경변수:
-#   GRAFANA_ADMIN_PASSWORD  Grafana igmo-admin 계정 비밀번호
 #   GRAFANA_CLOUD_INGEST_TOKEN  Grafana Cloud Access Policy token (metrics:write, logs:write)
 # 선택 환경변수:
 #   EC2_INSTANCE_ID         대상 인스턴스 (기본 i-0d44e815cf354804c)
@@ -11,7 +10,6 @@ set -Eeuo pipefail
 
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 EC2_INSTANCE_ID="${EC2_INSTANCE_ID:-i-0d44e815cf354804c}"
-GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}"
 GRAFANA_CLOUD_INGEST_TOKEN="${GRAFANA_CLOUD_INGEST_TOKEN:?GRAFANA_CLOUD_INGEST_TOKEN is required}"
 
 if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ ]]; then
@@ -25,7 +23,6 @@ if [[ ! "$EC2_INSTANCE_ID" =~ ^i-[a-f0-9]+$ ]]; then
 fi
 
 STACK_ARCHIVE_B64=$(tar -C . -czf - infra/monitoring | base64 | tr -d '\n')
-GRAFANA_PASSWORD_B64=$(printf '%s' "$GRAFANA_ADMIN_PASSWORD" | base64 | tr -d '\n')
 GRAFANA_CLOUD_INGEST_TOKEN_B64=$(printf '%s' "$GRAFANA_CLOUD_INGEST_TOKEN" | base64 | tr -d '\n')
 
 REMOTE_SCRIPT="set -eu
@@ -39,9 +36,6 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 mkdir -p \"\$SECRETS_ROOT\"
-echo '$GRAFANA_PASSWORD_B64' | base64 -d > \"\$SECRETS_ROOT/grafana-admin-password\"
-chown 472:472 \"\$SECRETS_ROOT/grafana-admin-password\"
-chmod 600 \"\$SECRETS_ROOT/grafana-admin-password\"
 echo '$GRAFANA_CLOUD_INGEST_TOKEN_B64' | base64 -d > \"\$SECRETS_ROOT/grafana-cloud-ingest-token\"
 chown 0:0 \"\$SECRETS_ROOT/grafana-cloud-ingest-token\"
 chmod 600 \"\$SECRETS_ROOT/grafana-cloud-ingest-token\"
@@ -68,7 +62,7 @@ rollback() {
   EXIT_STATUS=\"\$1\"
   if [ \"\$ROLLBACK_NEEDED\" = true ]; then
     docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps || true
-    docker compose -f \"\$STACK_ROOT/docker-compose.yml\" logs --tail 100 grafana || true
+    docker compose -f \"\$STACK_ROOT/docker-compose.yml\" logs --tail 100 alloy || true
     docker compose -f \"\$STACK_ROOT/docker-compose.yml\" down --remove-orphans || true
     if [ -n \"\$BACKUP_ROOT\" ]; then
       rm -rf \"\$STACK_ROOT\"
@@ -80,25 +74,11 @@ rollback() {
 }
 trap 'rollback \"\$?\"' EXIT
 
-GRAFANA_VOLUME_MOUNT=\$(docker volume inspect igmo-monitoring_grafana-data \
-  --format '{{.Mountpoint}}' 2>/dev/null || true)
-if [ -n \"\$GRAFANA_VOLUME_MOUNT\" ] && [ -f \"\$GRAFANA_VOLUME_MOUNT/grafana.db\" ]; then
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo 'Grafana datasource UID 마이그레이션에 python3가 필요합니다.' >&2
-    exit 1
-  fi
-  docker compose -f \"\$STACK_ROOT/docker-compose.yml\" stop grafana
-  python3 \"\$STACK_ROOT/grafana/migrate_datasource_uids.py\" \
-    \"\$GRAFANA_VOLUME_MOUNT/grafana.db\"
-fi
-
 docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --force-recreate --remove-orphans
-curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:9090/-/ready
-curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3100/ready
-curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:3000/api/health
+curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:12345/-/ready
 
 sleep 10
-for SERVICE in prometheus grafana loki alloy node-exporter; do
+for SERVICE in alloy node-exporter; do
   CONTAINER_ID=\$(docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps -q \"\$SERVICE\")
   if [ -z \"\$CONTAINER_ID\" ]; then
     echo \"관측 컨테이너를 찾지 못했습니다: \$SERVICE\" >&2
@@ -113,22 +93,8 @@ for SERVICE in prometheus grafana loki alloy node-exporter; do
   fi
 done
 
-curl --fail http://127.0.0.1:9090/-/ready
-curl --fail http://127.0.0.1:3100/ready
-curl --fail http://127.0.0.1:3000/api/health
-
-GRAFANA_PASSWORD=\$(cat \"\$SECRETS_ROOT/grafana-admin-password\")
-for RESOURCE in \
-  datasources/uid/prometheus/health \
-  datasources/uid/loki/health \
-  dashboards/uid/igmo-instance \
-  dashboards/uid/igmo-spring-app \
-  dashboards/uid/igmo-websocket-game; do
-  curl --fail --silent --show-error \
-    --retry 10 --retry-all-errors --retry-connrefused --retry-delay 2 \
-    --user \"igmo-admin:\$GRAFANA_PASSWORD\" \
-    \"http://127.0.0.1:3000/api/\$RESOURCE\" >/dev/null
-done
+curl --fail http://127.0.0.1:12345/-/ready
+curl --fail http://127.0.0.1:12345/-/healthy
 
 docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps
 ROLLBACK_NEEDED=false

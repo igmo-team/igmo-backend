@@ -3,31 +3,18 @@ import unittest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-GRAFANA_DIRECTORY = REPOSITORY_ROOT / "infra/monitoring/grafana"
-PRODUCTION_DATASOURCE_DIRECTORY = GRAFANA_DIRECTORY / "provisioning/datasources"
-LOCAL_DATASOURCE_FILE = GRAFANA_DIRECTORY / "datasources.local.yml"
+LOCAL_DATASOURCE_FILE = REPOSITORY_ROOT / "infra/monitoring/grafana/datasources.local.yml"
 LOCAL_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.local.yml"
 PRODUCTION_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.yml"
 PRODUCTION_ALLOY_FILE = REPOSITORY_ROOT / "infra/monitoring/alloy/config.alloy"
 MONITORING_DEPLOY_SCRIPT = REPOSITORY_ROOT / "deploy/monitoring/apply.sh"
 MONITORING_DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/deploy-monitoring.yml"
+MONITORING_NGINX_CONFIG = REPOSITORY_ROOT / "deploy/nginx/monitoring.conf"
 
 
-class GrafanaProvisioningTest(unittest.TestCase):
-    def test_production_provisioning_has_only_one_default_datasource(self):
-        datasource_files = sorted(PRODUCTION_DATASOURCE_DIRECTORY.glob("*.yml"))
-
-        self.assertEqual(["datasources.yml"], [file.name for file in datasource_files])
-        default_datasource_count = sum(
-            file.read_text().count("isDefault: true") for file in datasource_files
-        )
-        self.assertEqual(1, default_datasource_count)
-
-    def test_local_compose_mounts_datasource_outside_production_provisioning(self):
+class MonitoringDeploymentTest(unittest.TestCase):
+    def test_local_compose_mounts_local_datasource(self):
         self.assertTrue(LOCAL_DATASOURCE_FILE.is_file())
-        self.assertFalse(
-            (PRODUCTION_DATASOURCE_DIRECTORY / "datasources.local.yml").exists()
-        )
         self.assertIn(
             "./grafana/datasources.local.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro",
             LOCAL_COMPOSE_FILE.read_text(),
@@ -37,7 +24,6 @@ class GrafanaProvisioningTest(unittest.TestCase):
         alloy_configuration = PRODUCTION_ALLOY_FILE.read_text()
         production_compose = PRODUCTION_COMPOSE_FILE.read_text()
 
-        self.assertNotIn("remote_write:", (REPOSITORY_ROOT / "infra/monitoring/prometheus/prometheus.yml").read_text())
         self.assertIn(
             'prometheus.remote_write "grafana_cloud"',
             alloy_configuration,
@@ -52,8 +38,12 @@ class GrafanaProvisioningTest(unittest.TestCase):
         )
         self.assertIn('job_name       = "igmo-app"', alloy_configuration)
         self.assertIn('job_name        = "ec2-host"', alloy_configuration)
-        self.assertIn('loki.write "local"', alloy_configuration)
         self.assertIn('loki.write "grafana_cloud"', alloy_configuration)
+        self.assertNotIn('loki.write "local"', alloy_configuration)
+        self.assertNotIn("prometheus:\n", production_compose)
+        self.assertNotIn("grafana:\n", production_compose)
+        self.assertNotIn("loki:\n", production_compose)
+        self.assertIn("mem_limit: 128m", production_compose)
         self.assertIn(
             "/opt/igmo/monitoring-secrets/grafana-cloud-ingest-token:/run/secrets/grafana-cloud-ingest-token:ro",
             production_compose,
@@ -66,6 +56,19 @@ class GrafanaProvisioningTest(unittest.TestCase):
             "GRAFANA_CLOUD_INGEST_TOKEN: ${{ secrets.GRAFANA_CLOUD_INGEST_TOKEN }}",
             MONITORING_DEPLOY_WORKFLOW.read_text(),
         )
+        self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
+        self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
+
+    def test_monitoring_domain_redirects_to_grafana_cloud(self):
+        nginx_configuration = MONITORING_NGINX_CONFIG.read_text()
+
+        self.assertEqual(
+            2,
+            nginx_configuration.count(
+                "return 302 https://largeivy1754.grafana.net$request_uri;"
+            ),
+        )
+        self.assertNotIn("127.0.0.1:3000", nginx_configuration)
 
 
 if __name__ == "__main__":
