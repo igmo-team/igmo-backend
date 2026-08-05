@@ -43,7 +43,7 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertNotIn("prometheus:\n", production_compose)
         self.assertNotIn("grafana:\n", production_compose)
         self.assertNotIn("loki:\n", production_compose)
-        self.assertIn("mem_limit: 128m", production_compose)
+        self.assertIn("mem_limit: 256m", production_compose)
         self.assertIn(
             "/opt/igmo/monitoring-secrets/grafana-cloud-ingest-token:/run/secrets/grafana-cloud-ingest-token:ro",
             production_compose,
