@@ -1,47 +1,27 @@
-# 단일 EC2 관측 스택
+# Grafana Cloud 관측
 
-`t4g.small`의 Spring Boot 앱과 같은 EC2에서 실행하는 관측 스택이다. 모든 서비스는 host network를 사용하지만 `127.0.0.1`에만 바인딩한다. 외부 공개 경로는 Nginx의
-`monitoring.igmo.co.kr`뿐이다.
+운영은 Grafana Cloud를 메트릭·로그 저장소와 대시보드로 사용한다. EC2에는 Grafana Alloy와 node_exporter만 실행한다. Alloy가 Spring Boot와 node_exporter 메트릭을 scrape해 Grafana Cloud Metrics로 전송하고, 앱 Docker stdout 로그를 Grafana Cloud Logs로 전송한다.
 
-| 서비스           | 역할                     | 메모리 상한 |
-|---------------|------------------------|-------:|
-| Prometheus    | Spring Boot·EC2 메트릭 수집 | 192MiB |
-| Grafana       | 시각화·로그 조회              | 128MiB |
-| Loki          | 로그 저장                  | 128MiB |
-| Alloy         | Docker 로그를 Loki로 전송    |  64MiB |
-| node_exporter | EC2 호스트 지표 노출          |  32MiB |
+| 서비스 | 역할 | 메모리 상한 |
+|---|---|---:|
+| Alloy | 메트릭 scrape 및 로그 전송 | 256MiB |
+| node_exporter | EC2 호스트 지표 노출 | 32MiB |
 
-관측 컨테이너 상한 합계는 544MiB다. Prometheus는 3일 또는 512MB까지 보관한다. Loki는 3일 보관한다. 앱 Docker 로그는 `local` 드라이버의 10MB 파일 3개로 제한한다.
+Grafana Cloud 접근은 `monitoring.igmo.co.kr`에서 Grafana Cloud 조직으로 리다이렉트한다.
 
-## 배포 전 준비
+## 운영 배포
 
-GitHub 저장소의 `production` 환경에 `GRAFANA_ADMIN_PASSWORD` secret을 추가한다. Grafana 로그인 계정은 `igmo-admin`이며, 비밀번호는 EC2의
-`/opt/igmo/monitoring-secrets/`에만 저장된다.
-
-## 배포 순서
+GitHub 저장소 `production` 환경에 `GRAFANA_CLOUD_INGEST_TOKEN` secret을 설정한다. 토큰은 `metrics:write`, `logs:write` 권한이 필요하다.
 
 1. GitHub Actions의 `Deploy Monitoring`을 수동 실행한다.
-2. Grafana·Prometheus·Loki 준비 상태가 성공했는지 워크플로 로그에서 확인한다.
-3. GitHub Actions의 `Deploy Nginx`에서 `monitoring`을 선택해 HTTPS reverse proxy를 적용한다.
-4. 기존 CD의 `deploy_only`를 한 번 실행해 앱 컨테이너를 재생성한다. 이 시점부터 앱 로그 드라이버가 `awslogs`에서 `local`로 바뀌며 Alloy가 로그를 수집한다.
+2. 워크플로에서 Alloy와 node_exporter가 실행 중이고 재시작 횟수가 0인지 확인한다.
+3. Alloy readiness와 health endpoint(`http://127.0.0.1:12345/-/ready`, `/-/healthy`)가 성공했는지 확인한다.
 
-`Deploy Monitoring`은 설정 파일 변경을 확실히 반영하기 위해 관측 컨테이너를 재생성한다. 배포 중에는 Grafana 조회와 메트릭·로그 수집이 잠시 중단될 수 있지만, Docker named volume의 데이터는 유지된다.
-
-## Grafana 대시보드 관리
-
-Grafana UI에서 직접 만들지 않고 `grafana/provisioning/dashboards/` 파일로 관리한다. 따라서 패널·PromQL·Loki 쿼리를 수정한 뒤 `Deploy Monitoring`을 한 번 실행하면 컨테이너 재생성과 함께 대시보드가 갱신된다.
-
-| 대시보드 | 파일 | 용도 |
-|---|---|---|
-| 인스턴스 상태 | `instance.json` | EC2 기동·CPU·메모리·EBS·네트워크·디스크 상태 확인 |
-| 애플리케이션 상태 | `spring-application.json` | 앱 기동·HTTP·JVM·이미지 생성·앱 로그 확인 |
-| WebSocket·게임 상태 | `websocket-game.json` | 연결·게임 방·방 전체 메시지 전송·관련 로그 확인 |
-
-`인스턴스 상태`는 운영 EC2의 `node_exporter` 지표를 사용하므로 로컬에서는 빈값이 정상이다. 앱·WebSocket 대시보드는 환경·로그 레벨·로그 검색어 변수로 조회 범위를 좁힐 수 있다.
+배포는 `/opt/igmo/monitoring-secrets/grafana-cloud-ingest-token`에 토큰을 저장하고, Alloy 컨테이너에 read-only로 마운트한다. Grafana Cloud 수집·조회는 배포 중 잠시 중단될 수 있다.
 
 ## 로컬 실행
 
-macOS·Docker Desktop에서 운영 Compose를 실행하지 않는다. `docker-compose.local.yml`은 관측 컨테이너를 bridge network로 묶고, EC2 전용 node_exporter는 제외한다. `GRAFANA_ADMIN_PASSWORD`를 로컬 `.env`에 설정한 뒤 실행한다.
+로컬은 Grafana, Prometheus, Loki, Alloy를 Docker Compose로 실행한다. `GRAFANA_ADMIN_PASSWORD`를 로컬 `.env`에 설정한 뒤 실행한다.
 
 ### IDE에서 Spring Boot 실행
 
@@ -66,13 +46,3 @@ docker compose --env-file .env up --build
 ```
 
 Grafana는 `http://localhost:3000`, Prometheus는 `http://localhost:9090`, Loki는 `http://localhost:3100`으로 접근한다. Grafana에서 `환경` 변수를 `local`로 바꾸면 로컬 로그를 볼 수 있다. 종료할 때는 `docker compose -f infra/monitoring/docker-compose.local.yml down`을 사용한다.
-
-## EC2 내부 확인
-
-```bash
-curl --fail http://127.0.0.1:9090/-/ready
-curl --fail http://127.0.0.1:3100/ready
-curl --fail http://127.0.0.1:3000/api/health
-```
-
-Prometheus 수집 대상은 `http://127.0.0.1:9090/targets`에서 확인한다. `igmo-app`과 `ec2-host`가 `UP`이어야 한다.
