@@ -68,7 +68,8 @@ class ImageGenerationServiceTest {
         assertThat(generatedImageUrl).hasValue("https://cdn.example.com/image.png");
         verify(imageGenerator).generate(new ImageGenerationRequest("고양이가 피아노를 치는 장면", "gemini-image", "2K"));
         verify(imageStorageClient).store("image".getBytes(), "image/jpeg");
-        ILoggingEvent logEvent = lastLogEvent("image generation completed");
+        ILoggingEvent logEvent = lastLogEvent("image_generation_completed");
+        assertThat(logEvent.getFormattedMessage()).matches("duration=\\d+ms");
         assertThat(keyValues(logEvent))
                 .containsEntry("event", "image_generation_completed")
                 .containsEntry("roomCode", "ABCD")
@@ -100,7 +101,8 @@ class ImageGenerationServiceTest {
         // then
         assertThat(capturedException).hasValue(exception);
         verify(imageGenerator).generate(new ImageGenerationRequest("실패 프롬프트", "gemini-image", "2K"));
-        ILoggingEvent logEvent = lastLogEvent("image generation failed");
+        ILoggingEvent logEvent = lastLogEvent("gemini_request_failed");
+        assertThat(logEvent.getFormattedMessage()).isEqualTo("Gemini 응답에 이미지 데이터가 없습니다.");
         assertThat(keyValues(logEvent))
                 .containsEntry("event", "gemini_request_failed")
                 .containsEntry("roomCode", "ABCD")
@@ -126,7 +128,8 @@ class ImageGenerationServiceTest {
         // then
         assertThat(capturedException.get()).isInstanceOf(ImageStorageException.class)
                 .hasCauseInstanceOf(IllegalStateException.class);
-        ILoggingEvent logEvent = lastLogEvent("image upload failed");
+        ILoggingEvent logEvent = lastLogEvent("s3_image_upload_failed");
+        assertThat(logEvent.getFormattedMessage()).isEqualTo("S3 이미지 저장에 실패했습니다.");
         assertThat(keyValues(logEvent))
                 .containsEntry("event", "s3_image_upload_failed")
                 .containsEntry("roomCode", "ABCD")
@@ -135,9 +138,9 @@ class ImageGenerationServiceTest {
                 .containsKey("durationMs");
     }
 
-    private ILoggingEvent lastLogEvent(String message) {
+    private ILoggingEvent lastLogEvent(String event) {
         return imageGenerationLogAppender.list.stream()
-                .filter(loggingEvent -> loggingEvent.getFormattedMessage().equals(message))
+                .filter(loggingEvent -> event.equals(keyValues(loggingEvent).get("event")))
                 .reduce((previous, current) -> current)
                 .orElseThrow();
     }

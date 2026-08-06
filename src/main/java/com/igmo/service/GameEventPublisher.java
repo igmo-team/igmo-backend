@@ -13,6 +13,7 @@ import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
@@ -64,17 +65,15 @@ public class GameEventPublisher {
                     messageType,
                     WebSocketChannelType.ROOM_TOPIC,
                     WebSocketMessageOutcome.FAILURE);
-            log.atError()
+            LoggingEventBuilder loggingEvent = log.atError()
                     .addKeyValue("event", "room_broadcast_failed")
                     .addKeyValue("roomCode", code)
                     .addKeyValue("phase", phaseOf(message.type()))
                     .addKeyValue("messageType", messageType)
                     .addKeyValue("destination", destination)
                     .addKeyValue("channelType", WebSocketChannelType.ROOM_TOPIC)
-                    .addKeyValue("outcome", WebSocketMessageOutcome.FAILURE)
-                    .addKeyValue("exceptionType", exception.getClass().getSimpleName())
-                    .setCause(exception)
-                    .log("room broadcast failed");
+                    .addKeyValue("exceptionType", exception.getClass().getSimpleName());
+            loggingEvent.setCause(exception).log("{}", messageType);
             throw exception;
         }
     }
@@ -129,18 +128,16 @@ public class GameEventPublisher {
                     messageType,
                     WebSocketChannelType.PRIVATE_QUEUE,
                     WebSocketMessageOutcome.FAILURE);
-            log.atError()
+            LoggingEventBuilder loggingEvent = log.atError()
                     .addKeyValue("event", "private_event_send_failed")
                     .addKeyValue("roomCode", roomCode)
                     .addKeyValue("phase", phase)
                     .addKeyValue("messageType", messageType)
                     .addKeyValue("destination", destination)
                     .addKeyValue("channelType", WebSocketChannelType.PRIVATE_QUEUE)
-                    .addKeyValue("outcome", WebSocketMessageOutcome.FAILURE)
                     .addKeyValue("playerId", playerId)
-                    .addKeyValue("exceptionType", exception.getClass().getSimpleName())
-                    .setCause(exception)
-                    .log("private event send failed");
+                    .addKeyValue("exceptionType", exception.getClass().getSimpleName());
+            loggingEvent.setCause(exception).log("{}", messageType);
             throw exception;
         }
     }
@@ -155,4 +152,5 @@ public class GameEventPublisher {
             case GAME_RESULT_SNAPSHOT -> GamePhase.ENDED;
         };
     }
+
 }
