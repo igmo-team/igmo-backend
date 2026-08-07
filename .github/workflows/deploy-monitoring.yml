@@ -2,6 +2,17 @@ name: Deploy Monitoring
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_alloy:
+        description: "Alloy 배포"
+        required: false
+        default: true
+        type: boolean
+      sync_dashboards:
+        description: "Grafana Cloud 대시보드 동기화"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -12,8 +23,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  validate-input:
+    name: Validate deployment input
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require at least one deployment target
+        shell: bash
+        run: |
+          if [[ "${{ inputs.deploy_alloy }}" != true && "${{ inputs.sync_dashboards }}" != true ]]; then
+            echo "Set deploy_alloy or sync_dashboards to true." >&2
+            exit 1
+          fi
+
+  deploy-alloy:
     name: Deploy monitoring stack
+    needs: validate-input
+    if: ${{ inputs.deploy_alloy }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
@@ -45,3 +71,34 @@ jobs:
 
       - name: Deploy monitoring stack through AWS Systems Manager
         run: bash ./deploy/monitoring/apply.sh
+
+  sync-dashboards:
+    name: Sync Grafana Cloud dashboards
+    needs: validate-input
+    if: ${{ inputs.sync_dashboards }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    env:
+      GRAFANA_CLOUD_URL: ${{ vars.GRAFANA_CLOUD_URL }}
+      GRAFANA_CLOUD_FOLDER_UID: ${{ vars.GRAFANA_CLOUD_FOLDER_UID }}
+      GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID: ${{ vars.GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+      GRAFANA_CLOUD_LOKI_DATASOURCE_UID: ${{ vars.GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+      GRAFANA_CLOUD_API_TOKEN: ${{ secrets.GRAFANA_CLOUD_API_TOKEN }}
+
+    steps:
+      - name: Validate Grafana Cloud configuration
+        shell: bash
+        run: |
+          : "${GRAFANA_CLOUD_URL:?Set GRAFANA_CLOUD_URL in the production environment}"
+          : "${GRAFANA_CLOUD_FOLDER_UID:?Set GRAFANA_CLOUD_FOLDER_UID in the production environment}"
+          : "${GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID:?Set GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID in the production environment}"
+          : "${GRAFANA_CLOUD_LOKI_DATASOURCE_UID:?Set GRAFANA_CLOUD_LOKI_DATASOURCE_UID in the production environment}"
+          : "${GRAFANA_CLOUD_API_TOKEN:?Set GRAFANA_CLOUD_API_TOKEN secret in the production environment}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Sync dashboards
+        run: bash ./deploy/monitoring/grafana/sync-dashboards.sh

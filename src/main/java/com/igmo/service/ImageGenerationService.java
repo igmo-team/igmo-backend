@@ -61,12 +61,13 @@ public class ImageGenerationService {
         try {
             String imageUrl = generateAndStore(prompt);
             onSuccess.accept(imageUrl);
+            long durationMs = elapsedMillis(startedAt);
             log.atInfo()
                     .addKeyValue("event", "image_generation_completed")
                     .addKeyValue("roomCode", code)
                     .addKeyValue("playerId", playerId)
-                    .addKeyValue("durationMs", elapsedMillis(startedAt))
-                    .log("image generation completed");
+                    .addKeyValue("durationMs", durationMs)
+                    .log("duration={}ms", durationMs);
         } catch (Exception exception) {
             gameMetrics.incrementImageGenerationFailure();
             logGenerationFailure(code, playerId, startedAt, exception);
@@ -94,7 +95,7 @@ public class ImageGenerationService {
                     .addKeyValue("durationMs", elapsedMillis(startedAt))
                     .addKeyValue("exceptionType", exception.getClass().getSimpleName())
                     .setCause(exception)
-                    .log("image upload failed");
+                    .log("{}", exception.getMessage());
             return;
         }
         log.atWarn()
@@ -104,7 +105,7 @@ public class ImageGenerationService {
                 .addKeyValue("durationMs", elapsedMillis(startedAt))
                 .addKeyValue("exceptionType", exception.getClass().getSimpleName())
                 .setCause(exception)
-                .log("image generation failed");
+                .log("{}", exception.getMessage());
     }
 
     private long elapsedMillis(long startedAt) {

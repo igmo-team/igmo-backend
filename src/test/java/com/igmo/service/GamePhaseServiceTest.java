@@ -205,7 +205,7 @@ class GamePhaseServiceTest {
 
         // then
         ILoggingEvent logEvent = gamePhaseLogAppender.list.stream()
-                .filter(event -> event.getFormattedMessage().equals("game phase transition completed"))
+                .filter(event -> "game_phase_transition_completed".equals(keyValues(event).get("event")))
                 .findFirst()
                 .orElseThrow();
         assertThat(keyValues(logEvent))
@@ -213,6 +213,8 @@ class GamePhaseServiceTest {
                 .containsEntry("roomCode", "ABCD")
                 .containsEntry("fromPhase", GamePhase.LOBBY)
                 .containsEntry("toPhase", GamePhase.GENERATING);
+        assertThat(keyValues(logEvent)).doesNotContainKey("outcome");
+        assertThat(logEvent.getFormattedMessage()).isNullOrEmpty();
     }
 
     @Test
@@ -223,8 +225,7 @@ class GamePhaseServiceTest {
                 .isInstanceOf(RoomNotFoundException.class)
                 .hasMessage("방을 찾을 수 없습니다.");
         assertThat(gamePhaseLogAppender.list)
-                .extracting(ILoggingEvent::getFormattedMessage)
-                .doesNotContain("game phase transition completed");
+                .noneMatch(event -> "game_phase_transition_completed".equals(keyValues(event).get("event")));
     }
 
     private Map<String, Object> keyValues(ILoggingEvent logEvent) {

@@ -45,7 +45,7 @@ class AdminAuthenticationFilterTest {
         assertThat(response.getHeader("X-Admin-Authentication-Error")).isNull();
         assertThat(response.getContentAsString()).isEmpty();
         ILoggingEvent logEvent = authenticationLogAppender.list.getFirst();
-        assertThat(logEvent.getFormattedMessage()).isEqualTo("admin authentication failed");
+        assertThat(logEvent.getFormattedMessage()).isEqualTo("관리자 로그인이 필요합니다.");
         assertThat(keyValues(logEvent))
                 .containsEntry("event", "admin_authentication_failed")
                 .containsEntry("path", "/admin/")

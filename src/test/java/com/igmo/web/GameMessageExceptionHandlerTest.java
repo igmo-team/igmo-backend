@@ -13,6 +13,7 @@ import com.igmo.domain.exception.GuessMatchesOthersException;
 import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessSubmissionExpiredException;
 import com.igmo.domain.exception.GuessSubmissionNotAllowedException;
+import com.igmo.domain.exception.InsufficientPlayersException;
 import com.igmo.domain.exception.InvalidVoteOptionException;
 import com.igmo.domain.exception.PlayersNotReadyException;
 import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
@@ -168,13 +169,29 @@ class GameMessageExceptionHandlerTest {
             softly.assertThat(sendToUser.destinations()).containsExactly("/queue/errors");
             softly.assertThat(sendToUser.broadcast()).isFalse();
         });
+
+        ILoggingEvent loggingEvent = logAppender.list.getLast();
+        Map<String, Object> keyValues = keyValues(loggingEvent);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(loggingEvent.getLevel()).isEqualTo(Level.WARN);
+            softly.assertThat(loggingEvent.getThrowableProxy()).isNull();
+            softly.assertThat(keyValues).containsEntry("event", "game_message_validation_failed");
+            softly.assertThat(keyValues).containsEntry("exceptionType", "MethodArgumentNotValidException");
+            softly.assertThat(keyValues).containsEntry("reason", "프롬프트를 입력해주세요.");
+            softly.assertThat(keyValues).containsEntry("destination", "/app/rooms/ABCD/prompts");
+            softly.assertThat(keyValues).containsEntry("roomCode", "ABCD");
+            softly.assertThat(keyValues).doesNotContainKey("outcome");
+            softly.assertThat(keyValues).doesNotContainKey("exceptionMessage");
+            softly.assertThat(loggingEvent.getFormattedMessage())
+                    .isEqualTo("프롬프트를 입력해주세요.");
+        });
     }
 
     @Test
     @DisplayName("예상 가능한 게임 예외는 구조화된 WARN 로그로 남긴다.")
     void handleGameException_구조화된_WARN_로그를_남긴다() {
         // given
-        PlayersNotReadyException exception = new PlayersNotReadyException();
+        InsufficientPlayersException exception = new InsufficientPlayersException(3);
         Message<String> message = gameMessage("payload", "/app/rooms/ABCD/start");
 
         // when
@@ -187,10 +204,14 @@ class GameMessageExceptionHandlerTest {
             softly.assertThat(loggingEvent.getLevel()).isEqualTo(Level.WARN);
             softly.assertThat(loggingEvent.getThrowableProxy()).isNull();
             softly.assertThat(keyValues).containsEntry("event", "game_message_rejected");
-            softly.assertThat(keyValues).containsEntry("outcome", "REJECTED");
-            softly.assertThat(keyValues).containsEntry("exceptionType", "PlayersNotReadyException");
+            softly.assertThat(keyValues).containsEntry("exceptionType", "InsufficientPlayersException");
+            softly.assertThat(keyValues).containsEntry("reason", "게임을 시작하려면 최소 3명이 필요합니다.");
             softly.assertThat(keyValues).containsEntry("destination", "/app/rooms/ABCD/start");
             softly.assertThat(keyValues).containsEntry("roomCode", "ABCD");
+            softly.assertThat(keyValues).doesNotContainKey("outcome");
+            softly.assertThat(keyValues).doesNotContainKey("exceptionMessage");
+            softly.assertThat(loggingEvent.getFormattedMessage())
+                    .isEqualTo("게임을 시작하려면 최소 3명이 필요합니다.");
         });
     }
 
@@ -211,10 +232,12 @@ class GameMessageExceptionHandlerTest {
             softly.assertThat(loggingEvent.getLevel()).isEqualTo(Level.WARN);
             softly.assertThat(loggingEvent.getThrowableProxy()).isNotNull();
             softly.assertThat(keyValues).containsEntry("event", "game_message_failed");
-            softly.assertThat(keyValues).containsEntry("outcome", "FAILURE");
             softly.assertThat(keyValues).containsEntry("exceptionType", "IllegalStateException");
+            softly.assertThat(keyValues).doesNotContainKey("exceptionMessage");
             softly.assertThat(keyValues).containsEntry("destination", "/app/rooms/ABCD/guesses");
             softly.assertThat(keyValues).containsEntry("roomCode", "ABCD");
+            softly.assertThat(keyValues).doesNotContainKey("outcome");
+            softly.assertThat(loggingEvent.getFormattedMessage()).isEqualTo("unexpected");
         });
     }
 

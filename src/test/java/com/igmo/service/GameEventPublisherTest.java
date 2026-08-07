@@ -94,15 +94,15 @@ class GameEventPublisherTest {
                 WebSocketMessageOutcome.SUCCESS);
         ILoggingEvent logEvent = eventPublisherLogAppender.list.getFirst();
         org.assertj.core.api.Assertions.assertThat(logEvent.getFormattedMessage())
-                .isEqualTo("room broadcast failed");
+                .isEqualTo("LOBBY_SNAPSHOT");
         org.assertj.core.api.Assertions.assertThat(keyValues(logEvent))
                 .containsEntry("event", "room_broadcast_failed")
                 .containsEntry("roomCode", "ABCD")
                 .containsEntry("phase", GamePhase.LOBBY)
                 .containsEntry("messageType", WebSocketMessageType.LOBBY_SNAPSHOT)
                 .containsEntry("channelType", WebSocketChannelType.ROOM_TOPIC)
-                .containsEntry("outcome", WebSocketMessageOutcome.FAILURE)
                 .containsEntry("exceptionType", "IllegalStateException");
+        org.assertj.core.api.Assertions.assertThat(keyValues(logEvent)).doesNotContainKey("outcome");
         org.assertj.core.api.Assertions.assertThat(logEvent.getThrowableProxy().getClassName())
                 .isEqualTo(IllegalStateException.class.getName());
     }
@@ -186,16 +186,16 @@ class GameEventPublisherTest {
                 WebSocketMessageOutcome.SUCCESS);
         ILoggingEvent logEvent = eventPublisherLogAppender.list.getFirst();
         org.assertj.core.api.Assertions.assertThat(logEvent.getFormattedMessage())
-                .isEqualTo("private event send failed");
+                .isEqualTo("GUESS_SUBMISSION_RESULT");
         org.assertj.core.api.Assertions.assertThat(keyValues(logEvent))
                 .containsEntry("event", "private_event_send_failed")
                 .containsEntry("roomCode", "ABCD")
                 .containsEntry("phase", GamePhase.VOTING)
                 .containsEntry("messageType", WebSocketMessageType.GUESS_SUBMISSION_RESULT)
                 .containsEntry("channelType", WebSocketChannelType.PRIVATE_QUEUE)
-                .containsEntry("outcome", WebSocketMessageOutcome.FAILURE)
                 .containsEntry("playerId", "player-1")
                 .containsEntry("exceptionType", "IllegalStateException");
+        org.assertj.core.api.Assertions.assertThat(keyValues(logEvent)).doesNotContainKey("outcome");
         org.assertj.core.api.Assertions.assertThat(logEvent.getThrowableProxy().getClassName())
                 .isEqualTo(IllegalStateException.class.getName());
     }

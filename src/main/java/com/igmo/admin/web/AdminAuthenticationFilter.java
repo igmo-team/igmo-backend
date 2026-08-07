@@ -53,7 +53,7 @@ public class AdminAuthenticationFilter extends OncePerRequestFilter {
                     .addKeyValue("path", request.getRequestURI())
                     .addKeyValue("status", HttpServletResponse.SC_UNAUTHORIZED)
                     .addKeyValue("reason", failureMessage)
-                    .log("admin authentication failed");
+                    .log("{}", failureMessage);
             writeAuthenticationFailure(response);
             return;
         }

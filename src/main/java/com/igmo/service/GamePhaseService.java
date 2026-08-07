@@ -376,7 +376,7 @@ public class GamePhaseService {
                 .addKeyValue("roomCode", roomCode)
                 .addKeyValue("fromPhase", fromPhase)
                 .addKeyValue("toPhase", toPhase)
-                .log("game phase transition completed");
+                .log();
     }
 
 }

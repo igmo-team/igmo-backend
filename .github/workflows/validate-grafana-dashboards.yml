@@ -1,0 +1,59 @@
+name: Validate Grafana Dashboards
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - prod
+    paths:
+      - "infra/monitoring/grafana/provisioning/dashboards/**"
+      - "deploy/monitoring/grafana/**"
+      - "deploy/monitoring/tests/test_grafana_dashboard_sync.py"
+      - ".github/workflows/validate-grafana-dashboards.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      GRAFANA_CLOUD_FOLDER_UID: ${{ vars.GRAFANA_CLOUD_FOLDER_UID }}
+      GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID: ${{ vars.GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+      GRAFANA_CLOUD_LOKI_DATASOURCE_UID: ${{ vars.GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Validate dashboard JSON
+        shell: bash
+        run: |
+          for dashboard in infra/monitoring/grafana/provisioning/dashboards/*.json; do
+            jq empty "$dashboard"
+          done
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Validate dashboard sync script
+        run: |
+          bash -n deploy/monitoring/grafana/sync-dashboards.sh
+          shellcheck deploy/monitoring/grafana/sync-dashboards.sh
+
+      - name: Run dashboard sync tests
+        run: python3 -B -m unittest deploy.monitoring.tests.test_grafana_dashboard_sync -v
+
+      - name: Run dashboard dry-run
+        env:
+          DRY_RUN: "true"
+        run: |
+          bash ./deploy/monitoring/grafana/sync-dashboards.sh
+          git diff --check
