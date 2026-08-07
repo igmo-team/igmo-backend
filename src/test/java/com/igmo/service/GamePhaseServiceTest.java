@@ -474,8 +474,8 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("프롬프트 마감 작업이 실행되면 READY가 아닌 참가자를 샘플로 채우고 READY인 참가자는 유지한다.")
-    void promptExpiration_READY가_아닌_참가자를_샘플로_채운다() {
+    @DisplayName("프롬프트 마감 작업은 WAITING 참가자만 샘플로 채우고 GENERATING 참가자는 유지한다.")
+    void promptExpiration_WAITING만_샘플로_채우고_GENERATING은_유지한다() {
         // given
         GameSession session = startExpirationScenarioWithMissingImages();
         clearInvocations(messagingTemplate);
@@ -493,8 +493,9 @@ class GamePhaseServiceTest {
             softly.assertThat(hostEntry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(hostEntry.getPrompt()).isEqualTo("호스트 프롬프트");
             softly.assertThat(hostEntry.getImageUrl()).isEqualTo("https://cdn.example.com/host.png");
-            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(pool).contains(new SamplePrompt(guest1Entry.getPrompt(), guest1Entry.getImageUrl()));
+            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(guest1Entry.getPrompt()).isEqualTo("참가자1 프롬프트");
+            softly.assertThat(guest1Entry.getImageUrl()).isNull();
             softly.assertThat(guest2Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(pool).contains(new SamplePrompt(guest2Entry.getPrompt(), guest2Entry.getImageUrl()));
             softly.assertThat(imageGenerationTask).isNull();
@@ -502,8 +503,8 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("프롬프트 마감 시 샘플로 채운 참가자에게 개인 이미지 결과를 전송한다.")
-    void promptExpiration_샘플로_채운_참가자에게_개인_이미지_결과를_전송한다() {
+    @DisplayName("프롬프트 마감 시 WAITING 참가자에게만 샘플 이미지 결과를 개인 전송한다.")
+    void promptExpiration_WAITING_참가자에게만_샘플_이미지_결과를_전송한다() {
         // given
         GameSession session = startExpirationScenarioWithMissingImages();
         clearInvocations(messagingTemplate);
@@ -512,34 +513,28 @@ class GamePhaseServiceTest {
         captureScheduledPromptExpiration().run();
 
         // then
-        ImageGenerationEvent guest1Event = captureImageGenerationEvent(session.guest1().playerId());
         ImageGenerationEvent guest2Event = captureImageGenerationEvent(session.guest2().playerId());
         List<SamplePrompt> pool = samplePromptProvider.getAll();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(guest1Event.roomCode()).isEqualTo("ABCD");
-            softly.assertThat(guest1Event.status()).isEqualTo(PromptEntryStatus.READY);
-            softly.assertThat(pool).contains(new SamplePrompt(guest1Event.prompt(), guest1Event.imageUrl()));
             softly.assertThat(guest2Event.status()).isEqualTo(PromptEntryStatus.READY);
             softly.assertThat(pool).contains(new SamplePrompt(guest2Event.prompt(), guest2Event.imageUrl()));
         });
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                eq(session.guest1().playerId()), eq("/queue/image-generation"), any());
     }
 
     @Test
-    @DisplayName("프롬프트 마감으로 전원 READY가 되면 3초 후 PLAYING 전환을 예약한다.")
-    void promptExpiration_전원_READY가_되면_PLAYING_전환을_예약한다() {
+    @DisplayName("프롬프트 마감 후 GENERATING 참가자가 남아 있으면 PLAYING 전환을 예약하지 않는다.")
+    void promptExpiration_GENERATING_참가자가_남아있으면_PLAYING_전환을_예약하지_않는다() {
         // given
         startExpirationScenarioWithMissingImages();
         clearInvocations(messagingTemplate);
 
         // when
-        Instant before = Instant.now();
         captureScheduledPromptExpiration().run();
-        Instant after = Instant.now();
 
         // then
-        ArgumentCaptor<Instant> scheduledAt = ArgumentCaptor.forClass(Instant.class);
-        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), scheduledAt.capture());
-        assertThat(scheduledAt.getValue()).isBetween(before.plusSeconds(3), after.plusSeconds(3));
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
     }
 
     @Test
@@ -591,23 +586,85 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("샘플로 채워진 뒤 도착한 실제 이미지 생성 결과는 개인 전송하지 않고 샘플을 유지한다.")
-    void imageGeneration_샘플로_채워진_뒤_도착한_결과는_무시한다() {
+    @DisplayName("프롬프트 마감 후 생성에 성공하면 실제 이미지 URL을 전송하고 마지막 이미지면 PLAYING 전환을 예약한다.")
+    void imageGeneration_마감_후_성공하면_실제_URL을_전송하고_PLAYING_전환을_예약한다() {
         // given
         GameSession session = startExpirationScenarioWithMissingImages();
         Runnable lateGuest1Generation = imageGenerationTask;
+        String generatedImageUrl = "https://cdn.example.com/guest-1.png";
         captureScheduledPromptExpiration().run();
-        clearInvocations(messagingTemplate);
+        expirePromptDeadline();
+        clearInvocations(messagingTemplate, imageGenerationCompletionScheduler);
 
         // when
         lateGuest1Generation.run();
 
         // then
         PromptEntry guest1Entry = findPromptEntry("ABCD", session.guest1().playerId());
-        assertThat(samplePromptProvider.getAll())
-                .contains(new SamplePrompt(guest1Entry.getPrompt(), guest1Entry.getImageUrl()));
-        verify(messagingTemplate, never())
-                .convertAndSendToUser(eq(session.guest1().playerId()), eq("/queue/image-generation"), any());
+        ImageGenerationEvent successEvent = captureImageGenerationEvent(session.guest1().playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(guest1Entry.getImageUrl()).isEqualTo(generatedImageUrl);
+            softly.assertThat(successEvent.status()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(successEvent.imageUrl()).isEqualTo(generatedImageUrl);
+        });
+        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 후 이미지 생성에 실패하면 해당 참가자만 샘플로 채우고 PLAYING 전환을 예약한다.")
+    void imageGeneration_마감_후_실패하면_해당_참가자만_샘플로_채우고_PLAYING_전환을_예약한다() {
+        // given
+        GameSession session = startExpirationScenarioWithMissingImages();
+        givenGenerationFailure("참가자1 프롬프트", new RuntimeException("이미지 생성 실패"));
+        Runnable lateGuest1Generation = imageGenerationTask;
+        captureScheduledPromptExpiration().run();
+        expirePromptDeadline();
+        clearInvocations(messagingTemplate, imageGenerationCompletionScheduler);
+
+        // when
+        lateGuest1Generation.run();
+
+        // then
+        PromptEntry guest1Entry = findPromptEntry("ABCD", session.guest1().playerId());
+        ImageGenerationEvent sampleEvent = captureImageGenerationEvent(session.guest1().playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(samplePromptProvider.getAll())
+                    .contains(new SamplePrompt(sampleEvent.prompt(), sampleEvent.imageUrl()));
+            softly.assertThat(guest1Entry.getImageUrl()).isEqualTo(sampleEvent.imageUrl());
+        });
+        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("프롬프트 마감 후 한 참가자의 생성 실패는 다른 GENERATING 참가자를 샘플로 바꾸지 않는다.")
+    void imageGeneration_마감_후_실패해도_다른_GENERATING_참가자는_유지한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        Runnable lateGuest1Generation = imageGenerationTask;
+        gamePhaseService.submitPrompt("ABCD", session.guest2().playerId(), "참가자2 프롬프트");
+        givenGenerationFailure("참가자1 프롬프트", new RuntimeException("이미지 생성 실패"));
+        captureScheduledPromptExpiration().run();
+        expirePromptDeadline();
+        clearInvocations(messagingTemplate, imageGenerationCompletionScheduler);
+
+        // when
+        lateGuest1Generation.run();
+
+        // then
+        PromptEntry guest1Entry = findPromptEntry("ABCD", session.guest1().playerId());
+        PromptEntry guest2Entry = findPromptEntry("ABCD", session.guest2().playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(guest1Entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(samplePromptProvider.getAll())
+                    .contains(new SamplePrompt(guest1Entry.getPrompt(), guest1Entry.getImageUrl()));
+            softly.assertThat(guest2Entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(guest2Entry.getImageUrl()).isNull();
+        });
+        verify(imageGenerationCompletionScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
     }
 
     @Test
@@ -1364,6 +1421,11 @@ class GamePhaseServiceTest {
         ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
         verify(gamePhaseDeadlineScheduler).schedule(captor.capture(), any(Instant.class));
         return captor.getValue();
+    }
+
+    private void expirePromptDeadline() {
+        ReflectionTestUtils.setField(
+                gameRegistry.find("ABCD").orElseThrow(), "promptDeadline", Instant.now().minusSeconds(1));
     }
 
     private Runnable captureScheduledPlayingTransition() {
