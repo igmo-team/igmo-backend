@@ -21,6 +21,7 @@ public class PlayerPresenceService {
 
     private final GameRoomRepository gameRoomRepository;
     private final GamePhaseScheduler gamePhaseScheduler;
+    private final GamePhaseService gamePhaseService;
     private final GameEventPublisher eventPublisher;
     private final TaskScheduler disconnectGraceScheduler;
     private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
@@ -31,11 +32,13 @@ public class PlayerPresenceService {
     public PlayerPresenceService(
             GameRoomRepository gameRoomRepository,
             GamePhaseScheduler gamePhaseScheduler,
+            GamePhaseService gamePhaseService,
             GameEventPublisher eventPublisher,
             @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler
     ) {
         this.gameRoomRepository = gameRoomRepository;
         this.gamePhaseScheduler = gamePhaseScheduler;
+        this.gamePhaseService = gamePhaseService;
         this.eventPublisher = eventPublisher;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
     }
@@ -92,7 +95,9 @@ public class PlayerPresenceService {
         }
         if (room.getPhase() == GamePhase.LOBBY) {
             eventPublisher.publishLobby(code, LobbySnapshot.from(room));
+            return;
         }
+        gamePhaseService.onPlayerRemoved(code);
         // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
     }
 

@@ -92,6 +92,16 @@ public class GamePhaseService {
         startImageGeneration(code, playerId, submittedPrompt);
     }
 
+    public void onPlayerRemoved(String code) {
+        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, room ->
+                room.getPhase() == GamePhase.GENERATING && room.hasAllImagesGenerated())
+                .orElse(false);
+        if (shouldSchedulePlayingTransition) {
+            gamePhaseScheduler.cancelPrompt(code);
+            schedulePlayingTransition(code);
+        }
+    }
+
     public void submitGuess(String code, String playerId, String guess) {
         GuessSubmissionPublication result = gameRoomRepository.update(code, room -> {
             if (!room.hasPlayer(playerId)) {

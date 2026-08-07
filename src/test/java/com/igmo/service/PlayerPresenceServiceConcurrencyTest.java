@@ -40,6 +40,7 @@ class PlayerPresenceServiceConcurrencyTest {
     private final TaskScheduler gamePhaseDeadlineScheduler = mock(TaskScheduler.class);
     private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
+    private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
     private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
     private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
     private final GamePhaseScheduler gamePhaseScheduler =
@@ -50,6 +51,7 @@ class PlayerPresenceServiceConcurrencyTest {
             new PlayerPresenceService(
                     gameRoomRepository,
                     gamePhaseScheduler,
+                    gamePhaseService,
                     eventPublisher,
                     disconnectGraceScheduler);
 

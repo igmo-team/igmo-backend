@@ -538,6 +538,22 @@ class GamePhaseServiceTest {
     }
 
     @Test
+    @DisplayName("마감 후 마지막 GENERATING 참가자가 퇴장해 전원 READY가 되면 PLAYING 전환을 예약한다.")
+    void onPlayerRemoved_마감_후_전원_READY가_되면_PLAYING_전환을_예약한다() {
+        // given
+        GameSession session = startExpirationScenarioWithMissingImages();
+        captureScheduledPromptExpiration().run();
+        gameRegistry.find("ABCD").orElseThrow().removePlayer(session.guest1().playerId());
+        clearInvocations(imageGenerationCompletionScheduler, scheduledPromptExpiration);
+
+        // when
+        gamePhaseService.onPlayerRemoved("ABCD");
+
+        // then
+        verify(imageGenerationCompletionScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
     @DisplayName("모든 프롬프트를 제출해도 이미지가 준비되기 전에는 프롬프트 마감 작업을 취소하지 않는다.")
     void submitPrompt_이미지가_준비되기_전에는_프롬프트_마감을_취소하지_않는다() {
         // given
