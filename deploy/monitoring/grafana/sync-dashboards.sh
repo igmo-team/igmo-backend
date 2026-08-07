@@ -171,7 +171,7 @@ validate_cloud_dashboard() {
     --arg uid "$uid" \
     --arg title "$title" \
     --arg folder_uid "$GRAFANA_CLOUD_FOLDER_UID" \
-    '(.uid == $uid) and (.title == $title) and (.folderUid == $folder_uid) and (.version | type == "number")' \
+    '(.dashboard.uid == $uid) and (.dashboard.title == $title) and (.meta.folderUid == $folder_uid) and (.dashboard.version | type == "number")' \
     "$response_file" >/dev/null \
     || fail "Grafana Cloud dashboard metadata mismatch: $uid"
 }
