@@ -14,6 +14,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -109,12 +110,30 @@ class GeminiImageGenerationClientTest {
                         assertThat(exception.getHttpStatus()).isEqualTo(400));
     }
 
+    @Test
+    @DisplayName("Gemini 응답이 요청 timeout을 넘으면 요청 예외를 던진다.")
+    void generate_응답이_요청_timeout을_넘으면_요청_예외를_던진다() throws Exception {
+        // given
+        server = startServer(new AtomicReference<>(), 200, "{}", Duration.ofMillis(200));
+        GeminiImageGenerationClient client = createClient(Duration.ofMillis(50));
+
+        // when & then
+        assertThatThrownBy(() -> client.generate(new ImageGenerationRequest("프롬프트", "gemini-image", "1K")))
+                .isInstanceOf(GeminiRequestException.class)
+                .hasMessage("Gemini 이미지 생성 요청에 실패했습니다.");
+    }
+
     private GeminiImageGenerationClient createClient() {
+        return createClient(Duration.ofSeconds(15));
+    }
+
+    private GeminiImageGenerationClient createClient(Duration requestTimeout) {
         return new GeminiImageGenerationClient(
                 objectMapper,
                 HttpClient.newHttpClient(),
                 URI.create("http://localhost:" + server.getAddress().getPort() + "/v1beta/interactions"),
-                "api-key");
+                "api-key",
+                requestTimeout);
     }
 
     private HttpServer startServer(AtomicReference<String> requestBody) throws IOException {
@@ -125,9 +144,24 @@ class GeminiImageGenerationClientTest {
 
     private HttpServer startServer(AtomicReference<String> requestBody, int statusCode, String responseBody)
             throws IOException {
+        return startServer(requestBody, statusCode, responseBody, Duration.ZERO);
+    }
+
+    private HttpServer startServer(
+            AtomicReference<String> requestBody,
+            int statusCode,
+            String responseBody,
+            Duration responseDelay
+    ) throws IOException {
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(0), 0);
         httpServer.createContext("/v1beta/interactions", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            try {
+                Thread.sleep(responseDelay);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return;
+            }
             byte[] response = responseBody.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(statusCode, response.length);
             try (OutputStream outputStream = exchange.getResponseBody()) {

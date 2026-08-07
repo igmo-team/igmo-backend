@@ -51,6 +51,7 @@ class PlayerPresenceServiceTest {
     private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final ScheduledFuture<?> scheduledPlayingTransition = mock(ScheduledFuture.class);
+    private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
     private final GamePhaseScheduler gamePhaseScheduler = spy(new GamePhaseScheduler(
             gamePhaseDeadlineScheduler,
             imageGenerationCompletionScheduler));
@@ -62,6 +63,7 @@ class PlayerPresenceServiceTest {
     private final PlayerPresenceService playerPresenceService = new PlayerPresenceService(
             new GameRoomRepository(gameRegistry),
             gamePhaseScheduler,
+            gamePhaseService,
             new GameEventPublisher(messagingTemplate, gameMetrics),
             disconnectGraceScheduler);
 
@@ -271,8 +273,8 @@ class PlayerPresenceServiceTest {
     }
 
     @Test
-    @DisplayName("진행 중 참가자가 나가도 방 상태와 게임 단계 예약을 유지한다.")
-    void leaveGame_진행_중_참가자가_나가도_방_상태와_타이머를_유지한다() {
+    @DisplayName("진행 중 참가자가 나가면 이미지 준비 상태를 재평가한다.")
+    void leaveGame_진행_중_참가자가_나가면_이미지_준비_상태를_재평가한다() {
         // given
         GameSession session = createGeneratingRoom();
         clearInvocations(messagingTemplate, gamePhaseScheduler);
@@ -287,12 +289,12 @@ class PlayerPresenceServiceTest {
             softly.assertThat(room.hasPlayer(session.guest2().playerId())).isFalse();
             softly.assertThat(room.getPromptEntries()).hasSize(2);
         });
-        verifyNoInteractions(messagingTemplate, gamePhaseScheduler);
+        verify(gamePhaseService).onPlayerRemoved("ABCD");
     }
 
     @Test
-    @DisplayName("진행 중 참가자의 연결 종료가 확정돼도 방 상태와 게임 단계 예약을 유지한다.")
-    void handleDisconnect_진행_중_참가자가_제거돼도_방_상태와_타이머를_유지한다() {
+    @DisplayName("진행 중 참가자의 연결 종료가 확정되면 이미지 준비 상태를 재평가한다.")
+    void handleDisconnect_진행_중_참가자가_제거되면_이미지_준비_상태를_재평가한다() {
         // given
         GameSession session = createGeneratingRoom();
         playerPresenceService.handleDisconnect("ABCD", session.guest2().playerId());
@@ -308,7 +310,7 @@ class PlayerPresenceServiceTest {
             softly.assertThat(room.hasPlayer(session.guest2().playerId())).isFalse();
             softly.assertThat(room.getPromptEntries()).hasSize(2);
         });
-        verifyNoInteractions(messagingTemplate, gamePhaseScheduler);
+        verify(gamePhaseService).onPlayerRemoved("ABCD");
     }
 
     @Test

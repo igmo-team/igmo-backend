@@ -92,6 +92,16 @@ public class GamePhaseService {
         startImageGeneration(code, playerId, submittedPrompt);
     }
 
+    public void onPlayerRemoved(String code) {
+        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, room ->
+                room.getPhase() == GamePhase.GENERATING && room.hasAllImagesGenerated())
+                .orElse(false);
+        if (shouldSchedulePlayingTransition) {
+            gamePhaseScheduler.cancelPrompt(code);
+            schedulePlayingTransition(code);
+        }
+    }
+
     public void submitGuess(String code, String playerId, String guess) {
         GuessSubmissionPublication result = gameRoomRepository.update(code, room -> {
             if (!room.hasPlayer(playerId)) {
@@ -198,7 +208,6 @@ public class GamePhaseService {
         gamePhaseScheduler.schedulePrompt(code, deadline, () -> runPromptExpiration(code, deadline));
     }
 
-    // 프롬프트 마감 시 READY가 아닌 참가자를 샘플로 채워 전원 READY를 보장하고 PLAYING 전환을 예약한다.
     private void runPromptExpiration(String code, Instant deadline) {
         boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
@@ -208,7 +217,7 @@ public class GamePhaseService {
                             lockedRoom.fillMissingImagesWithSamples(samplePromptProvider.getAll(), Instant.now());
                     publishSampleImageResults(code, assignments);
                     eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
-                    return !assignments.isEmpty();
+                    return lockedRoom.hasAllImagesGenerated();
                 })
                 .orElse(false);
         if (shouldSchedulePlayingTransition) {
@@ -294,14 +303,7 @@ public class GamePhaseService {
                         prompt,
                         imageUrl,
                         null),
-                exception -> updateImageGenerationResult(
-                        code,
-                        playerId,
-                        room -> room.failImageGeneration(playerId),
-                        PromptEntryStatus.FAILED,
-                        prompt,
-                        null,
-                        failureMessage(exception)));
+                exception -> handleImageGenerationFailure(code, playerId, prompt, exception));
     }
 
     private void updateImageGenerationResult(
@@ -314,7 +316,6 @@ public class GamePhaseService {
             String errorMessage
     ) {
         boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
-            // 마감 시 샘플로 채워진 뒤 뒤늦게 도착한 생성 결과는 무시한다. (엔트리가 더 이상 생성 중이 아님)
             if (lockedRoom.getPhase() != GamePhase.GENERATING
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
                 return false;
@@ -324,6 +325,36 @@ public class GamePhaseService {
             eventPublisher.sendImageGenerationEvent(
                     playerId,
                     new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage));
+            eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
+            return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
+        }).orElse(false);
+        if (shouldSchedulePlayingTransition) {
+            gamePhaseScheduler.cancelPrompt(code);
+            schedulePlayingTransition(code);
+        }
+    }
+
+    private void handleImageGenerationFailure(String code, String playerId, String prompt, Exception exception) {
+        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+            if (lockedRoom.getPhase() != GamePhase.GENERATING
+                    || !lockedRoom.isImageGenerationInProgress(playerId)) {
+                return false;
+            }
+            boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
+            Instant failedAt = Instant.now();
+            lockedRoom.failImageGeneration(playerId);
+            if (lockedRoom.isPromptExpired(failedAt)) {
+                SamplePrompt sample = lockedRoom.fillFailedImageWithSample(
+                        playerId, samplePromptProvider.getAll(), failedAt);
+                eventPublisher.sendImageGenerationEvent(
+                        playerId,
+                        new ImageGenerationEvent(code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl()));
+            } else {
+                eventPublisher.sendImageGenerationEvent(
+                        playerId,
+                        new ImageGenerationEvent(
+                                code, PromptEntryStatus.FAILED, prompt, null, failureMessage(exception)));
+            }
             eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
             return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
         }).orElse(false);

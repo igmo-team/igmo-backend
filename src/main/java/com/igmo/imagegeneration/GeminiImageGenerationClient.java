@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ public class GeminiImageGenerationClient implements ImageGenerator {
     private static final URI IMAGE_GENERATION_URI = URI.create(
             "https://generativelanguage.googleapis.com/v1beta/interactions");
     private static final String IMAGE_CONTENT_TYPE = "image/jpeg";
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
     private static final String IMAGE_GENERATION_SYSTEM_INSTRUCTION = """
             너는 이미지 생성 전용 모델이다.
 
@@ -42,25 +44,28 @@ public class GeminiImageGenerationClient implements ImageGenerator {
     private final HttpClient httpClient;
     private final URI imageGenerationUri;
     private final String apiKey;
+    private final Duration requestTimeout;
 
     @Autowired
     public GeminiImageGenerationClient(
             ObjectMapper objectMapper,
             @Value("${igmo.ai.gemini.api-key}") String apiKey
     ) {
-        this(objectMapper, HttpClient.newHttpClient(), IMAGE_GENERATION_URI, apiKey);
+        this(objectMapper, HttpClient.newHttpClient(), IMAGE_GENERATION_URI, apiKey, REQUEST_TIMEOUT);
     }
 
     GeminiImageGenerationClient(
             ObjectMapper objectMapper,
             HttpClient httpClient,
             URI imageGenerationUri,
-            String apiKey
+            String apiKey,
+            Duration requestTimeout
     ) {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
         this.imageGenerationUri = imageGenerationUri;
         this.apiKey = apiKey;
+        this.requestTimeout = requestTimeout;
     }
 
     @Override
@@ -91,6 +96,7 @@ public class GeminiImageGenerationClient implements ImageGenerator {
             return HttpRequest.newBuilder(imageGenerationUri)
                     .header("x-goog-api-key", apiKey)
                     .header("Content-Type", "application/json")
+                    .timeout(requestTimeout)
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
         } catch (Exception exception) {

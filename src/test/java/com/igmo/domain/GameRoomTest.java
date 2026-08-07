@@ -474,8 +474,8 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("이미지 마감 시 READY가 아닌 엔트리를 샘플로 채워 전원 READY로 만든다.")
-    void fillMissingImagesWithSamples_READY가_아닌_엔트리를_채워_전원_READY로_만든다() {
+    @DisplayName("이미지 마감 시 WAITING과 FAILED 엔트리를 샘플로 채워 전원 READY로 만든다.")
+    void fillMissingImagesWithSamples_WAITING과_FAILED를_채워_전원_READY로_만든다() {
         // given
         GameRoom room = createGeneratingRoomWithMissingImages();
 
@@ -484,6 +484,151 @@ class GameRoomTest {
 
         // then
         assertThat(room.hasAllImagesGenerated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("이미지 마감 시 GENERATING 엔트리는 샘플로 채우지 않는다.")
+    void fillMissingImagesWithSamples_GENERATING은_샘플로_채우지_않는다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String generatingPlayerId = room.getPlayers().get(1).getId();
+        room.submitPrompt(generatingPlayerId, "참가자1 프롬프트", PROMPT_STARTED_AT);
+
+        // when
+        Map<String, SamplePrompt> assignments = room.fillMissingImagesWithSamples(SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        PromptEntry generatingEntry = findPromptEntry(room, generatingPlayerId);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(assignments).doesNotContainKey(generatingPlayerId);
+            softly.assertThat(generatingEntry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(generatingEntry.getPrompt()).isEqualTo("참가자1 프롬프트");
+            softly.assertThat(generatingEntry.getImageUrl()).isNull();
+            softly.assertThat(room.hasAllImagesGenerated()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("FAILED 참가자 한 명을 샘플 이미지로 채우고 배정한 샘플을 반환한다.")
+    void fillFailedImageWithSample_FAILED_참가자를_샘플로_채우고_샘플을_반환한다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+        String waitingPlayerId = room.getPlayers().get(1).getId();
+
+        // when
+        SamplePrompt assignedSample = room.fillFailedImageWithSample(failedPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        PromptEntry failedEntry = findPromptEntry(room, failedPlayerId);
+        PromptEntry waitingEntry = findPromptEntry(room, waitingPlayerId);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(assignedSample).isIn(SAMPLE_POOL);
+            softly.assertThat(failedEntry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(failedEntry.getPrompt()).isEqualTo(assignedSample.prompt());
+            softly.assertThat(failedEntry.getImageUrl()).isEqualTo(assignedSample.imageUrl());
+            softly.assertThat(waitingEntry.getStatus()).isEqualTo(PromptEntryStatus.WAITING);
+        });
+    }
+
+    @Test
+    @DisplayName("샘플 풀이 비어 있으면 FAILED 참가자를 샘플로 채우지 않는다.")
+    void fillFailedImageWithSample_샘플풀이_비어있으면_아무것도_하지_않는다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+
+        // when
+        SamplePrompt assignedSample = room.fillFailedImageWithSample(failedPlayerId, List.of(), PROMPT_DEADLINE);
+
+        // then
+        PromptEntry failedEntry = findPromptEntry(room, failedPlayerId);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(assignedSample).isNull();
+            softly.assertThat(failedEntry.getStatus()).isEqualTo(PromptEntryStatus.FAILED);
+            softly.assertThat(failedEntry.getImageUrl()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 참가자는 샘플로 채우지 않는다.")
+    void fillFailedImageWithSample_존재하지않는_참가자면_아무것도_하지_않는다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+
+        // when
+        SamplePrompt assignedSample = room.fillFailedImageWithSample("unknown-player", SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(assignedSample).isNull();
+            softly.assertThat(findPromptEntry(room, failedPlayerId).getStatus()).isEqualTo(PromptEntryStatus.FAILED);
+        });
+    }
+
+    @Test
+    @DisplayName("FAILED가 아닌 WAITING, GENERATING, READY 참가자는 샘플로 채우지 않는다.")
+    void fillFailedImageWithSample_FAILED가_아닌_참가자면_아무것도_하지_않는다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String waitingPlayerId = room.getPlayers().get(1).getId();
+        String readyPlayerId = room.getHostId();
+
+        SamplePrompt waitingSample = room.fillFailedImageWithSample(waitingPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+        room.submitPrompt(waitingPlayerId, "참가자1 프롬프트", PROMPT_STARTED_AT);
+
+        // when
+        SamplePrompt generatingSample = room.fillFailedImageWithSample(waitingPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+        SamplePrompt readySample = room.fillFailedImageWithSample(readyPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(waitingSample).isNull();
+            softly.assertThat(generatingSample).isNull();
+            softly.assertThat(readySample).isNull();
+            softly.assertThat(findPromptEntry(room, waitingPlayerId).getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(findPromptEntry(room, readyPlayerId).getStatus()).isEqualTo(PromptEntryStatus.READY);
+        });
+    }
+
+    @Test
+    @DisplayName("이미 샘플로 채워진 참가자는 다시 샘플로 채우지 않는다.")
+    void fillFailedImageWithSample_이미_READY면_다시_채우지_않는다() {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+        SamplePrompt firstSample = room.fillFailedImageWithSample(failedPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // when
+        SamplePrompt secondSample = room.fillFailedImageWithSample(failedPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        PromptEntry entry = findPromptEntry(room, failedPlayerId);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(secondSample).isNull();
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.READY);
+            softly.assertThat(entry.getPrompt()).isEqualTo(firstSample.prompt());
+            softly.assertThat(entry.getImageUrl()).isEqualTo(firstSample.imageUrl());
+        });
+    }
+
+    @Test
+    @DisplayName("GENERATING 단계가 아니면 FAILED 참가자를 샘플로 채우지 않는다.")
+    void fillFailedImageWithSample_GENERATING_단계가_아니면_아무것도_하지_않는다() throws Exception {
+        // given
+        GameRoom room = createGeneratingRoomWithMissingImages();
+        String failedPlayerId = room.getPlayers().get(2).getId();
+        setPhase(room, GamePhase.PLAYING);
+
+        // when
+        SamplePrompt assignedSample = room.fillFailedImageWithSample(failedPlayerId, SAMPLE_POOL, PROMPT_DEADLINE);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(assignedSample).isNull();
+            softly.assertThat(findPromptEntry(room, failedPlayerId).getStatus()).isEqualTo(PromptEntryStatus.FAILED);
+        });
     }
 
     @Test
