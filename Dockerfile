@@ -1,6 +1,8 @@
+FROM --platform=$BUILDPLATFORM node:24-alpine AS node
+
 FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jdk-alpine AS builder
 
-COPY --from=node:24-alpine /usr/local /usr/local
+COPY --from=node /usr/local /usr/local
 
 WORKDIR /app
 
