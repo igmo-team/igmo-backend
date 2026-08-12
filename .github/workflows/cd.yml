@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_only:
-        description: "기존 이미지를 새 런타임 환경변수로 재배포합니다. 코드 또는 Dockerfile, OPENAPI_SERVER_URL 변경에는 사용하지 마세요."
+        description: "기존 이미지를 새 런타임 환경변수로 재배포합니다. 코드 또는 Dockerfile, 문서 서버 URL 변경에는 사용하지 마세요."
         required: false
         default: false
         type: boolean
@@ -33,6 +33,7 @@ jobs:
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
       OPENAPI_SERVER_URL: ${{ vars.OPENAPI_SERVER_URL }}
+      WEBSOCKET_DOCS_SERVER_URL: ${{ vars.WEBSOCKET_DOCS_SERVER_URL }}
       SERVER_PORT: ${{ vars.SERVER_PORT }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       IGMO_AI_GEMINI_MODEL: ${{ vars.IGMO_AI_GEMINI_MODEL }}
@@ -64,6 +65,7 @@ jobs:
           : "${ECR_REPOSITORY:?Set ECR_REPOSITORY in the production environment}"
           : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
           : "${OPENAPI_SERVER_URL:?Set OPENAPI_SERVER_URL in the production environment}"
+          : "${WEBSOCKET_DOCS_SERVER_URL:?Set WEBSOCKET_DOCS_SERVER_URL in the production environment}"
           : "${GEMINI_API_KEY:?Set GEMINI_API_KEY in the production environment}"
           : "${IGMO_AI_GEMINI_MODEL:?Set IGMO_AI_GEMINI_MODEL in the production environment}"
           : "${IGMO_AI_GEMINI_IMAGE_SIZE:?Set IGMO_AI_GEMINI_IMAGE_SIZE in the production environment}"
@@ -120,6 +122,7 @@ jobs:
           tags: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.DEPLOY_SHA }}
           build-args: |
             OPENAPI_SERVER_URL=${{ env.OPENAPI_SERVER_URL }}
+            WEBSOCKET_DOCS_SERVER_URL=${{ env.WEBSOCKET_DOCS_SERVER_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
