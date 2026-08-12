@@ -405,18 +405,19 @@ public class AsyncApiGenerator {
                 throw new IllegalStateException("WebSocket payloadType을 찾을 수 없습니다: " + contract.payloadType.rawType, exception);
             }
         }
-        restrictStatusEnumToObservedExample(schema, contract.example);
+        restrictEnumToObservedExample(schema, contract.example, "status");
+        restrictEnumToObservedExample(schema, contract.example, "type");
         return schema;
     }
 
-    private void restrictStatusEnumToObservedExample(ObjectNode schema, JsonNode example) {
-        JsonNode observedStatus = example.path("status");
-        JsonNode statusSchema = schema.path("properties").path("status");
-        if (!observedStatus.isTextual() || !statusSchema.isObject() || !statusSchema.has("enum")) {
+    private void restrictEnumToObservedExample(ObjectNode schema, JsonNode example, String fieldName) {
+        JsonNode observedValue = example.path(fieldName);
+        JsonNode fieldSchema = schema.path("properties").path(fieldName);
+        if (!observedValue.isTextual() || !fieldSchema.isObject() || !fieldSchema.has("enum")) {
             return;
         }
-        ArrayNode allowedValues = ((ObjectNode) statusSchema).putArray("enum");
-        allowedValues.add(observedStatus.asText());
+        ArrayNode allowedValues = ((ObjectNode) fieldSchema).putArray("enum");
+        allowedValues.add(observedValue.asText());
     }
 
     private Map<TypeVariable<?>, Type> typeArguments(Class<?> rawType, String typeArgument) throws ClassNotFoundException {

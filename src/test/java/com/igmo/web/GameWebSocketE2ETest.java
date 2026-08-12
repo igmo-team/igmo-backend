@@ -143,14 +143,17 @@ class GameWebSocketE2ETest {
         assertThat(enumValues(document.at("/components/schemas/ImageGenerationReadyMessageSchema/properties/status/enum")))
                 .containsExactly("READY");
         assertThat(enumValues(document.at("/components/schemas/RoundSnapshotMessageSchema/properties/type/enum")))
-                .containsExactly(
-                        "LOBBY_SNAPSHOT",
-                        "PROMPT_SUBMISSION_SNAPSHOT",
-                        "ROUND_SNAPSHOT",
-                        "VOTE_SNAPSHOT",
-                        "ROUND_RESULT_SNAPSHOT",
-                        "GAME_RESULT_SNAPSHOT"
-                );
+                .containsExactly("ROUND_SNAPSHOT");
+        assertThat(enumValues(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/type/enum")))
+                .containsExactly("LOBBY_SNAPSHOT");
+        assertThat(enumValues(document.at("/components/schemas/PromptSubmissionSnapshotMessageSchema/properties/type/enum")))
+                .containsExactly("PROMPT_SUBMISSION_SNAPSHOT");
+        assertThat(enumValues(document.at("/components/schemas/VoteSnapshotMessageSchema/properties/type/enum")))
+                .containsExactly("VOTE_SNAPSHOT");
+        assertThat(enumValues(document.at("/components/schemas/RoundResultSnapshotMessageSchema/properties/type/enum")))
+                .containsExactly("ROUND_RESULT_SNAPSHOT");
+        assertThat(enumValues(document.at("/components/schemas/GameResultSnapshotMessageSchema/properties/type/enum")))
+                .containsExactly("GAME_RESULT_SNAPSHOT");
     }
 
     @Test
