@@ -1,0 +1,16 @@
+{
+  "name": "igmo-websocket-docs-tools",
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "asyncapi:validate": "asyncapi validate build/generated/websocket-docs/asyncapi.json",
+    "asyncapi:customize-html": "node scripts/customize-websocket-docs.mjs",
+    "asyncapi:generate-html": "asyncapi generate fromTemplate build/generated/websocket-docs/asyncapi.json @asyncapi/html-template -o build/generated/websocket-docs/html --force-write && npm run asyncapi:customize-html"
+  },
+  "devDependencies": {
+    "@asyncapi/cli": "6.0.2",
+    "@asyncapi/html-template": "3.5.6"
+  }
+}

@@ -1,0 +1,52 @@
+.aui-root .burger-menu {
+    top: 1rem;
+    right: auto;
+    bottom: auto;
+    left: 1rem;
+    width: 3rem;
+    height: 3rem;
+    z-index: 50;
+}
+
+.aui-root .burger-menu svg {
+    width: 1.5rem;
+    height: 1.125rem;
+}
+
+.aui-root .sidebar {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 20rem;
+    height: 100vh;
+    max-height: none;
+    overflow: hidden;
+    pointer-events: none;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    z-index: 40;
+}
+
+.aui-root .burger-menu[data-lol="true"] + .sidebar {
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+.aui-root .sidebar > div {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    max-height: none;
+    padding-top: 5.5rem;
+}
+
+@media (min-width: 1024px) {
+    .aui-root .container\:xl {
+        transition: padding-left 200ms ease;
+    }
+
+    .aui-root .container\:xl:has(.burger-menu[data-lol="true"]) {
+        padding-left: 20rem;
+    }
+}
