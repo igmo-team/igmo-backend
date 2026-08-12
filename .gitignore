@@ -5,6 +5,7 @@ HELP.md
 deploy/nginx/certs/
 .gradle
 build/
+node_modules/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
