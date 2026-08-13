@@ -152,6 +152,9 @@ class GameWebSocketE2ETest {
                 .containsExactly("VOTE_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/RoundResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("ROUND_RESULT_SNAPSHOT");
+        assertThat(enumValues(document.at(
+                "/components/schemas/RoundResultSnapshotMessageSchema/properties/payload/properties/voteSkippedReason/enum")))
+                .containsExactly("ALL_PERFECT", "null");
         assertThat(enumValues(document.at("/components/schemas/GameResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("GAME_RESULT_SNAPSHOT");
     }
@@ -399,7 +402,7 @@ class GameWebSocketE2ETest {
                     triggered("VoteSnapshotMessage", "VOTE_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
                             "DIRECT", "투표 진행 상태", "투표 완료 수를 최신 payload로 갱신합니다.", voteSnapshot, List.of("vote"), roomMessage(VoteSnapshot.class)),
                     triggered("RoundResultSnapshotMessage", "ROUND_RESULT_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
-                            "DIRECT", "라운드 결과", "정답, 득표, 점수와 결과 화면을 payload로 갱신합니다.", result, List.of("result"), roomMessage(RoundResultSnapshot.class))
+                            "DIRECT", "라운드 결과", "정답, 득표, 점수와 투표 생략 사유를 payload로 갱신합니다.", result, List.of("result"), roomMessage(RoundResultSnapshot.class))
             ));
         } finally {
             scenario.close();

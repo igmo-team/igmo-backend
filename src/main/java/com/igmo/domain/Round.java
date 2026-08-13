@@ -2,8 +2,8 @@ package com.igmo.domain;
 
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
-import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
+import com.igmo.domain.exception.GuessNotAllowedException;
 import com.igmo.domain.exception.InvalidVoteOptionException;
 import com.igmo.domain.exception.PerfectGuessAlreadyConfirmedException;
 import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
@@ -139,6 +139,12 @@ public class Round {
 
     public boolean hasPerfectGuesser(Collection<String> participantIds) {
         return participantIds.stream().anyMatch(this::isPerfectGuesser);
+    }
+
+    public boolean hasAllPerfectGuessers(Collection<String> participantIds) {
+        return participantIds.stream()
+                .filter(participantId -> !questionerId.equals(participantId))
+                .allMatch(this::isPerfectGuesser);
     }
 
     public List<VoteOption> getVoteOptions() {

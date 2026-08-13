@@ -45,6 +45,7 @@ class RoundResultSnapshotTest {
             softly.assertThat(snapshot.answerText()).isEqualTo("호스트 프롬프트");
             softly.assertThat(snapshot.resultStartedAt()).isEqualTo(RESULTS_OPENED_AT);
             softly.assertThat(snapshot.resultDeadline()).isEqualTo(RESULTS_OPENED_AT.plus(RESULT_DURATION));
+            softly.assertThat(snapshot.voteSkippedReason()).isNull();
             softly.assertThat(snapshot.results())
                     .extracting(view -> view.player().id(), RoundResultView::isAnswer, RoundResultView::roundScore)
                     .containsExactlyInAnyOrder(
