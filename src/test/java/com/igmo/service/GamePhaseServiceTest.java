@@ -56,6 +56,7 @@ import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteOptionView;
 import com.igmo.web.dto.VoteDisabledReason;
+import com.igmo.web.dto.VoteSkippedReason;
 import com.igmo.web.dto.VoteSnapshot;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -967,6 +968,7 @@ class GamePhaseServiceTest {
         RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
+            softly.assertThat(snapshot.voteSkippedReason()).isEqualTo(VoteSkippedReason.ALL_PERFECT);
             softly.assertThat(snapshot.players())
                     .filteredOn(player -> player.id().equals(playerIds.get(1)) || player.id().equals(playerIds.get(2)))
                     .extracting(player -> player.score())
@@ -1153,7 +1155,10 @@ class GamePhaseServiceTest {
 
         // then
         RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
-        assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
+            softly.assertThat(snapshot.voteSkippedReason()).isNull();
+        });
         verify(scheduledPromptExpiration, times(3)).cancel(false);
     }
 

@@ -181,6 +181,52 @@ class RoundTest {
     }
 
     @Test
+    @DisplayName("추측자가 없으면 모든 PERFECT 추측자로 판단하지 않는다.")
+    void hasAllPerfectGuessers_추측자가_없으면_false를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+
+        // when & then
+        assertThat(round.hasAllPerfectGuessers(List.of("questioner"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("추측자가 모두 PERFECT면 모든 PERFECT 추측자로 판단한다.")
+    void hasAllPerfectGuessers_모두_PERFECT면_true를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가피아노를치는장면", SUBMITTED_AT);
+
+        // when & then
+        assertThat(round.hasAllPerfectGuessers(List.of("questioner", "guesser-1", "guesser-2"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("일부 추측자만 PERFECT면 모든 PERFECT 추측자로 판단하지 않는다.")
+    void hasAllPerfectGuessers_일부만_PERFECT면_false를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+
+        // when & then
+        assertThat(round.hasAllPerfectGuessers(List.of("questioner", "guesser-1", "guesser-2"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("PERFECT 추측자가 없으면 모든 PERFECT 추측자로 판단하지 않는다.")
+    void hasAllPerfectGuessers_아무도_PERFECT가_아니면_false를_반환한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+
+        // when & then
+        assertThat(round.hasAllPerfectGuessers(List.of("questioner", "guesser-1", "guesser-2"))).isFalse();
+    }
+
+    @Test
     @DisplayName("라운드는 출제자와 정답 프롬프트 엔트리를 보관한다.")
     void create_라운드_정보를_보관한다() {
         // given

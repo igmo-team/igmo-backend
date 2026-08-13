@@ -25,6 +25,7 @@ public record RoundResultSnapshot(
         String answerText,
         Instant resultStartedAt,
         Instant resultDeadline,
+        VoteSkippedReason voteSkippedReason,
         List<RoundResultView> results,
         List<PlayerView> players
 ) {
@@ -53,9 +54,17 @@ public record RoundResultSnapshot(
                 round.getAnswerEntry().getPrompt(),
                 room.getResultStartedAt(),
                 room.getResultDeadline(),
+                voteSkippedReason(round, room),
                 results,
                 players
         );
+    }
+
+    private static VoteSkippedReason voteSkippedReason(Round round, GameRoom room) {
+        if (round.hasAllPerfectGuessers(room.getPlayers().stream().map(Player::getId).toList())) {
+            return VoteSkippedReason.ALL_PERFECT;
+        }
+        return null;
     }
 
     private static Map<String, List<PlayerView>> votersByOptionId(Round round, Map<String, Player> playersById) {

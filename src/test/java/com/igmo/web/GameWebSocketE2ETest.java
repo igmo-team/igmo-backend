@@ -30,8 +30,8 @@ import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
-import com.igmo.web.dto.VoteSnapshot;
 import com.igmo.web.dto.VoteRequest;
+import com.igmo.web.dto.VoteSnapshot;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
@@ -123,7 +123,8 @@ class GameWebSocketE2ETest {
 
         assertThat(document.path("asyncapi").asText()).isEqualTo("3.1.0");
         assertThat(document.path("servers").path("websocket").path("description").asText())
-                .isEqualTo("WebSocket endpoint: `" + System.getProperty("websocket.docs.server-url", "ws://localhost:8080/ws") + "`");
+                .isEqualTo("WebSocket endpoint: `" + System.getProperty("websocket.docs.server-url",
+                        "ws://localhost:8080/ws") + "`");
         assertThat(document.path("operations").path("sendChangeReady").path("action").asText()).isEqualTo("send");
         assertThat(document.path("operations").path("sendStartGame").path("action").asText()).isEqualTo("send");
         assertThat(document.path("operations").path("sendSubmitPrompt").path("action").asText()).isEqualTo("send");
@@ -138,20 +139,26 @@ class GameWebSocketE2ETest {
                 .isEqualTo("receive");
         assertThat(document.path("components").path("messages").has("GameResultSnapshotMessage")).isTrue();
         assertThat(document.path("components").path("messages").has("ErrorMessage")).isTrue();
-        assertThat(enumValues(document.at("/components/schemas/GuessSubmissionRejectedMessageSchema/properties/status/enum")))
+        assertThat(enumValues(
+                document.at("/components/schemas/GuessSubmissionRejectedMessageSchema/properties/status/enum")))
                 .containsExactly("REJECTED");
-        assertThat(enumValues(document.at("/components/schemas/ImageGenerationReadyMessageSchema/properties/status/enum")))
+        assertThat(
+                enumValues(document.at("/components/schemas/ImageGenerationReadyMessageSchema/properties/status/enum")))
                 .containsExactly("READY");
         assertThat(enumValues(document.at("/components/schemas/RoundSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("ROUND_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("LOBBY_SNAPSHOT");
-        assertThat(enumValues(document.at("/components/schemas/PromptSubmissionSnapshotMessageSchema/properties/type/enum")))
+        assertThat(enumValues(
+                document.at("/components/schemas/PromptSubmissionSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("PROMPT_SUBMISSION_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/VoteSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("VOTE_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/RoundResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("ROUND_RESULT_SNAPSHOT");
+        assertThat(enumValues(document.at(
+                "/components/schemas/RoundResultSnapshotMessageSchema/properties/payload/properties/voteSkippedReason/enum")))
+                .containsExactly("ALL_PERFECT", "null");
         assertThat(enumValues(document.at("/components/schemas/GameResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("GAME_RESULT_SNAPSHOT");
     }
@@ -207,7 +214,8 @@ class GameWebSocketE2ETest {
                     "startGame", "게임 시작", List.of("lobby", "prompt"),
                     "방장만 보냅니다. 최소 인원이 충족되고 다른 플레이어가 준비 완료한 뒤 보냅니다.",
                     request("/app/rooms/{roomCode}/start", "StartRequest", "게임을 시작합니다. 요청 body가 없습니다.", null),
-                    triggered("PromptSubmissionSnapshotMessage", "PROMPT_SUBMISSION_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
+                    triggered("PromptSubmissionSnapshotMessage", "PROMPT_SUBMISSION_SNAPSHOT",
+                            "/topic/rooms/{roomCode}", "BROADCAST",
                             "DIRECT", "프롬프트 제출 단계 상태", "프롬프트 입력 화면과 마감 시각을 표시합니다.", promptSnapshot,
                             List.of("prompt"), roomMessage(PromptSubmissionSnapshot.class))
             ));
@@ -245,10 +253,13 @@ class GameWebSocketE2ETest {
                     "게임이 프롬프트 입력 단계일 때 현재 플레이어의 이미지 생성 프롬프트를 보냅니다.",
                     request("/app/rooms/{roomCode}/prompts", "PromptRequest", "이미지 생성에 사용할 프롬프트를 제출합니다.", request),
                     triggered("ImageGenerationGeneratingMessage", "GENERATING", "/user/queue/image-generation", "USER",
-                            "DIRECT", "이미지 생성 시작 상태", "현재 플레이어의 이미지 생성 중 상태를 표시합니다.", generating, List.of("prompt"), payload(ImageGenerationEvent.class)),
+                            "DIRECT", "이미지 생성 시작 상태", "현재 플레이어의 이미지 생성 중 상태를 표시합니다.", generating, List.of("prompt"),
+                            payload(ImageGenerationEvent.class)),
                     triggered("ImageGenerationReadyMessage", "READY", "/user/queue/image-generation", "USER",
-                            "FOLLOW_UP", "이미지 생성 완료 상태", "이미지 URL을 사용해 현재 플레이어의 생성 결과를 표시합니다.", ready, List.of("prompt"), payload(ImageGenerationEvent.class)),
-                    triggered("PromptSubmissionSnapshotMessage", "PROMPT_SUBMISSION_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
+                            "FOLLOW_UP", "이미지 생성 완료 상태", "이미지 URL을 사용해 현재 플레이어의 생성 결과를 표시합니다.", ready,
+                            List.of("prompt"), payload(ImageGenerationEvent.class)),
+                    triggered("PromptSubmissionSnapshotMessage", "PROMPT_SUBMISSION_SNAPSHOT",
+                            "/topic/rooms/{roomCode}", "BROADCAST",
                             "FOLLOW_UP", "프롬프트 제출 상태", "모든 플레이어의 프롬프트·이미지 상태를 최신 payload로 갱신합니다.", promptSnapshot,
                             List.of("prompt"), roomMessage(PromptSubmissionSnapshot.class)),
                     triggered("RoundSnapshotMessage", "ROUND_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
@@ -286,9 +297,11 @@ class GameWebSocketE2ETest {
                     "게임이 프롬프트 입력 단계일 때 현재 플레이어의 이미지 생성 프롬프트를 보냅니다.",
                     request("/app/rooms/{roomCode}/prompts", "PromptRequest", "이미지 생성에 사용할 프롬프트를 제출합니다.", request),
                     triggered("ImageGenerationGeneratingMessage", "GENERATING", "/user/queue/image-generation", "USER",
-                            "DIRECT", "이미지 생성 시작 상태", "현재 플레이어의 이미지 생성 중 상태를 표시합니다.", generating, List.of("prompt"), payload(ImageGenerationEvent.class)),
+                            "DIRECT", "이미지 생성 시작 상태", "현재 플레이어의 이미지 생성 중 상태를 표시합니다.", generating, List.of("prompt"),
+                            payload(ImageGenerationEvent.class)),
                     triggered("ImageGenerationFailedMessage", "FAILED", "/user/queue/image-generation", "USER",
-                            "FOLLOW_UP", "이미지 생성 실패 상태", "errorMessage를 표시하고 재시도 또는 안내 UI를 제공합니다.", failed, List.of("prompt", "error"), payload(ImageGenerationEvent.class))
+                            "FOLLOW_UP", "이미지 생성 실패 상태", "errorMessage를 표시하고 재시도 또는 안내 UI를 제공합니다.", failed,
+                            List.of("prompt", "error"), payload(ImageGenerationEvent.class))
             ));
         } finally {
             scenario.close();
@@ -323,7 +336,8 @@ class GameWebSocketE2ETest {
                             "DIRECT", "추측 제출 결과", "현재 플레이어의 제출 완료 상태를 표시하고 중복 전송을 막습니다.", submitted,
                             List.of("guess"), payload(GuessSubmissionSnapshot.class)),
                     triggered("RoundSnapshotMessage", "ROUND_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
-                            "DIRECT", "라운드 추측 진행 상태", "다른 플레이어의 제출 여부를 최신 payload로 갱신합니다.", round, List.of("guess"), roomMessage(RoundSnapshot.class))
+                            "DIRECT", "라운드 추측 진행 상태", "다른 플레이어의 제출 여부를 최신 payload로 갱신합니다.", round, List.of("guess"),
+                            roomMessage(RoundSnapshot.class))
             ));
         } finally {
             scenario.close();
@@ -343,7 +357,8 @@ class GameWebSocketE2ETest {
             scenario.clearAllQueues();
 
             first.session().send(sendDestination(scenario, "guesses"), new GuessRequest("duplicate guess"));
-            awaitMessage(first.guessSubmissionMessages(), message -> message.path("status").asText().equals("SUBMITTED"), "initial guess");
+            awaitMessage(first.guessSubmissionMessages(),
+                    message -> message.path("status").asText().equals("SUBMITTED"), "initial guess");
             first.session().send(sendDestination(scenario, "guesses"), new GuessRequest("duplicate guess"));
             JsonNode rejected = awaitMessage(first.guessSubmissionMessages(), message ->
                     message.path("status").asText().equals("REJECTED"), "guess REJECTED");
@@ -358,15 +373,21 @@ class GameWebSocketE2ETest {
             writeSnippet("submit-guess-statuses", snippet(
                     "submitGuess", "추측 제출", List.of("guess", "vote"),
                     "라운드 추측 단계에서 출제자가 아닌 플레이어가 추측 문장을 보냅니다.",
-                    request("/app/rooms/{roomCode}/guesses", "GuessRequest", "현재 라운드의 추측을 제출합니다.", new GuessRequest("duplicate guess")),
+                    request("/app/rooms/{roomCode}/guesses", "GuessRequest", "현재 라운드의 추측을 제출합니다.",
+                            new GuessRequest("duplicate guess")),
                     triggered("GuessSubmissionRejectedMessage", "REJECTED", "/user/queue/guess-submission", "USER",
-                            "DIRECT", "추측 거절 결과", "message를 표시하고 입력을 수정해 다시 제출할 수 있게 합니다.", rejected, List.of("guess"), payload(GuessSubmissionSnapshot.class)),
-                    triggered("GuessSubmissionPerfectMessage", "PERFECT_RETRY_REQUIRED", "/user/queue/guess-submission", "USER",
-                            "DIRECT", "정답 추측 결과", "확정 점수를 표시하고 안내에 따라 다른 추측을 다시 제출하게 합니다.", perfect, List.of("guess"), payload(GuessSubmissionSnapshot.class)),
+                            "DIRECT", "추측 거절 결과", "message를 표시하고 입력을 수정해 다시 제출할 수 있게 합니다.", rejected, List.of("guess"),
+                            payload(GuessSubmissionSnapshot.class)),
+                    triggered("GuessSubmissionPerfectMessage", "PERFECT_RETRY_REQUIRED", "/user/queue/guess-submission",
+                            "USER",
+                            "DIRECT", "정답 추측 결과", "확정 점수를 표시하고 안내에 따라 다른 추측을 다시 제출하게 합니다.", perfect, List.of("guess"),
+                            payload(GuessSubmissionSnapshot.class)),
                     triggered("VoteSnapshotMessage", "VOTE_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
-                            "FOLLOW_UP", "투표 시작 상태", "투표 보기와 마감 시각을 표시합니다.", vote, List.of("vote"), roomMessage(VoteSnapshot.class)),
+                            "FOLLOW_UP", "투표 시작 상태", "투표 보기와 마감 시각을 표시합니다.", vote, List.of("vote"),
+                            roomMessage(VoteSnapshot.class)),
                     triggered("OwnVoteOptionNoticeMessage", "OWN_VOTE_OPTION", "/user/queue/vote-own-option", "USER",
-                            "FOLLOW_UP", "본인 투표 보기 안내", "voteAllowed와 optionId에 따라 선택 불가 보기를 처리합니다.", ownVoteOption, List.of("vote"), payload(OwnVoteOptionNotice.class))
+                            "FOLLOW_UP", "본인 투표 보기 안내", "voteAllowed와 optionId에 따라 선택 불가 보기를 처리합니다.", ownVoteOption,
+                            List.of("vote"), payload(OwnVoteOptionNotice.class))
             ));
         } finally {
             scenario.close();
@@ -397,9 +418,12 @@ class GameWebSocketE2ETest {
                     "투표 단계에서 voteAllowed가 true인 현재 플레이어가 본인 보기가 아닌 optionId를 보냅니다.",
                     request("/app/rooms/{roomCode}/votes", "VoteRequest", "투표할 보기의 optionId를 제출합니다.", firstRequest),
                     triggered("VoteSnapshotMessage", "VOTE_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
-                            "DIRECT", "투표 진행 상태", "투표 완료 수를 최신 payload로 갱신합니다.", voteSnapshot, List.of("vote"), roomMessage(VoteSnapshot.class)),
-                    triggered("RoundResultSnapshotMessage", "ROUND_RESULT_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
-                            "DIRECT", "라운드 결과", "정답, 득표, 점수와 결과 화면을 payload로 갱신합니다.", result, List.of("result"), roomMessage(RoundResultSnapshot.class))
+                            "DIRECT", "투표 진행 상태", "투표 완료 수를 최신 payload로 갱신합니다.", voteSnapshot, List.of("vote"),
+                            roomMessage(VoteSnapshot.class)),
+                    triggered("RoundResultSnapshotMessage", "ROUND_RESULT_SNAPSHOT", "/topic/rooms/{roomCode}",
+                            "BROADCAST",
+                            "DIRECT", "라운드 결과", "정답, 득표, 점수와 투표 생략 사유를 payload로 갱신합니다.", result, List.of("result"),
+                            roomMessage(RoundResultSnapshot.class))
             ));
         } finally {
             scenario.close();
@@ -433,7 +457,8 @@ class GameWebSocketE2ETest {
                     "submitVote", "투표 제출", List.of("vote", "result"),
                     "투표 단계에서 voteAllowed가 true인 현재 플레이어가 본인 보기가 아닌 optionId를 보냅니다.",
                     request("/app/rooms/{roomCode}/votes", "VoteRequest", "투표할 보기의 optionId를 제출합니다.", lastVoteRequest),
-                    triggered("GameResultSnapshotMessage", "GAME_RESULT_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
+                    triggered("GameResultSnapshotMessage", "GAME_RESULT_SNAPSHOT", "/topic/rooms/{roomCode}",
+                            "BROADCAST",
                             "FOLLOW_UP", "게임 최종 결과", "마지막 라운드 결과 시간이 지난 뒤 최종 순위 화면으로 전환합니다.", gameResult,
                             List.of("result"), roomMessage(GameResultSnapshot.class))
             ));
@@ -459,7 +484,8 @@ class GameWebSocketE2ETest {
                     "방장만 보냅니다. 최소 인원이 충족되고 다른 플레이어가 준비 완료한 뒤 보냅니다.",
                     request("/app/rooms/{roomCode}/start", "StartRequest", "게임을 시작합니다. 요청 body가 없습니다.", null),
                     triggered("ErrorMessage", "ERROR", "/user/queue/errors", "USER",
-                            "DIRECT", "게임 시작 오류", "message를 표시하고 현재 상태에서 가능한 행동을 유지합니다.", error, List.of("error"), payload(ErrorResponse.class))
+                            "DIRECT", "게임 시작 오류", "message를 표시하고 현재 상태에서 가능한 행동을 유지합니다.", error, List.of("error"),
+                            payload(ErrorResponse.class))
             ));
         } finally {
             scenario.close();
@@ -513,7 +539,8 @@ class GameWebSocketE2ETest {
         JsonNode vote = awaitTopic(scenario, RoomMessageType.VOTE_SNAPSHOT.name());
         Map<String, JsonNode> notices = new HashMap<>();
         for (PlayerConnection player : scenario.players()) {
-            notices.put(player.playerId(), awaitMessage(player.ownVoteOptionMessages(), ignored -> true, "own vote option"));
+            notices.put(player.playerId(),
+                    awaitMessage(player.ownVoteOptionMessages(), ignored -> true, "own vote option"));
         }
         List<PlayerConnection> voters = scenario.players().stream()
                 .filter(player -> notices.get(player.playerId()).path("voteAllowed").asBoolean())
@@ -535,13 +562,16 @@ class GameWebSocketE2ETest {
     private JsonNode awaitTopicOrNextRound(GameScenario scenario) throws Exception {
         return awaitMessage(scenario.host().topicMessages(), message -> {
             String type = message.path("type").asText();
-            return type.equals(RoomMessageType.ROUND_SNAPSHOT.name()) || type.equals(RoomMessageType.GAME_RESULT_SNAPSHOT.name());
+            return type.equals(RoomMessageType.ROUND_SNAPSHOT.name()) || type.equals(
+                    RoomMessageType.GAME_RESULT_SNAPSHOT.name());
         }, "next round or game result");
     }
 
-    private void submitPromptAndAwaitReady(GameScenario scenario, PlayerConnection player, String prompt) throws Exception {
+    private void submitPromptAndAwaitReady(GameScenario scenario, PlayerConnection player, String prompt)
+            throws Exception {
         player.session().send(sendDestination(scenario, "prompts"), new PromptRequest(prompt));
-        awaitMessage(player.imageGenerationMessages(), message -> message.path("status").asText().equals("READY"), "image READY");
+        awaitMessage(player.imageGenerationMessages(), message -> message.path("status").asText().equals("READY"),
+                "image READY");
     }
 
     private void readyGuests(GameScenario scenario) throws Exception {
@@ -556,7 +586,8 @@ class GameWebSocketE2ETest {
         return nonQuestioners(scenario, roundSnapshot).getFirst();
     }
 
-    private PlayerConnection otherNonQuestioner(GameScenario scenario, JsonNode roundSnapshot, PlayerConnection player) {
+    private PlayerConnection otherNonQuestioner(GameScenario scenario, JsonNode roundSnapshot,
+                                                PlayerConnection player) {
         return nonQuestioners(scenario, roundSnapshot).stream()
                 .filter(candidate -> !candidate.playerId().equals(player.playerId()))
                 .findFirst()
@@ -620,30 +651,38 @@ class GameWebSocketE2ETest {
         return response.getBody();
     }
 
-    private PlayerConnection connect(String roomCode, String playerId, String secret, String nickname) throws Exception {
+    private PlayerConnection connect(String roomCode, String playerId, String secret, String nickname)
+            throws Exception {
         WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
         client.setMessageConverter(new MappingJackson2MessageConverter());
         StompHeaders headers = new StompHeaders();
         headers.add(PlayerSessionInterceptor.ROOM_CODE_ATTRIBUTE, roomCode);
         headers.add(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE, playerId);
         headers.add(PlayerSessionInterceptor.SECRET_HEADER, secret);
-        StompSession session = client.connectAsync("ws://localhost:" + port + "/ws", new WebSocketHttpHeaders(), headers,
-                        new StompSessionHandlerAdapter() {})
+        StompSession session = client.connectAsync("ws://localhost:" + port + "/ws", new WebSocketHttpHeaders(),
+                        headers,
+                        new StompSessionHandlerAdapter() {
+                        })
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         PlayerConnection connection = new PlayerConnection(playerId, nickname, client, session);
         session.subscribe("/topic/rooms/" + roomCode, new JsonNodeStompFrameHandler(connection.topicMessages()));
-        session.subscribe("/user/queue/image-generation", new JsonNodeStompFrameHandler(connection.imageGenerationMessages()));
-        session.subscribe("/user/queue/guess-submission", new JsonNodeStompFrameHandler(connection.guessSubmissionMessages()));
-        session.subscribe("/user/queue/vote-own-option", new JsonNodeStompFrameHandler(connection.ownVoteOptionMessages()));
+        session.subscribe("/user/queue/image-generation",
+                new JsonNodeStompFrameHandler(connection.imageGenerationMessages()));
+        session.subscribe("/user/queue/guess-submission",
+                new JsonNodeStompFrameHandler(connection.guessSubmissionMessages()));
+        session.subscribe("/user/queue/vote-own-option",
+                new JsonNodeStompFrameHandler(connection.ownVoteOptionMessages()));
         session.subscribe("/user/queue/errors", new JsonNodeStompFrameHandler(connection.errorMessages()));
         return connection;
     }
 
     private JsonNode awaitTopic(GameScenario scenario, String type) throws Exception {
-        return awaitMessage(scenario.host().topicMessages(), message -> message.path("type").asText().equals(type), type);
+        return awaitMessage(scenario.host().topicMessages(), message -> message.path("type").asText().equals(type),
+                type);
     }
 
-    private JsonNode awaitMessage(BlockingQueue<JsonNode> queue, java.util.function.Predicate<JsonNode> predicate, String expected)
+    private JsonNode awaitMessage(BlockingQueue<JsonNode> queue, java.util.function.Predicate<JsonNode> predicate,
+                                  String expected)
             throws Exception {
         List<JsonNode> observed = new ArrayList<>();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
