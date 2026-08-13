@@ -142,9 +142,13 @@ public class Round {
     }
 
     public boolean hasAllPerfectGuessers(Collection<String> participantIds) {
-        return participantIds.stream()
+        List<String> guesserIds = participantIds.stream()
+                //출제자를 제외한 참가자만 필터링
                 .filter(participantId -> !questionerId.equals(participantId))
-                .allMatch(this::isPerfectGuesser);
+                .toList();
+        return !guesserIds.isEmpty() && guesserIds.stream().allMatch(this::isPerfectGuesser); //완벽 정답자 인가
+        //플레이어가 한명일 땐 출제자는 제외된다. 따라서 빈 스트림이 반환되어서 true를 반환한다.
+        // 따라서 출제자를 제외한 참가자가 한 명도 없으면 완벽 정답자도 없으므로 false를 반환해야 한다.
     }
 
     public List<VoteOption> getVoteOptions() {
