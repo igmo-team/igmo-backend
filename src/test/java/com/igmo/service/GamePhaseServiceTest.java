@@ -24,6 +24,7 @@ import com.igmo.domain.GameRoom;
 import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
+import com.igmo.domain.PromptSubmissionType;
 import com.igmo.domain.SamplePrompt;
 import com.igmo.domain.exception.DuplicatePromptSubmissionException;
 import com.igmo.domain.exception.NotHostException;
@@ -187,7 +188,8 @@ class GamePhaseServiceTest {
                             tuple(guest2.playerId(), PromptEntryStatus.WAITING)
                     );
         });
-        verify(gamePhaseDeadlineScheduler).schedule(any(Runnable.class), eq(promptSnapshot.promptDeadline()));
+        Instant finalSubmissionDeadline = gameRegistry.find("ABCD").orElseThrow().getFinalPromptSubmissionDeadline();
+        verify(gamePhaseDeadlineScheduler).schedule(any(Runnable.class), eq(finalSubmissionDeadline));
     }
 
     @Test
@@ -263,7 +265,7 @@ class GamePhaseServiceTest {
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면", PromptSubmissionType.NORMAL);
 
         // then
         PromptEntry entry = findPromptEntry("ABCD", guest1.playerId());
@@ -295,7 +297,7 @@ class GamePhaseServiceTest {
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
         gamePhaseService.startGame("ABCD", created.playerId());
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면", PromptSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
@@ -411,7 +413,7 @@ class GamePhaseServiceTest {
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
         gamePhaseService.startGame("ABCD", created.playerId());
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "고양이가 피아노를 치는 장면", PromptSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
@@ -453,12 +455,12 @@ class GamePhaseServiceTest {
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
         gamePhaseService.startGame("ABCD", created.playerId());
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "실패한 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "실패한 프롬프트", PromptSubmissionType.NORMAL);
         runImageGenerationTask();
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "다시 입력한 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "다시 입력한 프롬프트", PromptSubmissionType.NORMAL);
         runImageGenerationTask();
 
         // then
@@ -561,9 +563,9 @@ class GamePhaseServiceTest {
         GameSession session = startGeneratingGame();
 
         // when
-        gamePhaseService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트");
-        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
-        gamePhaseService.submitPrompt("ABCD", session.guest2().playerId(), "참가자2 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.host().playerId(), "호스트 프롬프트", PromptSubmissionType.NORMAL);
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트", PromptSubmissionType.NORMAL);
+        gamePhaseService.submitPrompt("ABCD", session.guest2().playerId(), "참가자2 프롬프트", PromptSubmissionType.NORMAL);
 
         // then
         verify(scheduledPromptExpiration, never()).cancel(false);
@@ -660,9 +662,9 @@ class GamePhaseServiceTest {
         // given
         GameSession session = startGeneratingGame();
         submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트", PromptSubmissionType.NORMAL);
         Runnable lateGuest1Generation = imageGenerationTask;
-        gamePhaseService.submitPrompt("ABCD", session.guest2().playerId(), "참가자2 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest2().playerId(), "참가자2 프롬프트", PromptSubmissionType.NORMAL);
         givenGenerationFailure("참가자1 프롬프트", new RuntimeException("이미지 생성 실패"));
         captureScheduledPromptExpiration().run();
         expirePromptDeadline();
@@ -688,7 +690,7 @@ class GamePhaseServiceTest {
     @DisplayName("존재하지 않는 방에 프롬프트를 제출하면 RoomNotFoundException을 던진다.")
     void submitPrompt_없는_방이면_예외를_던진다() {
         // when & then
-        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ZZZZ", "player-id", "프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ZZZZ", "player-id", "프롬프트", PromptSubmissionType.NORMAL))
                 .isInstanceOf(RoomNotFoundException.class)
                 .hasMessage("방을 찾을 수 없습니다.");
     }
@@ -701,7 +703,7 @@ class GamePhaseServiceTest {
         gameLobbyService.createGame("호스트");
 
         // when & then
-        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", "unknown-player-id", "프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", "unknown-player-id", "프롬프트", PromptSubmissionType.NORMAL))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
     }
@@ -714,7 +716,7 @@ class GamePhaseServiceTest {
         CreateGameResponse created = gameLobbyService.createGame("호스트");
 
         // when & then
-        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", created.playerId(), "프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", created.playerId(), "프롬프트", PromptSubmissionType.NORMAL))
                 .isInstanceOf(PromptSubmissionNotAllowedException.class)
                 .hasMessage("프롬프트를 제출할 수 있는 단계가 아닙니다.");
     }
@@ -730,17 +732,17 @@ class GamePhaseServiceTest {
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
         gamePhaseService.startGame("ABCD", created.playerId());
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "첫 번째 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "첫 번째 프롬프트", PromptSubmissionType.NORMAL);
 
         // when & then
-        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "두 번째 프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "두 번째 프롬프트", PromptSubmissionType.NORMAL))
                 .isInstanceOf(DuplicatePromptSubmissionException.class)
                 .hasMessage("이미 프롬프트를 제출했습니다.");
     }
 
     @Test
-    @DisplayName("프롬프트 마감 이후 제출하면 PromptSubmissionExpiredException을 전파한다.")
-    void submitPrompt_마감_이후이면_예외를_전파한다() {
+    @DisplayName("입력 마감 이후 NORMAL 제출이면 PromptSubmissionExpiredException을 전파한다.")
+    void submitPrompt_입력_마감_이후_NORMAL이면_예외를_전파한다() {
         // given
         ReflectionTestUtils.setField(gamePhaseService, "promptDuration", Duration.ofMillis(-1));
         given(roomCodeGenerator.generate()).willReturn("ABCD");
@@ -752,9 +754,123 @@ class GamePhaseServiceTest {
         gamePhaseService.startGame("ABCD", created.playerId());
 
         // when & then
-        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "늦은 프롬프트"))
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "늦은 프롬프트", PromptSubmissionType.NORMAL))
                 .isInstanceOf(PromptSubmissionExpiredException.class)
                 .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
+    }
+
+    @Test
+    @DisplayName("Grace Period 내 DEADLINE 제출이면 기존 이미지 생성 흐름을 시작한다.")
+    void submitPrompt_Grace_Period_내_DEADLINE이면_이미지_생성을_시작한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ReflectionTestUtils.setField(room, "promptDeadline", Instant.now().minusMillis(500));
+        ReflectionTestUtils.setField(room, "finalPromptSubmissionDeadline", Instant.now().plusSeconds(1));
+
+        // when
+        gamePhaseService.submitPrompt(
+                "ABCD",
+                session.guest1().playerId(),
+                "마감 프롬프트",
+                PromptSubmissionType.DEADLINE);
+
+        // then
+        PromptEntry entry = findPromptEntry("ABCD", session.guest1().playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(entry.getPrompt()).isEqualTo("마감 프롬프트");
+            softly.assertThat(imageGenerationTask).isNotNull();
+        });
+    }
+
+    @Test
+    @DisplayName("최종 제출 마감 이후 DEADLINE 제출이면 이미지 생성을 시작하지 않는다.")
+    void submitPrompt_최종_마감_이후_DEADLINE이면_이미지_생성을_시작하지_않는다() {
+        // given
+        GameSession session = startGeneratingGame();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ReflectionTestUtils.setField(room, "promptDeadline", Instant.now().minusSeconds(2));
+        ReflectionTestUtils.setField(room, "finalPromptSubmissionDeadline", Instant.now().minusSeconds(1));
+
+        // when & then
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt(
+                "ABCD",
+                session.guest1().playerId(),
+                "너무 늦은 프롬프트",
+                PromptSubmissionType.DEADLINE))
+                .isInstanceOf(PromptSubmissionExpiredException.class)
+                .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
+        assertThat(imageGenerationTask).isNull();
+    }
+
+    @Test
+    @DisplayName("DEADLINE 제출 후 fallback이 실행되어도 생성 중 이미지를 샘플로 바꾸지 않는다.")
+    void promptExpiration_DEADLINE_제출_후에는_GENERATING을_유지한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ReflectionTestUtils.setField(room, "promptDeadline", Instant.now().minusMillis(500));
+        gamePhaseService.submitPrompt(
+                "ABCD",
+                session.guest1().playerId(),
+                "마감 프롬프트",
+                PromptSubmissionType.DEADLINE);
+
+        // when
+        captureScheduledPromptExpiration().run();
+
+        // then
+        PromptEntry entry = findPromptEntry("ABCD", session.guest1().playerId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(entry.getPrompt()).isEqualTo("마감 프롬프트");
+            softly.assertThat(entry.getImageUrl()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("같은 DEADLINE 제출을 연속 요청해도 이미지 생성은 한 번만 시작한다.")
+    void submitPrompt_중복_DEADLINE이면_이미지_생성을_한번만_시작한다() {
+        // given
+        GameSession session = startGeneratingGame();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ReflectionTestUtils.setField(room, "promptDeadline", Instant.now().minusMillis(500));
+        gamePhaseService.submitPrompt(
+                "ABCD",
+                session.guest1().playerId(),
+                "마감 프롬프트",
+                PromptSubmissionType.DEADLINE);
+        Runnable firstGeneration = imageGenerationTask;
+
+        // when & then
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt(
+                "ABCD",
+                session.guest1().playerId(),
+                "중복 마감 프롬프트",
+                PromptSubmissionType.DEADLINE))
+                .isInstanceOf(DuplicatePromptSubmissionException.class)
+                .hasMessage("이미 프롬프트를 제출했습니다.");
+        assertThat(imageGenerationTask).isSameAs(firstGeneration);
+    }
+
+    @Test
+    @DisplayName("fallback이 먼저 샘플을 확정하면 뒤이은 DEADLINE 제출은 이미지 생성을 시작하지 않는다.")
+    void submitPrompt_fallback_이후_DEADLINE이면_중복_이미지_생성을_막는다() {
+        // given
+        GameSession session = startGeneratingGame();
+        captureScheduledPromptExpiration().run();
+        imageGenerationTask = null;
+
+        // when & then
+        assertThatThrownBy(() -> gamePhaseService.submitPrompt(
+                "ABCD",
+                session.guest1().playerId(),
+                "뒤늦은 마감 프롬프트",
+                PromptSubmissionType.DEADLINE))
+                .isInstanceOf(DuplicatePromptSubmissionException.class)
+                .hasMessage("이미 프롬프트를 제출했습니다.");
+        assertThat(imageGenerationTask).isNull();
     }
 
 
@@ -1283,11 +1399,11 @@ class GamePhaseServiceTest {
         gameLobbyService.changeReady("ABCD", guest1.playerId(), true);
         gameLobbyService.changeReady("ABCD", guest2.playerId(), true);
         gamePhaseService.startGame("ABCD", created.playerId());
-        gamePhaseService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", created.playerId(), "호스트 프롬프트", PromptSubmissionType.NORMAL);
         runImageGenerationTask();
-        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest1.playerId(), "참가자1 프롬프트", PromptSubmissionType.NORMAL);
         runImageGenerationTask();
-        gamePhaseService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", guest2.playerId(), "참가자2 프롬프트", PromptSubmissionType.NORMAL);
         runImageGenerationTask();
         return List.of(created.playerId(), guest1.playerId(), guest2.playerId());
     }
@@ -1397,7 +1513,7 @@ class GamePhaseServiceTest {
     }
 
     private void submitPromptAndCompleteImage(String playerId, String prompt) {
-        gamePhaseService.submitPrompt("ABCD", playerId, prompt);
+        gamePhaseService.submitPrompt("ABCD", playerId, prompt, PromptSubmissionType.NORMAL);
         runImageGenerationTask();
     }
 
@@ -1429,7 +1545,7 @@ class GamePhaseServiceTest {
     private GameSession startExpirationScenarioWithMissingImages() {
         GameSession session = startGeneratingGame();
         submitPromptAndCompleteImage(session.host().playerId(), "호스트 프롬프트");
-        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트");
+        gamePhaseService.submitPrompt("ABCD", session.guest1().playerId(), "참가자1 프롬프트", PromptSubmissionType.NORMAL);
         return session;
     }
 

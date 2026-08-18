@@ -35,6 +35,7 @@ class GameRoomTest {
 
     private static final Instant PROMPT_STARTED_AT = Instant.parse("2026-07-06T10:00:00Z");
     private static final Duration PROMPT_DURATION = Duration.ofSeconds(30);
+    private static final Duration PROMPT_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final Instant GUESS_STARTED_AT = Instant.parse("2026-07-06T10:05:00Z");
     private static final Duration GUESS_DURATION = Duration.ofSeconds(60);
     private static final Instant VOTING_OPENED_AT = Instant.parse("2026-07-06T10:05:10Z");
@@ -282,7 +283,7 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("방장이 시작하면 프롬프트 시작 시각과 마감 시각을 저장한다.")
+    @DisplayName("방장이 시작하면 프롬프트 시작·입력 마감·최종 제출 마감 시각을 저장한다.")
     void start_조건을_충족하면_프롬프트_마감_시각을_저장한다() {
         // given
         Player host = new Player("호스트");
@@ -301,6 +302,8 @@ class GameRoomTest {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(room.getPromptStartedAt()).isEqualTo(PROMPT_STARTED_AT);
             softly.assertThat(room.getPromptDeadline()).isEqualTo(PROMPT_STARTED_AT.plus(PROMPT_DURATION));
+            softly.assertThat(room.getFinalPromptSubmissionDeadline())
+                    .isEqualTo(PROMPT_STARTED_AT.plus(PROMPT_DURATION).plus(PROMPT_SUBMISSION_GRACE_PERIOD));
         });
     }
 
@@ -760,7 +763,8 @@ class GameRoomTest {
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
         // when & then
-        assertThat(room.isPromptExpirationStale(PROMPT_STARTED_AT.plus(PROMPT_DURATION))).isFalse();
+        assertThat(room.isPromptExpirationStale(
+                PROMPT_STARTED_AT.plus(PROMPT_DURATION).plus(PROMPT_SUBMISSION_GRACE_PERIOD))).isFalse();
     }
 
     @Test
@@ -812,8 +816,8 @@ class GameRoomTest {
     }
 
     @Test
-    @DisplayName("마감 시각 이후 프롬프트를 제출하면 PromptSubmissionExpiredException을 던지고 대기 상태를 유지한다.")
-    void submitPrompt_마감_시각_이후이면_예외를_던지고_대기_상태를_유지한다() {
+    @DisplayName("입력 마감 이후 NORMAL 프롬프트를 제출하면 거부하고 대기 상태를 유지한다.")
+    void submitPrompt_입력_마감_이후_NORMAL이면_거부한다() {
         // given
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host);
@@ -831,6 +835,67 @@ class GameRoomTest {
                 .isInstanceOf(PromptSubmissionExpiredException.class)
                 .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
         assertThat(findPromptEntry(room, guest1.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
+    }
+
+    @Test
+    @DisplayName("입력 마감 이후 최종 제출 마감 이내 DEADLINE 프롬프트는 허용한다.")
+    void submitPrompt_Grace_Period_내_DEADLINE이면_허용한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // when
+        room.submitPrompt(
+                host.getId(),
+                "마감 프롬프트",
+                PROMPT_DEADLINE.plusMillis(500),
+                PromptSubmissionType.DEADLINE);
+
+        // then
+        PromptEntry entry = findPromptEntry(room, host.getId());
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(entry.getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+            softly.assertThat(entry.getPrompt()).isEqualTo("마감 프롬프트");
+        });
+    }
+
+    @Test
+    @DisplayName("최종 제출 마감 시각과 같은 DEADLINE 프롬프트는 허용한다.")
+    void submitPrompt_최종_마감_경계의_DEADLINE이면_허용한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // when
+        room.submitPrompt(
+                host.getId(),
+                "마감 경계 프롬프트",
+                room.getFinalPromptSubmissionDeadline(),
+                PromptSubmissionType.DEADLINE);
+
+        // then
+        assertThat(findPromptEntry(room, host.getId()).getStatus()).isEqualTo(PromptEntryStatus.GENERATING);
+    }
+
+    @Test
+    @DisplayName("최종 제출 마감 이후 DEADLINE 프롬프트는 거부한다.")
+    void submitPrompt_최종_마감_이후_DEADLINE이면_거부한다() {
+        // given
+        Player host = new Player("호스트");
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
+
+        // when & then
+        assertThatThrownBy(() -> room.submitPrompt(
+                host.getId(),
+                "늦은 마감 프롬프트",
+                room.getFinalPromptSubmissionDeadline().plusNanos(1),
+                PromptSubmissionType.DEADLINE))
+                .isInstanceOf(PromptSubmissionExpiredException.class)
+                .hasMessage("프롬프트 제출 시간이 만료되었습니다.");
+        assertThat(findPromptEntry(room, host.getId()).getStatus()).isEqualTo(PromptEntryStatus.WAITING);
     }
 
     @Test

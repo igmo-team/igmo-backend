@@ -42,7 +42,7 @@ public class GameMessageController {
                              @Valid PromptRequest request,
                              SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gamePhaseService.submitPrompt(code, playerId, request.prompt());
+        gamePhaseService.submitPrompt(code, playerId, request.prompt(), request.submissionType());
     }
 
     @MessageMapping("/rooms/{code}/guesses")

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.igmo.domain.PromptSubmissionType;
 import com.igmo.service.GameLobbyService;
 import com.igmo.service.GamePhaseService;
 import com.igmo.web.dto.GuessRequest;
@@ -92,10 +93,13 @@ class GameMessageControllerTest {
         SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
 
         // when
-        controller.submitPrompt("ABCD", new PromptRequest("프롬프트"), headerAccessor);
+        controller.submitPrompt(
+                "ABCD",
+                new PromptRequest("프롬프트", PromptSubmissionType.NORMAL),
+                headerAccessor);
 
         // then
-        verify(gamePhaseService).submitPrompt("ABCD", "player-1", "프롬프트");
+        verify(gamePhaseService).submitPrompt("ABCD", "player-1", "프롬프트", PromptSubmissionType.NORMAL);
     }
 
     @Test
@@ -106,7 +110,10 @@ class GameMessageControllerTest {
         headerAccessor.setSessionAttributes(new HashMap<>());
 
         // when & then
-        assertThatThrownBy(() -> controller.submitPrompt("ABCD", new PromptRequest("프롬프트"), headerAccessor))
+        assertThatThrownBy(() -> controller.submitPrompt(
+                "ABCD",
+                new PromptRequest("프롬프트", PromptSubmissionType.NORMAL),
+                headerAccessor))
                 .isInstanceOf(PlayerSessionNotFoundException.class)
                 .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
         verifyNoInteractions(gameLobbyService, gamePhaseService);
@@ -116,14 +123,22 @@ class GameMessageControllerTest {
     @DisplayName("프롬프트 제출 요청의 prompt가 null이면 검증에 실패한다.")
     void submitPrompt_prompt가_null이면_검증에_실패한다() {
         // when & then
-        assertPromptInvalid(new PromptRequest(null));
+        assertPromptInvalid(new PromptRequest(null, PromptSubmissionType.NORMAL));
     }
 
     @Test
     @DisplayName("프롬프트 제출 요청의 prompt가 공백이면 검증에 실패한다.")
     void submitPrompt_prompt가_공백이면_검증에_실패한다() {
         // when & then
-        assertPromptInvalid(new PromptRequest("   "));
+        assertPromptInvalid(new PromptRequest("   ", PromptSubmissionType.NORMAL));
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 요청의 submissionType이 null이면 검증에 실패한다.")
+    void submitPrompt_submissionType이_null이면_검증에_실패한다() {
+        assertThat(validator.validate(new PromptRequest("프롬프트", null)))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("프롬프트 제출 유형을 입력해주세요.");
     }
 
     @Test

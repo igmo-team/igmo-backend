@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.igmo.domain.PromptSubmissionType;
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.DuplicateVoteException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
@@ -148,7 +149,7 @@ class GameMessageExceptionHandlerTest {
                 PromptRequest.class,
                 SimpMessageHeaderAccessor.class
         );
-        PromptRequest request = new PromptRequest(" ");
+        PromptRequest request = new PromptRequest(" ", PromptSubmissionType.NORMAL);
         BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(request, "promptRequest");
         bindingResult.rejectValue("prompt", "NotBlank", "프롬프트를 입력해주세요.");
         Message<PromptRequest> message = gameMessage(request, "/app/rooms/ABCD/prompts");
