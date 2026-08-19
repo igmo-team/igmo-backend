@@ -4,6 +4,7 @@ import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.GuessSubmissionResult;
 import com.igmo.domain.PromptEntryStatus;
+import com.igmo.domain.PromptSubmissionType;
 import com.igmo.domain.SamplePrompt;
 import com.igmo.domain.exception.DuplicateGuessSubmissionException;
 import com.igmo.domain.exception.GuessMatchesOthersException;
@@ -70,13 +71,13 @@ public class GamePhaseService {
             room.changePlayerReady(playerId, true);
             room.start(playerId, Instant.now(), promptDuration);
             logPhaseTransition(code, fromPhase, room.getPhase());
-            schedulePromptExpiration(room.getCode(), room.getPromptDeadline());
+            schedulePromptExpiration(room.getCode(), room.getFinalPromptSubmissionDeadline());
             return PromptSubmissionSnapshot.from(room);
         });
         eventPublisher.publishPromptSubmission(code, promptSnapshot);
     }
 
-    public void submitPrompt(String code, String playerId, String prompt) {
+    public void submitPrompt(String code, String playerId, String prompt, PromptSubmissionType submissionType) {
         String submittedPrompt = prompt.trim();
 
         ImageGenerationEvent eventSnapshot = gameRoomRepository.update(code, room -> {
@@ -84,7 +85,7 @@ public class GamePhaseService {
                 throw new PlayerNotFoundException();
             }
             Instant submittedAt = Instant.now();
-            room.submitPrompt(playerId, submittedPrompt, submittedAt);
+            room.submitPrompt(playerId, submittedPrompt, submittedAt, submissionType);
             return new ImageGenerationEvent(code, PromptEntryStatus.GENERATING, submittedPrompt, null);
         });
 

@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.igmo.domain.PromptSubmissionType;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerator;
 import com.igmo.support.websocketdocs.AsyncApiGenerator;
@@ -159,6 +160,9 @@ class GameWebSocketE2ETest {
         assertThat(enumValues(document.at(
                 "/components/schemas/RoundResultSnapshotMessageSchema/properties/payload/properties/voteSkippedReason/enum")))
                 .containsExactly("ALL_PERFECT", "null");
+        assertThat(enumValues(document.at(
+                "/components/schemas/PromptRequestSchema/properties/submissionType/enum")))
+                .containsExactly("NORMAL", "DEADLINE");
         assertThat(enumValues(document.at("/components/schemas/GameResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("GAME_RESULT_SNAPSHOT");
     }
@@ -234,7 +238,7 @@ class GameWebSocketE2ETest {
             submitPromptAndAwaitReady(scenario, scenario.players().get(2), "guest-two prompt");
             scenario.clearAllQueues();
             PlayerConnection host = scenario.host();
-            PromptRequest request = new PromptRequest("host prompt");
+            PromptRequest request = new PromptRequest("host prompt", PromptSubmissionType.NORMAL);
 
             // when
             host.session().send(sendDestination(scenario, "prompts"), request);
@@ -279,7 +283,7 @@ class GameWebSocketE2ETest {
         GameScenario scenario = prepareGeneratingScenario();
         try {
             PlayerConnection host = scenario.host();
-            PromptRequest request = new PromptRequest("failing prompt");
+            PromptRequest request = new PromptRequest("failing prompt", PromptSubmissionType.NORMAL);
             scenario.clearAllQueues();
 
             // when
@@ -569,7 +573,9 @@ class GameWebSocketE2ETest {
 
     private void submitPromptAndAwaitReady(GameScenario scenario, PlayerConnection player, String prompt)
             throws Exception {
-        player.session().send(sendDestination(scenario, "prompts"), new PromptRequest(prompt));
+        player.session().send(
+                sendDestination(scenario, "prompts"),
+                new PromptRequest(prompt, PromptSubmissionType.NORMAL));
         awaitMessage(player.imageGenerationMessages(), message -> message.path("status").asText().equals("READY"),
                 "image READY");
     }
@@ -738,6 +744,8 @@ class GameWebSocketE2ETest {
         request.put("description", description);
         if (payload != null) {
             request.set("example", objectMapper.valueToTree(payload));
+            ObjectNode payloadType = request.putObject("payloadType");
+            payloadType.put("rawType", payload.getClass().getName());
         }
         return request;
     }

@@ -30,6 +30,7 @@ import lombok.Getter;
 public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
+    private static final Duration PROMPT_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final AutoPromptPrefix[] AUTO_PROMPT_PREFIXES = AutoPromptPrefix.values();
 
     @Getter
@@ -42,6 +43,8 @@ public class GameRoom {
     private Instant promptStartedAt;
     @Getter
     private Instant promptDeadline;
+    @Getter
+    private Instant finalPromptSubmissionDeadline;
     @Getter
     private Instant guessStartedAt;
     @Getter
@@ -149,10 +152,20 @@ public class GameRoom {
         phase = GamePhase.GENERATING;
         promptStartedAt = startedAt;
         promptDeadline = startedAt.plus(promptDuration);
+        finalPromptSubmissionDeadline = promptDeadline.plus(PROMPT_SUBMISSION_GRACE_PERIOD);
         initializePromptEntries();
     }
 
     public synchronized void submitPrompt(String playerId, String prompt, Instant submittedAt) {
+        submitPrompt(playerId, prompt, submittedAt, PromptSubmissionType.NORMAL);
+    }
+
+    public synchronized void submitPrompt(
+            String playerId,
+            String prompt,
+            Instant submittedAt,
+            PromptSubmissionType submissionType
+    ) {
         if (!isGenerating()) {
             throw new PromptSubmissionNotAllowedException();
         }
@@ -163,7 +176,7 @@ public class GameRoom {
         if (!entry.canSubmitPrompt()) {
             throw new DuplicatePromptSubmissionException();
         }
-        if (isPromptExpired(submittedAt)) {
+        if (!isPromptSubmissionAllowed(submittedAt, submissionType)) {
             throw new PromptSubmissionExpiredException();
         }
         entry.submit(prompt, submittedAt);
@@ -373,7 +386,7 @@ public class GameRoom {
     }
 
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
-        return promptDeadline == null || !promptDeadline.equals(deadline);
+        return finalPromptSubmissionDeadline == null || !finalPromptSubmissionDeadline.equals(deadline);
     }
 
     private boolean allOthersReady() {
@@ -461,6 +474,13 @@ public class GameRoom {
 
     public synchronized boolean isPromptExpired(Instant now) {
         return promptDeadline != null && now.isAfter(promptDeadline);
+    }
+
+    private boolean isPromptSubmissionAllowed(Instant submittedAt, PromptSubmissionType submissionType) {
+        if (finalPromptSubmissionDeadline == null || submittedAt.isAfter(finalPromptSubmissionDeadline)) {
+            return false;
+        }
+        return !submittedAt.isAfter(promptDeadline) || submissionType == PromptSubmissionType.DEADLINE;
     }
 
     private boolean isGuessExpired(Instant now) {

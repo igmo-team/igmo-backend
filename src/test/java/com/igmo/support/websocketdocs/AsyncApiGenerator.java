@@ -240,7 +240,23 @@ public class AsyncApiGenerator {
             return;
         }
         String schemaId = operation.requestMessageId + "Schema";
-        schemas.set(schemaId, inferSchema(operation.requestExample));
+        ObjectNode schema;
+        if (operation.requestPayloadType == null) {
+            schema = inferSchema(operation.requestExample);
+        } else {
+            try {
+                Class<?> rawType = Class.forName(operation.requestPayloadType.rawType());
+                schema = schemaForType(
+                        rawType,
+                        typeArguments(rawType, operation.requestPayloadType.typeArgument()),
+                        operation.requestExample);
+            } catch (ClassNotFoundException exception) {
+                throw new IllegalStateException(
+                        "WebSocket request payloadType을 찾을 수 없습니다: " + operation.requestPayloadType.rawType(),
+                        exception);
+            }
+        }
+        schemas.set(schemaId, schema);
         message.putArray("examples").addObject().set("payload", operation.requestExample);
         message.putObject("payload").put("$ref", "#/components/schemas/" + schemaId);
     }
@@ -616,6 +632,7 @@ public class AsyncApiGenerator {
         private final String whenToSend;
         private final String requestMessageId;
         private final JsonNode requestExample;
+        private final PayloadTypeContract requestPayloadType;
         private final Set<String> tags;
         private final List<JsonNode> triggeredMessages = new ArrayList<>();
 
@@ -627,6 +644,7 @@ public class AsyncApiGenerator {
             whenToSend = required(snippet, "whenToSend");
             requestMessageId = required(snippet.path("request"), "messageId");
             requestExample = snippet.path("request").get("example");
+            requestPayloadType = PayloadTypeContract.from(snippet.path("request").path("payloadType"));
             tags = tagsOf(snippet.path("tags"));
         }
 
@@ -638,6 +656,8 @@ public class AsyncApiGenerator {
             JsonNode request = snippet.path("request");
             if (!destination.equals(required(request, "destination"))
                     || !requestMessageId.equals(required(request, "messageId"))
+                    || !Objects.equals(requestPayloadType,
+                    PayloadTypeContract.from(request.path("payloadType")))
                     || !schemaShape(requestExample).equals(schemaShape(request.get("example")))) {
                 throw new IllegalStateException("동일 operationId의 요청 계약이 다릅니다: " + operationId);
             }
