@@ -1575,6 +1575,8 @@ class GameRoomTest {
             softly.assertThat(room.getCurrentRound().getAnswerEntry().getPrompt()).isEqualTo("참가자1 프롬프트");
             softly.assertThat(room.getGuessStartedAt()).isEqualTo(nextGuessStartedAt);
             softly.assertThat(room.getGuessDeadline()).isEqualTo(nextGuessStartedAt.plus(GUESS_DURATION));
+            softly.assertThat(room.getFinalGuessSubmissionDeadline())
+                    .isEqualTo(nextGuessStartedAt.plus(GUESS_DURATION).plus(GUESS_SUBMISSION_GRACE_PERIOD));
         });
     }
 

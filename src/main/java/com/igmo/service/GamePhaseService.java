@@ -303,7 +303,7 @@ public class GamePhaseService {
         if (room.getPhase() == GamePhase.ENDED) {
             return RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room));
         }
-        scheduleGuessExpiration(code, room.getGuessDeadline());
+        scheduleGuessExpiration(code, room.getFinalGuessSubmissionDeadline());
         return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
     }
 

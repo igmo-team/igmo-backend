@@ -351,6 +351,7 @@ public class GameRoom {
         phase = GamePhase.PLAYING;
         guessStartedAt = now;
         guessDeadline = now.plus(guessDuration);
+        finalGuessSubmissionDeadline = guessDeadline.plus(GUESS_SUBMISSION_GRACE_PERIOD);
     }
 
     public synchronized List<Player> getFinalRanking() {
