@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.igmo.domain.GuessSubmissionType;
 import com.igmo.domain.PromptSubmissionType;
 import com.igmo.service.GameLobbyService;
 import com.igmo.service.GamePhaseService;
@@ -162,10 +163,14 @@ class GameMessageControllerTest {
         SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
 
         // when
-        controller.submitGuess("ABCD", new GuessRequest("추측 프롬프트"), headerAccessor);
+        controller.submitGuess(
+                "ABCD",
+                new GuessRequest("추측 프롬프트", GuessSubmissionType.NORMAL),
+                headerAccessor);
 
         // then
-        verify(gamePhaseService).submitGuess("ABCD", "player-1", "추측 프롬프트");
+        verify(gamePhaseService).submitGuess(
+                "ABCD", "player-1", "추측 프롬프트", GuessSubmissionType.NORMAL);
     }
 
     @Test
@@ -194,6 +199,14 @@ class GameMessageControllerTest {
     void submitGuess_guess가_공백이면_검증에_실패한다() {
         // when & then
         assertGuessInvalid(new GuessRequest("   "));
+    }
+
+    @Test
+    @DisplayName("추측 제출 요청의 submissionType이 null이면 검증에 실패한다.")
+    void submitGuess_submissionType이_null이면_검증에_실패한다() {
+        assertThat(validator.validate(new GuessRequest("추측 프롬프트", null)))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("추측 제출 유형을 입력해주세요.");
     }
 
     @Test

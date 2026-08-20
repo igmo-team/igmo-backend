@@ -20,6 +20,7 @@ public record RoundSnapshot(
         String imageUrl,
         Instant guessStartedAt,
         Instant guessDeadline,
+        Instant finalGuessSubmissionDeadline,
         List<GuessEntryView> guessEntries
 ) {
 
@@ -44,6 +45,7 @@ public record RoundSnapshot(
                 round.getAnswerEntry().getImageUrl(),
                 room.getGuessStartedAt(),
                 room.getGuessDeadline(),
+                room.getFinalGuessSubmissionDeadline(),
                 guessEntries
         );
     }
