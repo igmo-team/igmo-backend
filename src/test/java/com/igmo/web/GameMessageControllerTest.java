@@ -21,6 +21,9 @@ import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 
 class GameMessageControllerTest {
@@ -207,6 +210,15 @@ class GameMessageControllerTest {
         assertThat(validator.validate(new GuessRequest("추측 프롬프트", null)))
                 .extracting(violation -> violation.getMessage())
                 .containsExactly("추측 제출 유형을 입력해주세요.");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = "   ")
+    @DisplayName("DEADLINE 빈 추측은 검증을 통과한다.")
+    void submitGuess_DEADLINE_빈_추측이면_검증을_통과한다(String guess) {
+        assertThat(validator.validate(new GuessRequest(guess, GuessSubmissionType.DEADLINE)))
+                .isEmpty();
     }
 
     @Test
