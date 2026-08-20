@@ -27,6 +27,9 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +41,7 @@ class GameRoomTest {
     private static final Duration PROMPT_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final Instant GUESS_STARTED_AT = Instant.parse("2026-07-06T10:05:00Z");
     private static final Duration GUESS_DURATION = Duration.ofSeconds(60);
+    private static final Duration GUESS_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final Instant VOTING_OPENED_AT = Instant.parse("2026-07-06T10:05:10Z");
     private static final Duration VOTE_DURATION = Duration.ofSeconds(30);
     private static final Instant RESULTS_OPENED_AT = Instant.parse("2026-07-06T10:05:40Z");
@@ -369,10 +373,10 @@ class GameRoomTest {
         String guest1Id = room.getPlayers().get(1).getId();
         String guest2Id = room.getPlayers().get(2).getId();
         room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
-        Instant deadline = room.getGuessDeadline();
+        Instant deadline = room.getFinalGuessSubmissionDeadline();
 
         // when
-        room.autoSubmitGuesses(deadline);
+        room.autoSubmitGuesses(room.getFinalGuessSubmissionDeadline());
 
         // then
         List<GuessEntry> guesses = room.getCurrentRound().getGuesses();
@@ -394,7 +398,7 @@ class GameRoomTest {
         String questionerId = room.getCurrentRound().getQuestionerId();
 
         // when
-        room.autoSubmitGuesses(room.getGuessDeadline());
+        room.autoSubmitGuesses(room.getFinalGuessSubmissionDeadline());
 
         // then
         assertThat(room.getCurrentRound().getGuesses())
@@ -414,7 +418,7 @@ class GameRoomTest {
         room.submitGuess(guest2Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
 
         // when
-        room.autoSubmitGuesses(room.getGuessDeadline());
+        room.autoSubmitGuesses(room.getFinalGuessSubmissionDeadline());
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -423,6 +427,112 @@ class GameRoomTest {
                     .extracting(GuessEntry::getPlayerId)
                     .containsExactlyInAnyOrder(guest1Id, guest2Id);
         });
+    }
+
+    @Test
+    @DisplayName("추측 시작 시 입력 마감과 최종 제출 마감 시각을 분리해 저장한다.")
+    void startRounds_추측_입력_마감과_최종_제출_마감을_분리한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getGuessDeadline()).isEqualTo(GUESS_STARTED_AT.plus(GUESS_DURATION));
+            softly.assertThat(room.getFinalGuessSubmissionDeadline())
+                    .isEqualTo(room.getGuessDeadline().plus(GUESS_SUBMISSION_GRACE_PERIOD));
+        });
+    }
+
+    @Test
+    @DisplayName("입력 마감 이후 최종 제출 마감 전 DEADLINE 추측은 저장한다.")
+    void submitGuess_Grace_Period_내_DEADLINE이면_저장한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guestId = room.getPlayers().get(1).getId();
+        Instant submittedAt = room.getFinalGuessSubmissionDeadline();
+
+        // when
+        room.submitGuess(guestId, "작성 중이던 추측", submittedAt, GuessSubmissionType.DEADLINE);
+
+        // then
+        assertThat(room.getCurrentRound().getGuesses())
+                .singleElement()
+                .extracting(GuessEntry::getGuess)
+                .isEqualTo("작성 중이던 추측");
+    }
+
+    @Test
+    @DisplayName("DEADLINE 빈 추측은 저장하지 않는다.")
+    void submitGuess_DEADLINE_빈_값이면_저장하지_않는다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guestId = room.getPlayers().get(1).getId();
+        Instant submittedAt = room.getFinalGuessSubmissionDeadline();
+
+        // when
+        GuessSubmissionResult result = room.submitGuess(
+                guestId, "   ", submittedAt, GuessSubmissionType.DEADLINE);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result).isEqualTo(GuessSubmissionResult.NOT_SUBMITTED);
+            softly.assertThat(room.getCurrentRound().getGuesses()).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("최종 제출 마감 이후 DEADLINE 추측은 거부한다.")
+    void submitGuess_최종_제출_마감_이후_DEADLINE이면_거부한다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guestId = room.getPlayers().get(1).getId();
+
+        // when & then
+        assertThatThrownBy(() -> room.submitGuess(
+                guestId,
+                "너무 늦은 추측",
+                room.getFinalGuessSubmissionDeadline().plusNanos(1),
+                GuessSubmissionType.DEADLINE))
+                .isInstanceOf(GuessSubmissionExpiredException.class)
+                .hasMessage("추측 제출 시간이 만료되었습니다.");
+    }
+
+    @Test
+    @DisplayName("DEADLINE 제출과 자동 추측이 동시에 실행돼도 한 개의 추측만 저장한다.")
+    void submitGuess와자동추측이_동시에_실행돼도_중복_저장하지_않는다() throws Exception {
+        // given
+        GameRoom room = createRoomInGuessing();
+        String guestId = room.getPlayers().get(1).getId();
+        Instant submittedAt = room.getFinalGuessSubmissionDeadline();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            executor.submit(() -> {
+                await(start);
+                try {
+                    room.submitGuess(guestId, "작성 중이던 추측", submittedAt, GuessSubmissionType.DEADLINE);
+                } catch (RuntimeException ignored) {
+                }
+            });
+            executor.submit(() -> {
+                await(start);
+                room.autoSubmitGuesses(submittedAt);
+            });
+
+            // when
+            start.countDown();
+            executor.shutdown();
+            while (!executor.awaitTermination(1, java.util.concurrent.TimeUnit.SECONDS)) {
+            }
+
+            // then
+            assertThat(room.getCurrentRound().getGuesses())
+                    .filteredOn(entry -> entry.getPlayerId().equals(guestId))
+                    .hasSize(1);
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -1238,7 +1348,7 @@ class GameRoomTest {
     void isGuessExpirationStale_마감_시각이_다르면_true를_반환한다() throws Exception {
         // given
         GameRoom room = createRoomInGuessing();
-        Instant deadline = GUESS_STARTED_AT.plus(GUESS_DURATION);
+        Instant deadline = GUESS_STARTED_AT.plus(GUESS_DURATION).plus(GUESS_SUBMISSION_GRACE_PERIOD);
 
         // when & then
         SoftAssertions.assertSoftly(softly -> {
@@ -1465,6 +1575,8 @@ class GameRoomTest {
             softly.assertThat(room.getCurrentRound().getAnswerEntry().getPrompt()).isEqualTo("참가자1 프롬프트");
             softly.assertThat(room.getGuessStartedAt()).isEqualTo(nextGuessStartedAt);
             softly.assertThat(room.getGuessDeadline()).isEqualTo(nextGuessStartedAt.plus(GUESS_DURATION));
+            softly.assertThat(room.getFinalGuessSubmissionDeadline())
+                    .isEqualTo(nextGuessStartedAt.plus(GUESS_DURATION).plus(GUESS_SUBMISSION_GRACE_PERIOD));
         });
     }
 
@@ -1540,6 +1652,15 @@ class GameRoomTest {
         room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
         room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
         return room;
+    }
+
+    private void await(CountDownLatch start) {
+        try {
+            start.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
     }
 
     private GameRoom createRoomInResults() throws Exception {

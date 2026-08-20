@@ -31,6 +31,7 @@ public class GameRoom {
 
     private static final int MAX_PLAYERS = 8;
     private static final Duration PROMPT_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
+    private static final Duration GUESS_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final AutoPromptPrefix[] AUTO_PROMPT_PREFIXES = AutoPromptPrefix.values();
 
     @Getter
@@ -49,6 +50,8 @@ public class GameRoom {
     private Instant guessStartedAt;
     @Getter
     private Instant guessDeadline;
+    @Getter
+    private Instant finalGuessSubmissionDeadline;
     @Getter
     private Instant voteStartedAt;
     @Getter
@@ -262,14 +265,27 @@ public class GameRoom {
         currentRoundIndex = 0;
         guessStartedAt = startedAt;
         guessDeadline = startedAt.plus(guessDuration);
+        finalGuessSubmissionDeadline = guessDeadline.plus(GUESS_SUBMISSION_GRACE_PERIOD);
     }
 
     public synchronized GuessSubmissionResult submitGuess(String playerId, String guess, Instant submittedAt) {
+        return submitGuess(playerId, guess, submittedAt, GuessSubmissionType.NORMAL);
+    }
+
+    public synchronized GuessSubmissionResult submitGuess(
+            String playerId,
+            String guess,
+            Instant submittedAt,
+            GuessSubmissionType submissionType
+    ) {
         Round currentRound = getCurrentRound();
         if (!isGuessing() || currentRound == null) {
             throw new GuessSubmissionNotAllowedException();
         }
-        if (isGuessExpired(submittedAt)) {
+        if (submissionType == GuessSubmissionType.DEADLINE && isBlank(guess)) {
+            return GuessSubmissionResult.NOT_SUBMITTED;
+        }
+        if (!isGuessSubmissionAllowed(submittedAt, submissionType)) {
             throw new GuessSubmissionExpiredException();
         }
         return currentRound.submitGuess(playerId, guess, submittedAt);
@@ -277,7 +293,7 @@ public class GameRoom {
 
     // 추측 마감 시 미제출자(출제자 제외)에게 닉네임 기반 자동 추측을 채워 넣어 투표 보기 수를 확보한다.
     public synchronized void autoSubmitGuesses(Instant submittedAt) {
-        if (!isGuessing()) {
+        if (!isGuessing() || !isFinalGuessSubmissionExpired(submittedAt)) {
             return;
         }
         Round currentRound = getCurrentRound();
@@ -335,6 +351,7 @@ public class GameRoom {
         phase = GamePhase.PLAYING;
         guessStartedAt = now;
         guessDeadline = now.plus(guessDuration);
+        finalGuessSubmissionDeadline = guessDeadline.plus(GUESS_SUBMISSION_GRACE_PERIOD);
     }
 
     public synchronized List<Player> getFinalRanking() {
@@ -362,7 +379,11 @@ public class GameRoom {
     }
 
     public synchronized boolean isGuessExpirationStale(Instant deadline) {
-        return guessDeadline == null || !guessDeadline.equals(deadline);
+        return finalGuessSubmissionDeadline == null || !finalGuessSubmissionDeadline.equals(deadline);
+    }
+
+    public synchronized boolean isFinalGuessSubmissionExpired(Instant now) {
+        return finalGuessSubmissionDeadline != null && !now.isBefore(finalGuessSubmissionDeadline);
     }
 
     public synchronized Round getCurrentRound() {
@@ -485,6 +506,17 @@ public class GameRoom {
 
     private boolean isGuessExpired(Instant now) {
         return guessDeadline != null && now.isAfter(guessDeadline);
+    }
+
+    private boolean isGuessSubmissionAllowed(Instant submittedAt, GuessSubmissionType submissionType) {
+        if (finalGuessSubmissionDeadline == null || submittedAt.isAfter(finalGuessSubmissionDeadline)) {
+            return false;
+        }
+        return !isGuessExpired(submittedAt) || submissionType == GuessSubmissionType.DEADLINE;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private boolean isVoteExpired(Instant now) {

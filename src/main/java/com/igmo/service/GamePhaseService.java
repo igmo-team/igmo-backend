@@ -3,6 +3,7 @@ package com.igmo.service;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.GuessSubmissionResult;
+import com.igmo.domain.GuessSubmissionType;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.PromptSubmissionType;
 import com.igmo.domain.SamplePrompt;
@@ -104,6 +105,10 @@ public class GamePhaseService {
     }
 
     public void submitGuess(String code, String playerId, String guess) {
+        submitGuess(code, playerId, guess, GuessSubmissionType.NORMAL);
+    }
+
+    public void submitGuess(String code, String playerId, String guess, GuessSubmissionType submissionType) {
         GuessSubmissionPublication result = gameRoomRepository.update(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
@@ -111,7 +116,11 @@ public class GamePhaseService {
             Instant submittedAt = Instant.now();
             GuessSubmissionSnapshot snapshot;
             try {
-                GuessSubmissionResult guessSubmissionResult = room.submitGuess(playerId, guess, submittedAt);
+                GuessSubmissionResult guessSubmissionResult = room.submitGuess(
+                        playerId, guess, submittedAt, submissionType);
+                if (guessSubmissionResult == GuessSubmissionResult.NOT_SUBMITTED) {
+                    return null;
+                }
                 if (guessSubmissionResult == GuessSubmissionResult.PERFECT_RETRY_REQUIRED) {
                     return new GuessSubmissionPublication(
                             GuessSubmissionSnapshot.perfect(room, guess),
@@ -146,6 +155,9 @@ public class GamePhaseService {
                     RoomMessage.roundSnapshot(RoundSnapshot.from(room)),
                     room.getPhase());
         });
+        if (result == null) {
+            return;
+        }
         if (result.hasRoomMessage()) {
             eventPublisher.publish(code, result.roomMessage());
         }
@@ -242,6 +254,10 @@ public class GamePhaseService {
                         return null;
                     }
                     Instant expiredAt = Instant.now();
+                    if (!lockedRoom.isFinalGuessSubmissionExpired(expiredAt)) {
+                        scheduleGuessExpiration(code, lockedRoom.getFinalGuessSubmissionDeadline());
+                        return null;
+                    }
                     lockedRoom.autoSubmitGuesses(expiredAt);
                     return completeGuessSubmission(code, lockedRoom, expiredAt);
                 })
@@ -287,7 +303,7 @@ public class GamePhaseService {
         if (room.getPhase() == GamePhase.ENDED) {
             return RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room));
         }
-        scheduleGuessExpiration(code, room.getGuessDeadline());
+        scheduleGuessExpiration(code, room.getFinalGuessSubmissionDeadline());
         return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
     }
 
@@ -395,7 +411,7 @@ public class GamePhaseService {
 
     private RoundSnapshot initializeRounds(String code, GameRoom room, Instant startedAt) {
         room.startRounds(startedAt, guessDuration);
-        scheduleGuessExpiration(code, room.getGuessDeadline());
+        scheduleGuessExpiration(code, room.getFinalGuessSubmissionDeadline());
         return RoundSnapshot.from(room);
     }
 

@@ -22,6 +22,7 @@ import com.igmo.domain.AutoPromptPrefix;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.GameStartPolicy;
+import com.igmo.domain.GuessSubmissionType;
 import com.igmo.domain.PromptEntry;
 import com.igmo.domain.PromptEntryStatus;
 import com.igmo.domain.PromptSubmissionType;
@@ -1173,11 +1174,12 @@ class GamePhaseServiceTest {
         // given
         setUpRoomWithImagesReady();
         captureScheduledPlayingTransition().run();
-        Runnable guessExpiration = captureLastScheduledDeadline(2);
+        captureLastScheduledDeadline(2);
         clearInvocations(messagingTemplate);
+        expireGuessSubmissionDeadline();
 
         // when
-        guessExpiration.run();
+        runGuessExpirationCallback();
 
         // then
         VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
@@ -1200,11 +1202,12 @@ class GamePhaseServiceTest {
     void guessDeadline_마감_작업이_실행되면_추측자에게_본인_보기를_개인큐로_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        Runnable guessExpiration = captureLastScheduledDeadline(2);
+        captureLastScheduledDeadline(2);
         clearInvocations(messagingTemplate);
+        expireGuessSubmissionDeadline();
 
         // when
-        guessExpiration.run();
+        runGuessExpirationCallback();
 
         // then
         OwnVoteOptionNotice guest1Option = captureOwnVoteOption(playerIds.get(1));
@@ -1216,6 +1219,50 @@ class GamePhaseServiceTest {
             softly.assertThat(guest2Option)
                     .isEqualTo(new OwnVoteOptionNotice(
                             "ABCD", 1, false, true, null, findOwnOptionId("ABCD", playerIds.get(2))));
+        });
+    }
+
+    @Test
+    @DisplayName("최종 추측 제출 마감 전 callback은 자동 추측과 VOTING 전환을 실행하지 않는다.")
+    void guessDeadline_최종_제출_마감_전_callback은_무시한다() {
+        // given
+        setUpRoomWithImagesReady();
+        captureScheduledPlayingTransition().run();
+        Runnable guessExpiration = captureLastScheduledDeadline(2);
+        clearInvocations(messagingTemplate);
+
+        // when
+        guessExpiration.run();
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(gameRegistry.find("ABCD").orElseThrow().getPhase()).isEqualTo(GamePhase.PLAYING);
+            softly.assertThat(gameRegistry.find("ABCD").orElseThrow().getCurrentRound().getGuesses())
+                    .isEmpty();
+        });
+        verify(gamePhaseDeadlineScheduler, times(3)).schedule(any(Runnable.class), any(Instant.class));
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/rooms/ABCD"), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("Grace Period 내 DEADLINE 추측은 실제 입력을 저장하고 자동 추측을 만들지 않는다.")
+    void submitGuess_Grace_Period_내_DEADLINE이면_실제_추측을_저장한다() {
+        // given
+        List<String> playerIds = setUpRoomInPlaying();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ReflectionTestUtils.setField(room, "guessDeadline", Instant.now().minusMillis(500));
+        ReflectionTestUtils.setField(room, "finalGuessSubmissionDeadline", Instant.now().plusSeconds(1));
+
+        // when
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "작성 중이던 추측", GuessSubmissionType.DEADLINE);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getCurrentRound().getGuesses())
+                    .extracting(entry -> entry.getGuess())
+                    .containsExactly("작성 중이던 추측");
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.PLAYING);
         });
     }
 
@@ -1563,6 +1610,21 @@ class GamePhaseServiceTest {
     private void expirePromptDeadline() {
         ReflectionTestUtils.setField(
                 gameRegistry.find("ABCD").orElseThrow(), "promptDeadline", Instant.now().minusSeconds(1));
+    }
+
+    private void expireGuessSubmissionDeadline() {
+        ReflectionTestUtils.setField(
+                gameRegistry.find("ABCD").orElseThrow(),
+                "finalGuessSubmissionDeadline",
+                Instant.now().minusSeconds(1));
+    }
+
+    private void runGuessExpirationCallback() {
+        ReflectionTestUtils.invokeMethod(
+                gamePhaseService,
+                "runGuessExpiration",
+                "ABCD",
+                gameRegistry.find("ABCD").orElseThrow().getFinalGuessSubmissionDeadline());
     }
 
     private Runnable captureScheduledPlayingTransition() {

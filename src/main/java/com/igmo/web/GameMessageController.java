@@ -50,7 +50,7 @@ public class GameMessageController {
                             @Valid GuessRequest request,
                             SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
-        gamePhaseService.submitGuess(code, playerId, request.guess());
+        gamePhaseService.submitGuess(code, playerId, request.guess(), request.submissionType());
     }
 
     @MessageMapping("/rooms/{code}/votes")

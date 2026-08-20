@@ -42,6 +42,8 @@ class RoundSnapshotTest {
             softly.assertThat(snapshot.imageUrl()).isEqualTo("https://cdn.example.com/host.png");
             softly.assertThat(snapshot.guessStartedAt()).isEqualTo(GUESS_STARTED_AT);
             softly.assertThat(snapshot.guessDeadline()).isEqualTo(GUESS_STARTED_AT.plus(GUESS_DURATION));
+            softly.assertThat(snapshot.finalGuessSubmissionDeadline())
+                    .isEqualTo(GUESS_STARTED_AT.plus(GUESS_DURATION).plusSeconds(2));
             softly.assertThat(snapshot.guessEntries())
                     .extracting(entry -> entry.player().id(), GuessEntryView::submitted)
                     .containsExactly(
