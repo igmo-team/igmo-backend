@@ -120,8 +120,32 @@ public class GeminiImageGenerationClient implements ImageGenerator {
 
     private void verifySuccessfulResponse(HttpResponse<String> response, ImageGenerationRequest request) {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new GeminiRequestException(response.statusCode(), request.model(), request.imageSize());
+            JsonNode providerError = parseProviderError(response.body());
+            throw new GeminiRequestException(
+                    response.statusCode(),
+                    request.model(),
+                    request.imageSize(),
+                    textValue(providerError, "status"),
+                    textValue(providerError, "message"));
         }
+    }
+
+    private JsonNode parseProviderError(String responseBody) {
+        try {
+            JsonNode response = objectMapper.readTree(responseBody);
+            JsonNode error = response == null ? null : response.get("error");
+            return error != null && error.isObject() ? error : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String textValue(JsonNode object, String fieldName) {
+        if (object == null) {
+            return null;
+        }
+        JsonNode value = object.get(fieldName);
+        return value != null && value.isTextual() ? value.asText() : null;
     }
 
     private byte[] extractImage(String responseBody, int httpStatus, ImageGenerationRequest request) {

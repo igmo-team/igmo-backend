@@ -11,13 +11,14 @@ import ch.qos.logback.core.read.ListAppender;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerationRequest;
 import com.igmo.imagegeneration.ImageGenerator;
+import com.igmo.imagegeneration.exception.GeminiRequestException;
 import com.igmo.imagegeneration.exception.GeminiResponseException;
 import com.igmo.imagegeneration.exception.ImageStorageException;
 import com.igmo.monitoring.GameMetrics;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -101,15 +102,49 @@ class ImageGenerationServiceTest {
         // then
         assertThat(capturedException).hasValue(exception);
         verify(imageGenerator).generate(new ImageGenerationRequest("실패 프롬프트", "gemini-image", "2K"));
-        ILoggingEvent logEvent = lastLogEvent("gemini_request_failed");
-        assertThat(logEvent.getFormattedMessage()).isEqualTo("Gemini 응답에 이미지 데이터가 없습니다.");
+        ILoggingEvent logEvent = lastLogEvent("gemini_image_generation_failed");
+        assertThat(logEvent.getFormattedMessage()).isEqualTo("Gemini image generation failed");
         assertThat(keyValues(logEvent))
-                .containsEntry("event", "gemini_request_failed")
-                .containsEntry("roomCode", "ABCD")
-                .containsEntry("playerId", "player-1")
-                .containsEntry("exceptionType", "GeminiResponseException")
-                .containsKey("durationMs");
-        assertThat(logEvent.getThrowableProxy().getClassName()).isEqualTo(GeminiResponseException.class.getName());
+                .containsEntry("event", "gemini_image_generation_failed")
+                .containsEntry("prompt", "실패 프롬프트")
+                .containsEntry("httpStatus", 200)
+                .containsEntry("providerStatus", null)
+                .containsEntry("providerMessage", null);
+        assertThat(logEvent.getThrowableProxy()).isNull();
+    }
+
+    @Test
+    @DisplayName("Gemini 요청 실패 로그에 실제 요청 프롬프트와 provider 오류 정보를 남긴다.")
+    void generate_gemini요청실패면_프롬프트와_provider오류를_로그로_남긴다() {
+        // given
+        GeminiRequestException exception = new GeminiRequestException(
+                400,
+                "gemini-image",
+                "2K",
+                "INVALID_ARGUMENT",
+                "Request contains an invalid argument.");
+        String finalPrompt = "최종 Gemini 프롬프트";
+        when(imageGenerator.generate(new ImageGenerationRequest(finalPrompt, "gemini-image", "2K")))
+                .thenThrow(exception);
+
+        // when
+        imageGenerationService.generate(
+                "ABCD",
+                "player-1",
+                finalPrompt,
+                imageUrl -> { throw new AssertionError(imageUrl); },
+                ignored -> { });
+
+        // then
+        ILoggingEvent logEvent = lastLogEvent("gemini_image_generation_failed");
+        assertThat(keyValues(logEvent))
+                .containsOnlyKeys("event", "prompt", "httpStatus", "providerStatus", "providerMessage")
+                .containsEntry("event", "gemini_image_generation_failed")
+                .containsEntry("prompt", finalPrompt)
+                .containsEntry("httpStatus", 400)
+                .containsEntry("providerStatus", "INVALID_ARGUMENT")
+                .containsEntry("providerMessage", "Request contains an invalid argument.");
+        assertThat(logEvent.getThrowableProxy()).isNull();
     }
 
     @Test
@@ -146,7 +181,8 @@ class ImageGenerationServiceTest {
     }
 
     private Map<String, Object> keyValues(ILoggingEvent logEvent) {
-        return logEvent.getKeyValuePairs().stream()
-                .collect(Collectors.toMap(pair -> pair.key, pair -> pair.value));
+        Map<String, Object> keyValues = new HashMap<>();
+        logEvent.getKeyValuePairs().forEach(pair -> keyValues.put(pair.key, pair.value));
+        return keyValues;
     }
 }
