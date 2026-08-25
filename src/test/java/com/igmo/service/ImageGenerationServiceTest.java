@@ -103,14 +103,17 @@ class ImageGenerationServiceTest {
         assertThat(capturedException).hasValue(exception);
         verify(imageGenerator).generate(new ImageGenerationRequest("실패 프롬프트", "gemini-image", "2K"));
         ILoggingEvent logEvent = lastLogEvent("gemini_image_generation_failed");
-        assertThat(logEvent.getFormattedMessage()).isEqualTo("Gemini image generation failed");
+        assertThat(logEvent.getFormattedMessage()).isEqualTo("Gemini 응답에 이미지 데이터가 없습니다.");
         assertThat(keyValues(logEvent))
                 .containsEntry("event", "gemini_image_generation_failed")
                 .containsEntry("prompt", "실패 프롬프트")
+                .containsEntry("roomCode", "ABCD")
+                .containsEntry("playerId", "player-1")
+                .containsKey("durationMs")
                 .containsEntry("httpStatus", 200)
                 .containsEntry("providerStatus", null)
                 .containsEntry("providerMessage", null);
-        assertThat(logEvent.getThrowableProxy()).isNull();
+        assertThat(logEvent.getThrowableProxy().getClassName()).isEqualTo(exception.getClass().getName());
     }
 
     @Test
@@ -138,13 +141,44 @@ class ImageGenerationServiceTest {
         // then
         ILoggingEvent logEvent = lastLogEvent("gemini_image_generation_failed");
         assertThat(keyValues(logEvent))
-                .containsOnlyKeys("event", "prompt", "httpStatus", "providerStatus", "providerMessage")
                 .containsEntry("event", "gemini_image_generation_failed")
                 .containsEntry("prompt", finalPrompt)
+                .containsEntry("roomCode", "ABCD")
+                .containsEntry("playerId", "player-1")
+                .containsKey("durationMs")
                 .containsEntry("httpStatus", 400)
                 .containsEntry("providerStatus", "INVALID_ARGUMENT")
                 .containsEntry("providerMessage", "Request contains an invalid argument.");
         assertThat(logEvent.getThrowableProxy()).isNull();
+    }
+
+    @Test
+    @DisplayName("provider 오류 정보가 없으면 원인 예외와 메시지를 실패 로그에 남긴다.")
+    void generate_provider오류가없으면_원인예외와_메시지를_로그로_남긴다() {
+        // given
+        IllegalStateException cause = new IllegalStateException("connection timed out");
+        GeminiRequestException exception = new GeminiRequestException(
+                "Gemini 이미지 생성 요청에 실패했습니다.",
+                "gemini-image",
+                "2K",
+                cause);
+        String finalPrompt = "전송 실패 프롬프트";
+        when(imageGenerator.generate(new ImageGenerationRequest(finalPrompt, "gemini-image", "2K")))
+                .thenThrow(exception);
+
+        // when
+        imageGenerationService.generate(
+                "ABCD",
+                "player-1",
+                finalPrompt,
+                imageUrl -> { throw new AssertionError(imageUrl); },
+                ignored -> { });
+
+        // then
+        ILoggingEvent logEvent = lastLogEvent("gemini_image_generation_failed");
+        assertThat(logEvent.getFormattedMessage()).isEqualTo(exception.getMessage());
+        assertThat(logEvent.getThrowableProxy().getClassName()).isEqualTo(exception.getClass().getName());
+        assertThat(logEvent.getThrowableProxy().getCause().getClassName()).isEqualTo(cause.getClass().getName());
     }
 
     @Test

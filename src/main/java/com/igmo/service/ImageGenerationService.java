@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -118,13 +119,21 @@ public class ImageGenerationService {
             httpStatus = geminiResponseException.getHttpStatus();
         }
 
-        log.atError()
+        long durationMs = elapsedMillis(startedAt);
+        LoggingEventBuilder loggingEvent = log.atError()
                 .addKeyValue("event", "gemini_image_generation_failed")
                 .addKeyValue("prompt", prompt)
+                .addKeyValue("roomCode", code)
+                .addKeyValue("playerId", playerId)
+                .addKeyValue("durationMs", durationMs)
                 .addKeyValue("httpStatus", httpStatus)
                 .addKeyValue("providerStatus", providerStatus)
-                .addKeyValue("providerMessage", providerMessage)
-                .log("Gemini image generation failed");
+                .addKeyValue("providerMessage", providerMessage);
+        if (providerStatus == null || providerMessage == null) {
+            loggingEvent.setCause(exception).log("{}", exception.getMessage());
+            return;
+        }
+        loggingEvent.log("Gemini image generation failed");
     }
 
     private long elapsedMillis(long startedAt) {
