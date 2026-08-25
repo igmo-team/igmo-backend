@@ -102,12 +102,36 @@ class GeminiImageGenerationClientTest {
     @DisplayName("Gemini 비성공 응답은 요청 예외와 HTTP 상태를 반환한다.")
     void generate_throwsWhenGeminiReturnsError() throws Exception {
         // given
-        server = startServer(new AtomicReference<>(), 400, "{\"error\":{\"message\":\"unsupported image_size\"}}");
+        server = startServer(new AtomicReference<>(), 400, """
+                {"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}
+                """);
 
         // when & then
         assertThatThrownBy(() -> createClient().generate(new ImageGenerationRequest("프롬프트", "gemini-image", "1K")))
                 .isInstanceOfSatisfying(GeminiRequestException.class, exception ->
-                        assertThat(exception.getHttpStatus()).isEqualTo(400));
+                        assertThat(exception)
+                                .extracting(
+                                        GeminiRequestException::getHttpStatus,
+                                        GeminiRequestException::getProviderStatus,
+                                        GeminiRequestException::getProviderMessage)
+                                .containsExactly(400, "INVALID_ARGUMENT", "Request contains an invalid argument."));
+    }
+
+    @Test
+    @DisplayName("Gemini 오류 body가 JSON이 아니어도 HTTP 요청 예외를 유지한다.")
+    void generate_keepsRequestExceptionWhenGeminiErrorBodyIsInvalid() throws Exception {
+        // given
+        server = startServer(new AtomicReference<>(), 400, "Bad Request");
+
+        // when & then
+        assertThatThrownBy(() -> createClient().generate(new ImageGenerationRequest("프롬프트", "gemini-image", "1K")))
+                .isInstanceOfSatisfying(GeminiRequestException.class, exception ->
+                        assertThat(exception)
+                                .extracting(
+                                        GeminiRequestException::getHttpStatus,
+                                        GeminiRequestException::getProviderStatus,
+                                        GeminiRequestException::getProviderMessage)
+                                .containsExactly(400, null, null));
     }
 
     @Test

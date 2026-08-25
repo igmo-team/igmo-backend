@@ -3,12 +3,15 @@ package com.igmo.service;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerationRequest;
 import com.igmo.imagegeneration.ImageGenerator;
+import com.igmo.imagegeneration.exception.GeminiRequestException;
+import com.igmo.imagegeneration.exception.GeminiResponseException;
 import com.igmo.imagegeneration.exception.ImageStorageException;
 import com.igmo.monitoring.GameMetrics;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -70,7 +73,7 @@ public class ImageGenerationService {
                     .log("duration={}ms", durationMs);
         } catch (Exception exception) {
             gameMetrics.incrementImageGenerationFailure();
-            logGenerationFailure(code, playerId, startedAt, exception);
+            logGenerationFailure(code, playerId, prompt, startedAt, exception);
             onFailure.accept(exception);
         } finally {
             gameMetrics.recordImageGenerationDuration(Duration.ofNanos(System.nanoTime() - startedAt));
@@ -86,7 +89,13 @@ public class ImageGenerationService {
         }
     }
 
-    private void logGenerationFailure(String code, String playerId, long startedAt, Exception exception) {
+    private void logGenerationFailure(
+            String code,
+            String playerId,
+            String prompt,
+            long startedAt,
+            Exception exception
+    ) {
         if (exception instanceof ImageStorageException) {
             log.atWarn()
                     .addKeyValue("event", "s3_image_upload_failed")
@@ -98,14 +107,33 @@ public class ImageGenerationService {
                     .log("{}", exception.getMessage());
             return;
         }
-        log.atWarn()
-                .addKeyValue("event", "gemini_request_failed")
+
+        Integer httpStatus = null;
+        String providerStatus = null;
+        String providerMessage = null;
+        if (exception instanceof GeminiRequestException geminiRequestException) {
+            httpStatus = geminiRequestException.getHttpStatus();
+            providerStatus = geminiRequestException.getProviderStatus();
+            providerMessage = geminiRequestException.getProviderMessage();
+        } else if (exception instanceof GeminiResponseException geminiResponseException) {
+            httpStatus = geminiResponseException.getHttpStatus();
+        }
+
+        long durationMs = elapsedMillis(startedAt);
+        LoggingEventBuilder loggingEvent = log.atError()
+                .addKeyValue("event", "gemini_image_generation_failed")
+                .addKeyValue("prompt", prompt)
                 .addKeyValue("roomCode", code)
                 .addKeyValue("playerId", playerId)
-                .addKeyValue("durationMs", elapsedMillis(startedAt))
-                .addKeyValue("exceptionType", exception.getClass().getSimpleName())
-                .setCause(exception)
-                .log("{}", exception.getMessage());
+                .addKeyValue("durationMs", durationMs)
+                .addKeyValue("httpStatus", httpStatus)
+                .addKeyValue("providerStatus", providerStatus)
+                .addKeyValue("providerMessage", providerMessage);
+        if (providerStatus == null || providerMessage == null) {
+            loggingEvent.setCause(exception).log("{}", exception.getMessage());
+            return;
+        }
+        loggingEvent.log("Gemini image generation failed");
     }
 
     private long elapsedMillis(long startedAt) {
