@@ -148,7 +148,14 @@ rollback() {
   docker rm --force "\$CONTAINER_NAME" >/dev/null 2>&1 || true
   if [ -n "\$PREVIOUS_IMAGE" ]; then
     echo "Rolling back to \$PREVIOUS_IMAGE"
-    start_container "\$PREVIOUS_IMAGE"
+    if start_container "\$PREVIOUS_IMAGE"; then
+      echo 'IGMO_DEPLOY_ROLLBACK_STATUS=success'
+    else
+      echo 'IGMO_DEPLOY_ROLLBACK_STATUS=failed' >&2
+      return 1
+    fi
+  else
+    echo 'IGMO_DEPLOY_ROLLBACK_STATUS=not_attempted' >&2
   fi
 }
 
@@ -215,11 +222,39 @@ for _ in $(seq 1 60); do
   sleep 5
 done
 
-aws ssm get-command-invocation \
+INVOCATION_JSON=$(aws ssm get-command-invocation \
   --region "$AWS_REGION" \
   --command-id "$COMMAND_ID" \
   --instance-id "$EC2_INSTANCE_ID" \
-  --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}'
+  --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
+  --output json)
+
+printf '%s\n' "$INVOCATION_JSON"
+
+DEPLOY_FAILURE_STAGE='AWS SSM Deployment'
+DEPLOY_FAILURE_REASON="SSM 명령이 $STATUS 상태로 종료되었습니다."
+DEPLOY_ROLLBACK_STATUS='unknown'
+
+if grep -Fq 'The new container did not become healthy.' <<< "$INVOCATION_JSON"; then
+  DEPLOY_FAILURE_STAGE='Application Health Check'
+  DEPLOY_FAILURE_REASON='애플리케이션이 60초 내 /actuator/health HTTP 200을 반환하지 않았습니다.'
+fi
+
+if grep -Fq 'IGMO_DEPLOY_ROLLBACK_STATUS=success' <<< "$INVOCATION_JSON"; then
+  DEPLOY_ROLLBACK_STATUS='success'
+elif grep -Fq 'IGMO_DEPLOY_ROLLBACK_STATUS=failed' <<< "$INVOCATION_JSON"; then
+  DEPLOY_ROLLBACK_STATUS='failed'
+elif grep -Fq 'IGMO_DEPLOY_ROLLBACK_STATUS=not_attempted' <<< "$INVOCATION_JSON"; then
+  DEPLOY_ROLLBACK_STATUS='not_attempted'
+fi
+
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  {
+    echo "failure_stage=$DEPLOY_FAILURE_STAGE"
+    echo "failure_reason=$DEPLOY_FAILURE_REASON"
+    echo "rollback_status=$DEPLOY_ROLLBACK_STATUS"
+  } >> "$GITHUB_OUTPUT"
+fi
 
 if [ "$STATUS" != 'Success' ]; then
   exit 1
