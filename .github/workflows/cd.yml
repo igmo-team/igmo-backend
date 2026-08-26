@@ -127,6 +127,89 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deploy image through AWS Systems Manager
+        id: deploy
         env:
           IMAGE_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.DEPLOY_SHA }}
         run: bash .github/scripts/deploy-via-ssm.sh
+
+      - name: Notify Discord of successful deployment
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          if [[ -z "${DISCORD_DEPLOY_WEBHOOK_URL:-}" ]]; then
+            echo "::warning::DISCORD_DEPLOY_WEBHOOK_URL is not configured; skipping Discord notification."
+            exit 0
+          fi
+
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CONTENT=$(cat <<EOF
+          ✅ IGMO 배포 성공
+
+          Production 배포가 정상적으로 완료되었습니다.
+
+          환경: production
+          Commit: ${SHORT_SHA}
+          배포자: ${GITHUB_ACTOR}
+          Health Check: 정상
+          Workflow: ${WORKFLOW_URL}
+          EOF
+          )
+          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+
+          HTTP_STATUS="000"
+          if ! HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --max-time 15 \
+            --header 'Content-Type: application/json' \
+            --data "$PAYLOAD" \
+            "$DISCORD_DEPLOY_WEBHOOK_URL" 2>/dev/null); then
+            HTTP_STATUS="000"
+          fi
+
+          if [[ "$HTTP_STATUS" != 2* ]]; then
+            echo "::warning::Discord deployment success notification failed (HTTP ${HTTP_STATUS})."
+          fi
+
+      - name: Notify Discord of failed deployment
+        if: ${{ failure() && steps.deploy.outcome != 'success' }}
+        continue-on-error: true
+        env:
+          DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          if [[ -z "${DISCORD_DEPLOY_WEBHOOK_URL:-}" ]]; then
+            echo "::warning::DISCORD_DEPLOY_WEBHOOK_URL is not configured; skipping Discord notification."
+            exit 0
+          fi
+
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CONTENT=$(cat <<EOF
+          🚨 IGMO 배포 실패
+
+          Production 배포 과정에서 문제가 발생했습니다.
+
+          환경: production
+          Commit: ${SHORT_SHA}
+          배포자: ${GITHUB_ACTOR}
+          상태: FAILED
+          Workflow: ${WORKFLOW_URL}
+          EOF
+          )
+          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+
+          HTTP_STATUS="000"
+          if ! HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --max-time 15 \
+            --header 'Content-Type: application/json' \
+            --data "$PAYLOAD" \
+            "$DISCORD_DEPLOY_WEBHOOK_URL" 2>/dev/null); then
+            HTTP_STATUS="000"
+          fi
+
+          if [[ "$HTTP_STATUS" != 2* ]]; then
+            echo "::warning::Discord deployment failure notification failed (HTTP ${HTTP_STATUS})."
+          fi
