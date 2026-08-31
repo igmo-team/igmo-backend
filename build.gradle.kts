@@ -41,6 +41,7 @@ dependencies {
 val generatedSnippetsDir = layout.buildDirectory.dir("generated-snippets")
 val generatedApiSpecResourceDir = layout.buildDirectory.dir("generated/resources/static/api-spec")
 val generatedWebSocketDocsDir = layout.buildDirectory.dir("generated/websocket-docs")
+val generatedAsyncApiFile = generatedWebSocketDocsDir.map { it.file("asyncapi.json") }
 val generatedWebSocketDocsHtmlDir = generatedWebSocketDocsDir.map { it.dir("html") }
 val generatedWebSocketDocsResourceDir = layout.buildDirectory.dir("generated/websocket-docs/resources/static/websocket-docs")
 val openApiServerUrl = providers.gradleProperty("openapi.server-url")
@@ -53,17 +54,18 @@ val webSocketDocsServerUrl = providers.gradleProperty("websocket-docs.server-url
 tasks.withType<Test> {
     useJUnitPlatform()
     outputs.dir(generatedSnippetsDir)
+    outputs.file(generatedAsyncApiFile)
     systemProperty("websocket.docs.server-url", webSocketDocsServerUrl.get())
 }
 
 val generateWebSocketDocs by tasks.registering(Exec::class) {
     group = "documentation"
     description = "WebSocket E2E 테스트 결과로 AsyncAPI HTML 문서를 생성합니다."
-    dependsOn(tasks.test)
+    dependsOn(validateWebSocketDocs)
     inputs.files("package.json", "package-lock.json")
     inputs.dir("scripts")
     inputs.dir("src/test/resources/websocket-docs")
-    inputs.dir(generatedWebSocketDocsDir)
+    inputs.file(generatedAsyncApiFile)
     outputs.dir(generatedWebSocketDocsHtmlDir)
     commandLine("npm", "run", "asyncapi:generate-html")
 }
@@ -71,15 +73,15 @@ val generateWebSocketDocs by tasks.registering(Exec::class) {
 val validateWebSocketDocs by tasks.registering(Exec::class) {
     group = "verification"
     description = "생성된 AsyncAPI 명세를 검증합니다."
-    dependsOn(generateWebSocketDocs)
-    inputs.file(generatedWebSocketDocsDir.map { it.file("asyncapi.json") })
+    dependsOn(tasks.test)
+    inputs.file(generatedAsyncApiFile)
     commandLine("npm", "run", "asyncapi:validate")
 }
 
 val processWebSocketDocs by tasks.registering(Copy::class) {
     group = "documentation"
     description = "생성된 WebSocket 문서를 Spring Boot 정적 리소스로 준비합니다."
-    dependsOn(validateWebSocketDocs)
+    dependsOn(generateWebSocketDocs)
     from(generatedWebSocketDocsHtmlDir)
     into(generatedWebSocketDocsResourceDir)
 }
