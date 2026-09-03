@@ -23,8 +23,8 @@ class WebSocketConnectListenerTest {
     private final WebSocketConnectListener listener = new WebSocketConnectListener(playerPresenceService, gameMetrics);
 
     @Test
-    @DisplayName("세션에 방/플레이어 식별 정보가 있으면 예약된 삭제를 취소한다.")
-    void handleSessionConnect_식별_정보가_있으면_예약된_삭제를_취소한다() {
+    @DisplayName("세션에 방/플레이어 식별 정보가 있으면 활성 세션을 등록한다.")
+    void handleSessionConnect_식별_정보가_있으면_활성_세션을_등록한다() {
         // given
         Map<String, Object> sessionAttributes = new HashMap<>();
         sessionAttributes.put("roomCode", "ABCD");
@@ -35,7 +35,7 @@ class WebSocketConnectListenerTest {
         listener.handleSessionConnect(event);
 
         // then
-        verify(playerPresenceService).cancelPendingRemoval("ABCD", "player-1");
+        verify(playerPresenceService).handleConnect("ABCD", "player-1", "session-1");
         verify(gameMetrics).connectWebSocket("session-1");
     }
 

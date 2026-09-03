@@ -24,7 +24,8 @@ public class PlayerPresenceService {
     private final GamePhaseService gamePhaseService;
     private final GameEventPublisher eventPublisher;
     private final TaskScheduler disconnectGraceScheduler;
-    private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
+    private final PlayerSessionRegistry playerSessionRegistry;
+    private final Map<PlayerKey, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
 
     @Value("${igmo.game.disconnect-grace}")
     private Duration disconnectGrace;
@@ -34,53 +35,89 @@ public class PlayerPresenceService {
             GamePhaseScheduler gamePhaseScheduler,
             GamePhaseService gamePhaseService,
             GameEventPublisher eventPublisher,
-            @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler
+            @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
+            PlayerSessionRegistry playerSessionRegistry
     ) {
         this.gameRoomRepository = gameRoomRepository;
         this.gamePhaseScheduler = gamePhaseScheduler;
         this.gamePhaseService = gamePhaseService;
         this.eventPublisher = eventPublisher;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
+        this.playerSessionRegistry = playerSessionRegistry;
     }
 
-    public void leaveGame(String code, String playerId, String secret) {
-        gameRoomRepository.update(code, room -> {
-            if (!room.hasPlayer(playerId)) {
-                throw new PlayerNotFoundException();
-            }
-            if (!room.isSecretValid(playerId, secret)) {
-                throw new UnauthorizedPlayerException();
-            }
-            cancelPendingRemoval(code, playerId);
-            removePlayer(code, room, playerId);
-            return null;
+    public void handleConnect(String code, String playerId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        PlayerKey playerKey = new PlayerKey(code, playerId);
+        playerSessionRegistry.withPlayerLock(playerKey, () -> {
+            playerSessionRegistry.register(playerKey, sessionId);
+            cancelPendingRemoval(playerKey);
         });
     }
 
-    public void handleDisconnect(String code, String playerId) {
+    public void leaveGame(String code, String playerId, String secret) {
+        PlayerKey playerKey = new PlayerKey(code, playerId);
+        playerSessionRegistry.withPlayerLock(playerKey, () -> {
+            gameRoomRepository.update(code, room -> {
+                if (!room.hasPlayer(playerId)) {
+                    throw new PlayerNotFoundException();
+                }
+                if (!room.isSecretValid(playerId, secret)) {
+                    throw new UnauthorizedPlayerException();
+                }
+                cancelPendingRemoval(playerKey);
+                removePlayer(code, room, playerId);
+                return null;
+            });
+        });
+    }
+
+    public void handleDisconnect(String code, String playerId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        PlayerKey playerKey = new PlayerKey(code, playerId);
+        playerSessionRegistry.withPlayerLock(playerKey, () -> {
+            if (playerSessionRegistry.unregister(playerKey, sessionId)) {
+                scheduleRemoval(playerKey);
+            }
+        });
+    }
+
+    public void cancelPendingRemoval(String code, String playerId) {
+        PlayerKey playerKey = new PlayerKey(code, playerId);
+        playerSessionRegistry.withPlayerLock(playerKey, () -> cancelPendingRemoval(playerKey));
+    }
+
+    private void scheduleRemoval(PlayerKey playerKey) {
         ScheduledFuture<?> future = disconnectGraceScheduler.schedule(
-                () -> runScheduledRemoval(code, playerId),
+                () -> runScheduledRemoval(playerKey),
                 Instant.now().plus(disconnectGrace));
-        ScheduledFuture<?> previous = pendingRemovals.put(removalKey(code, playerId), future);
+        ScheduledFuture<?> previous = pendingRemovals.put(playerKey, future);
         if (previous != null) {
             previous.cancel(false);
         }
     }
 
-    public void cancelPendingRemoval(String code, String playerId) {
-        ScheduledFuture<?> future = pendingRemovals.remove(removalKey(code, playerId));
+    private void cancelPendingRemoval(PlayerKey playerKey) {
+        ScheduledFuture<?> future = pendingRemovals.remove(playerKey);
         if (future != null) {
             future.cancel(false);
         }
     }
 
-    private void runScheduledRemoval(String code, String playerId) {
-        if (pendingRemovals.remove(removalKey(code, playerId)) == null) {
-            return;
-        }
-        gameRoomRepository.updateIfPresent(code, room -> {
-            removePlayer(code, room, playerId);
-            return null;
+    private void runScheduledRemoval(PlayerKey playerKey) {
+        playerSessionRegistry.withPlayerLock(playerKey, () -> {
+            if (pendingRemovals.remove(playerKey) == null
+                    || playerSessionRegistry.hasActiveSession(playerKey)) {
+                return;
+            }
+            gameRoomRepository.updateIfPresent(playerKey.roomCode(), room -> {
+                removePlayer(playerKey.roomCode(), room, playerKey.playerId());
+                return null;
+            });
         });
     }
 
@@ -88,6 +125,7 @@ public class PlayerPresenceService {
         if (!room.removePlayer(playerId)) {
             return;
         }
+        playerSessionRegistry.clear(new PlayerKey(code, playerId));
         if (room.isEmpty()) {
             gamePhaseScheduler.cancelAll(code);
             gameRoomRepository.remove(code);
@@ -99,9 +137,5 @@ public class PlayerPresenceService {
         }
         gamePhaseService.onPlayerRemoved(code);
         // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
-    }
-
-    private static String removalKey(String code, String playerId) {
-        return code + "::" + playerId;
     }
 }

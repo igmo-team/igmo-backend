@@ -29,9 +29,10 @@ public class WebSocketConnectListener {
         }
         String roomCode = (String) sessionAttributes.get(PlayerSessionInterceptor.ROOM_CODE_ATTRIBUTE);
         String playerId = (String) sessionAttributes.get(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE);
-        if (roomCode == null || playerId == null) {
+        if (roomCode == null || playerId == null || sessionId == null) {
             return;
         }
-        playerPresenceService.cancelPendingRemoval(roomCode, playerId);
+
+        playerPresenceService.handleConnect(roomCode, playerId, sessionId);
     }
 }

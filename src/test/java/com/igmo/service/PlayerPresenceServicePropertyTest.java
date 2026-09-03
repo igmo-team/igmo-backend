@@ -27,6 +27,9 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
     @Autowired
     private PlayerPresenceService playerPresenceService;
 
+    @Autowired
+    private PlayerSessionRegistry playerSessionRegistry;
+
     @MockitoBean(name = "disconnectGraceScheduler")
     private TaskScheduler disconnectGraceScheduler;
 
@@ -44,10 +47,11 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
         CreateGameResponse created = gameLobbyService.createGame("호스트");
+        playerSessionRegistry.register(new PlayerKey(created.roomCode(), created.playerId()), "session-1");
         Instant before = Instant.now();
 
         // when
-        playerPresenceService.handleDisconnect(created.roomCode(), created.playerId());
+        playerPresenceService.handleDisconnect(created.roomCode(), created.playerId(), "session-1");
 
         // then
         Instant after = Instant.now();

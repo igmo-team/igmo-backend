@@ -41,6 +41,7 @@ class PlayerPresenceServiceConcurrencyTest {
     private final TaskScheduler imageGenerationCompletionScheduler = mock(TaskScheduler.class);
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
+    private final PlayerSessionRegistry playerSessionRegistry = new PlayerSessionRegistry();
     private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
     private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
     private final GamePhaseScheduler gamePhaseScheduler =
@@ -53,7 +54,8 @@ class PlayerPresenceServiceConcurrencyTest {
                     gamePhaseScheduler,
                     gamePhaseService,
                     eventPublisher,
-                    disconnectGraceScheduler);
+                    disconnectGraceScheduler,
+                    playerSessionRegistry);
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
@@ -69,7 +71,8 @@ class PlayerPresenceServiceConcurrencyTest {
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         gameLobbyService.createGame("호스트");
         JoinGameResponse joined = gameLobbyService.joinGame("ABCD", "참가자");
-        playerPresenceService.handleDisconnect("ABCD", joined.playerId());
+        playerSessionRegistry.register(new PlayerKey("ABCD", joined.playerId()), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", joined.playerId(), "session-1");
         Runnable removal = captureScheduledRemoval();
         AtomicBoolean canceled = new AtomicBoolean();
         given(scheduledRemoval.cancel(false)).willAnswer(invocation -> {
@@ -111,7 +114,8 @@ class PlayerPresenceServiceConcurrencyTest {
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         gameLobbyService.createGame("호스트");
         JoinGameResponse joined = gameLobbyService.joinGame("ABCD", "참가자");
-        playerPresenceService.handleDisconnect("ABCD", joined.playerId());
+        playerSessionRegistry.register(new PlayerKey("ABCD", joined.playerId()), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", joined.playerId(), "session-1");
         Runnable removal = captureScheduledRemoval();
         CountDownLatch cancellationStarted = new CountDownLatch(1);
         CountDownLatch finishCancellation = new CountDownLatch(1);
@@ -127,7 +131,9 @@ class PlayerPresenceServiceConcurrencyTest {
         // when
         try {
             assertThat(cancellationStarted.await(10, TimeUnit.SECONDS)).isTrue();
-            removal.run();
+            Future<?> expirationTask = executor.submit(removal::run);
+            finishCancellation.countDown();
+            expirationTask.get(10, TimeUnit.SECONDS);
         } finally {
             finishCancellation.countDown();
             try {
