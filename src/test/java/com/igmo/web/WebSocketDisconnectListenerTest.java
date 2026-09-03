@@ -37,7 +37,7 @@ class WebSocketDisconnectListenerTest {
         listener.handleSessionDisconnect(event);
 
         // then
-        verify(playerPresenceService).handleDisconnect("ABCD", "player-1");
+        verify(playerPresenceService).handleDisconnect("ABCD", "player-1", "session-1");
         verify(gameMetrics).disconnectWebSocket("session-1");
     }
 

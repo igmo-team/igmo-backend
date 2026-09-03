@@ -1,9 +1,8 @@
 package com.igmo.web;
 
-import java.util.Map;
-
-import com.igmo.service.PlayerPresenceService;
 import com.igmo.monitoring.GameMetrics;
+import com.igmo.service.PlayerPresenceService;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -30,9 +29,10 @@ public class WebSocketDisconnectListener {
         }
         String roomCode = (String) sessionAttributes.get(PlayerSessionInterceptor.ROOM_CODE_ATTRIBUTE);
         String playerId = (String) sessionAttributes.get(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE);
-        if (roomCode == null || playerId == null) {
+        if (roomCode == null || playerId == null || sessionId == null) {
             return;
         }
-        playerPresenceService.handleDisconnect(roomCode, playerId);
+
+        playerPresenceService.handleDisconnect(roomCode, playerId, sessionId);
     }
 }

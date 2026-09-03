@@ -52,6 +52,7 @@ class PlayerPresenceServiceTest {
     private final ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
     private final ScheduledFuture<?> scheduledPlayingTransition = mock(ScheduledFuture.class);
     private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
+    private final PlayerSessionRegistry playerSessionRegistry = new PlayerSessionRegistry();
     private final GamePhaseScheduler gamePhaseScheduler = spy(new GamePhaseScheduler(
             gamePhaseDeadlineScheduler,
             imageGenerationCompletionScheduler));
@@ -65,7 +66,8 @@ class PlayerPresenceServiceTest {
             gamePhaseScheduler,
             gamePhaseService,
             new GameEventPublisher(messagingTemplate, gameMetrics),
-            disconnectGraceScheduler);
+            disconnectGraceScheduler,
+            playerSessionRegistry);
 
     @BeforeEach
     void 연결_해제_삭제_예약을_설정한다() {
@@ -187,7 +189,8 @@ class PlayerPresenceServiceTest {
     void leaveGame_삭제_예약을_취소하고_즉시_퇴장시킨다() {
         // given
         GameSession session = createLobby();
-        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId());
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
         Runnable removal = captureScheduledRemoval();
 
         // when
@@ -205,9 +208,10 @@ class PlayerPresenceServiceTest {
     void handleDisconnect_직후에는_참가자를_제거하지_않고_삭제를_예약한다() {
         // given
         GameSession session = createLobby();
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-1");
 
         // when
-        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId());
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
 
         // then
         assertThat(gameRegistry.find("ABCD")).get()
@@ -216,11 +220,88 @@ class PlayerPresenceServiceTest {
     }
 
     @Test
+    @DisplayName("여러 세션 중 하나만 끊기면 남은 세션이 있어 삭제를 예약하지 않는다.")
+    void handleDisconnect_여러_세션_중_하나만_끊기면_삭제를_예약하지_않는다() {
+        // given
+        GameSession session = createLobby();
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-1");
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-2");
+
+        // when
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
+
+        // then
+        assertThat(playerSessionRegistry.hasActiveSession(
+                new PlayerKey("ABCD", session.guest1().playerId()))).isTrue();
+        verify(disconnectGraceScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(session.guest1().playerId()), "참가자가 방에 남아 있어야 한다");
+    }
+
+    @Test
+    @DisplayName("삭제 유예 중 새 세션이 연결되면 grace 작업이 참가자를 제거하지 않는다.")
+    void handleDisconnect_유예_중_재연결되면_참가자를_유지한다() {
+        // given
+        GameSession session = createLobby();
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
+        Runnable removal = captureScheduledRemoval();
+
+        // when
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-2");
+        removal.run();
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).get()
+                .matches(room -> room.hasPlayer(session.guest1().playerId()), "재연결된 참가자가 방에 남아 있어야 한다");
+        assertThat(playerSessionRegistry.hasActiveSession(
+                new PlayerKey("ABCD", session.guest1().playerId()))).isTrue();
+        verify(scheduledRemoval).cancel(false);
+    }
+
+    @Test
+    @DisplayName("old session의 늦은 disconnect는 살아 있는 new session을 제거하지 않는다.")
+    void handleDisconnect_old_session의_늦은_이벤트는_new_session을_제거하지_않는다() {
+        // given
+        GameSession session = createLobby();
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "old-session");
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "new-session");
+
+        // when
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "old-session");
+
+        // then
+        PlayerKey playerKey = new PlayerKey("ABCD", session.guest1().playerId());
+        assertThat(playerSessionRegistry.hasActiveSession(playerKey)).isTrue();
+        verify(disconnectGraceScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("중복 disconnect는 마지막 세션의 삭제 예약을 중복 생성하지 않는다.")
+    void handleDisconnect_중복_이벤트는_삭제_예약을_중복_생성하지_않는다() {
+        // given
+        GameSession session = createLobby();
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-1");
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-2");
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
+
+        // when
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-2");
+
+        // then
+        verify(disconnectGraceScheduler).schedule(any(Runnable.class), any(Instant.class));
+        assertThat(playerSessionRegistry.hasActiveSession(
+                new PlayerKey("ABCD", session.guest1().playerId()))).isFalse();
+    }
+
+    @Test
     @DisplayName("유예 시간이 지나면 예약된 작업이 참가자를 제거하고 스냅샷을 브로드캐스트한다.")
     void handleDisconnect_유예가_지나면_참가자를_제거하고_브로드캐스트한다() {
         // given
         GameSession session = createLobby();
-        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId());
+        playerPresenceService.handleConnect("ABCD", session.guest1().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.guest1().playerId(), "session-1");
 
         // when
         captureScheduledRemoval().run();
@@ -237,7 +318,8 @@ class PlayerPresenceServiceTest {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         CreateGameResponse created = gameLobbyService.createGame("호스트");
-        playerPresenceService.handleDisconnect("ABCD", created.playerId());
+        playerPresenceService.handleConnect("ABCD", created.playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", created.playerId(), "session-1");
 
         // when
         captureScheduledRemoval().run();
@@ -252,7 +334,8 @@ class PlayerPresenceServiceTest {
     @DisplayName("존재하지 않는 방의 연결 끊김은 예약 작업이 실행돼도 예외 없이 무시한다.")
     void handleDisconnect_없는_방이면_무시한다() {
         assertThatCode(() -> {
-            playerPresenceService.handleDisconnect("ZZZZ", "player-id");
+            playerPresenceService.handleConnect("ZZZZ", "player-id", "session-1");
+            playerPresenceService.handleDisconnect("ZZZZ", "player-id", "session-1");
             captureScheduledRemoval().run();
         }).doesNotThrowAnyException();
     }
@@ -263,7 +346,8 @@ class PlayerPresenceServiceTest {
         // given
         given(roomCodeGenerator.generate()).willReturn("ABCD");
         gameLobbyService.createGame("호스트");
-        playerPresenceService.handleDisconnect("ABCD", "unknown-player-id");
+        playerPresenceService.handleConnect("ABCD", "unknown-player-id", "session-1");
+        playerPresenceService.handleDisconnect("ABCD", "unknown-player-id", "session-1");
 
         // when
         captureScheduledRemoval().run();
@@ -297,7 +381,8 @@ class PlayerPresenceServiceTest {
     void handleDisconnect_진행_중_참가자가_제거되면_이미지_준비_상태를_재평가한다() {
         // given
         GameSession session = createGeneratingRoom();
-        playerPresenceService.handleDisconnect("ABCD", session.guest2().playerId());
+        playerPresenceService.handleConnect("ABCD", session.guest2().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.guest2().playerId(), "session-1");
         clearInvocations(messagingTemplate, gamePhaseScheduler);
 
         // when
@@ -318,7 +403,8 @@ class PlayerPresenceServiceTest {
     void cancelPendingRemoval_예약된_future를_취소한다() {
         // given
         GameSession session = createLobby();
-        playerPresenceService.handleDisconnect("ABCD", session.host().playerId());
+        playerPresenceService.handleConnect("ABCD", session.host().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.host().playerId(), "session-1");
 
         // when
         playerPresenceService.cancelPendingRemoval("ABCD", session.host().playerId());
@@ -332,7 +418,8 @@ class PlayerPresenceServiceTest {
     void cancelPendingRemoval_취소된_예약_작업은_참가자를_제거하지_않는다() {
         // given
         GameSession session = createLobby();
-        playerPresenceService.handleDisconnect("ABCD", session.host().playerId());
+        playerPresenceService.handleConnect("ABCD", session.host().playerId(), "session-1");
+        playerPresenceService.handleDisconnect("ABCD", session.host().playerId(), "session-1");
         Runnable removal = captureScheduledRemoval();
         playerPresenceService.cancelPendingRemoval("ABCD", session.host().playerId());
 
