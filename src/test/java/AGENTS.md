@@ -42,10 +42,9 @@ SoftAssertions.assertSoftly(softly -> {
 
 - 실제 STOMP E2E 테스트의 frame과 snippet으로 AsyncAPI를 생성하며, endpoint·destination·메시지 계약 변경 시 E2E 테스트·snippet·명시적 assertion을 함께
   수정한다.
-- 실제 연결·요청·수신 frame을 검증하고, 요청의 operation ID·destination·payload와 수신의 message ID·type/status·scope·relationship·payload를
-  기록한다.
+- 실제 연결·요청·수신 frame을 검증하고, 요청의 operation ID·destination을 기록한다. payload가 있는 요청만 payload 예시를 추가하고, 본문이 없으면 요청 body가 없음을 명시한다. 수신 메시지는 message ID·type/status·scope·relationship·payload를 실제 계약에 맞춰 기록한다.
 - 성공·실패·경계 상태와 하나의 요청에서 발생하는 모든 메시지를 문서화한다. `/topic/rooms/{roomCode}`는 broadcast, `/user/queue/*`는 개인 메시지다.
-- 클라이언트는 destination과 `type` 또는 `status`로 분기하며, 보장되지 않은 메시지 순서에 의존하지 않는다.
+- 클라이언트는 destination으로 채널을 구분하고, 실제 `type` 또는 `status`가 제공되는 메시지만 해당 필드로 세부 분기·검증한다. 계약에 없는 필드는 추가하지 않으며, 보장되지 않은 메시지 순서에 의존하지 않는다.
 - 연결·구독 안내는 `src/test/resources/websocket-docs/overview.md`, operation·message 계약은 E2E snippet에서 관리한다.
 - `build/generated-snippets/websocket`과 `build/generated/websocket-docs`는 직접 수정하지 않는다. 검증은 `npm ci` 후
   `./gradlew validateWebSocketDocs --no-daemon`, HTML 확인은 `./gradlew generateWebSocketDocs --no-daemon`을 사용한다.
