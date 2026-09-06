@@ -2,24 +2,18 @@
 
 ## 테스트 작성 규칙
 
-- 테스트 패키지는 대상 코드의 패키지와 맞춘다.
-- 테스트 클래스 이름은 `*Test`로 끝나게 작성한다.
-- 테스트 메서드 이름은 검증하려는 동작이 드러나게 작성한다.
-- 테스트는 given-when-then 구조를 따른다.
-- `@DisplayName`은 한글로 작성하여 테스트 목적을 명시한다.
-    - 예: `@DisplayName("사용자 조회 시 존재하지 않는 ID면 예외를 던진다.")`
-- 각 테스트는 필요한 데이터를 직접 준비하고, 다른 테스트 실행 순서에 의존하지 않는다.
-- `@SpringBootTest`는 전체 Spring Context가 필요한 경우에만 사용한다.
-- service layer 테스트는 `@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)`로 최소한의 Context만 띄운다.
-- 단위 테스트로 충분한 경우 Spring Context를 띄우지 않는다.
+- 대상 코드와 같은 패키지에 `*Test` 클래스를 작성하고, 테스트명·`@DisplayName`에 검증 동작을 명시한다.
+- given-when-then 구조를 따르고, 테스트별 데이터를 직접 준비해 실행 순서에 의존하지 않게 한다.
+- 순수 로직은 Spring Context 없이, Service는 필요할 때만 `@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)`를
+  사용한다.
+- Controller·WebSocket 계약은 해당 경계를, 동시성·재연결·시간 기반 로직은 경계 조건과 경쟁 상황을 검증한다.
+- 하나의 테스트는 하나의 동작·결과만 검증한다. 독립적인 조건·결과는 분리하고, 관련 복수 assertion은 허용한다.
+- 공통 준비는 private helper로 추출하되 검증 대상 동작은 대신 실행하지 않게 한다.
 
-## 테스트 책임
+## 테스트 완료 기준
 
-- 하나의 테스트는 하나의 동작 또는 하나의 결과만 검증한다.
-- 테스트 이름은 검증 대상 동작을 하나만 드러낸다.
-- 조건 확인, 예약 등록, 예약 실행 결과처럼 독립적으로 관찰 가능한 동작은 각각 다른 테스트로 분리한다.
-- 하나의 동작을 검증하기 위한 복수 assertion은 허용한다.
-- 공통 준비 과정은 private helper로 추출하되, helper가 검증 대상 동작을 대신 실행하지 않도록 한다.
+- 성공·주요 실패·경계 케이스를 검증하고, 버그 수정은 재현·회귀 시나리오를 포함한다.
+- 테스트 이름만 읽어도 검증 동작을 알 수 있게 하고, 실행 결과를 작업 보고에 기록한다.
 
 ## 검증 방식
 
@@ -42,6 +36,15 @@ SoftAssertions.assertSoftly(softly -> {
 
 ## API 문서화
 
-- API 테스트를 작성할 때는 REST Docs 문서화를 위한 스니핏도 함께 작성한다.
-- 문서화 대상은 API 테스트이며, 성공 케이스와 예외 케이스를 모두 포함한다.
-- API 요청/응답의 path parameter, header, request body, response body는 테스트에서 검증한 실제 계약을 기준으로 문서화한다.
+- API 테스트에는 성공·예외 케이스의 REST Docs snippet을 작성하고, path parameter·header·request/response body는 실제 검증 계약을 기준으로 기록한다.
+
+## WebSocket API 문서화
+
+- 실제 STOMP E2E 테스트의 frame과 snippet으로 AsyncAPI를 생성하며, endpoint·destination·메시지 계약 변경 시 E2E 테스트·snippet·명시적 assertion을 함께
+  수정한다.
+- 실제 연결·요청·수신 frame을 검증하고, 요청의 operation ID·destination을 기록한다. payload가 있는 요청만 payload 예시를 추가하고, 본문이 없으면 요청 body가 없음을 명시한다. 수신 메시지는 message ID·type/status·scope·relationship·payload를 실제 계약에 맞춰 기록한다.
+- 성공·실패·경계 상태와 하나의 요청에서 발생하는 모든 메시지를 문서화한다. `/topic/rooms/{roomCode}`는 broadcast, `/user/queue/*`는 개인 메시지다.
+- 클라이언트는 destination으로 채널을 구분하고, 실제 `type` 또는 `status`가 제공되는 메시지만 해당 필드로 세부 분기·검증한다. 계약에 없는 필드는 추가하지 않으며, 보장되지 않은 메시지 순서에 의존하지 않는다.
+- 연결·구독 안내는 `src/test/resources/websocket-docs/overview.md`, operation·message 계약은 E2E snippet에서 관리한다.
+- `build/generated-snippets/websocket`과 `build/generated/websocket-docs`는 직접 수정하지 않는다. 검증은 `npm ci` 후
+  `./gradlew validateWebSocketDocs --no-daemon`, HTML 확인은 `./gradlew generateWebSocketDocs --no-daemon`을 사용한다.
