@@ -59,6 +59,16 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
 
+    def test_production_alloy_tracks_active_backend_and_blue_green_logs(self):
+        alloy_configuration = PRODUCTION_ALLOY_FILE.read_text()
+        nginx_configuration = (REPOSITORY_ROOT / "deploy/nginx/igmo.conf").read_text()
+
+        self.assertIn('"__address__" = "127.0.0.1:18080"', alloy_configuration)
+        self.assertIn('metrics_path   = "/metrics"', alloy_configuration)
+        self.assertIn('regex         = "/igmo-backend(-blue|-green)?$"', alloy_configuration)
+        self.assertIn("listen 127.0.0.1:18080;", nginx_configuration)
+        self.assertIn("proxy_pass http://igmo_backend/actuator/prometheus;", nginx_configuration)
+
     def test_deployment_collects_alloy_diagnostics_before_rollback(self):
         deploy_script = MONITORING_DEPLOY_SCRIPT.read_text()
 

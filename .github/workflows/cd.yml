@@ -237,7 +237,8 @@ jobs:
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
           DEPLOY_FAILURE_STAGE: ${{ steps.deploy.outputs.failure_stage }}
           DEPLOY_FAILURE_REASON: ${{ steps.deploy.outputs.failure_reason }}
-          DEPLOY_ROLLBACK_STATUS: ${{ steps.deploy.outputs.rollback_status }}
+          DEPLOY_CLEANUP_STATUS: ${{ steps.deploy.outputs.cleanup_status }}
+          DEPLOY_NGINX_RECOVERY_STATUS: ${{ steps.deploy.outputs.nginx_recovery_status }}
         shell: bash
         run: |
           if [[ -z "${DISCORD_DEPLOY_WEBHOOK_URL:-}" ]]; then
@@ -247,7 +248,7 @@ jobs:
 
           FAILURE_STAGE="Unknown CD failure"
           FAILURE_REASON="실패 단계를 특정하지 못했습니다. GitHub Actions 로그를 확인해주세요."
-          ROLLBACK_LINE=""
+          RECOVERY_LINE=""
 
           if [[ "${VALIDATE_OUTCOME:-}" == "failure" ]]; then
             FAILURE_STAGE="Deployment configuration validation"
@@ -272,14 +273,16 @@ jobs:
             FAILURE_REASON="${DEPLOY_FAILURE_REASON:-SSM 배포 명령이 성공 상태로 완료되지 않았습니다. 상세 원인은 GitHub Actions 로그를 확인해주세요.}"
           fi
 
-          case "${DEPLOY_ROLLBACK_STATUS:-}" in
-            success)
-              ROLLBACK_LINE="롤백: 실행 성공"
-              ;;
-            failed)
-              ROLLBACK_LINE="롤백: 실패"
-              ;;
-          esac
+          if [[ "${DEPLOY_CLEANUP_STATUS:-}" == "success" ]]; then
+            RECOVERY_LINE="Target 컨테이너 정리: 성공"
+          elif [[ "${DEPLOY_CLEANUP_STATUS:-}" == "failed" ]]; then
+            RECOVERY_LINE="Target 컨테이너 정리: 실패"
+          fi
+
+          if [[ "${DEPLOY_NGINX_RECOVERY_STATUS:-}" == "failed" ]]; then
+            RECOVERY_LINE="${RECOVERY_LINE}
+          Nginx 설정 복구: 실패"
+          fi
 
           SHORT_SHA="${GITHUB_SHA:0:7}"
           WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -293,7 +296,7 @@ jobs:
           배포자: ${GITHUB_ACTOR}
           실패 단계: ${FAILURE_STAGE}
           원인: ${FAILURE_REASON}
-          ${ROLLBACK_LINE}
+          ${RECOVERY_LINE}
 
           GitHub Actions: ${WORKFLOW_URL}
           EOF

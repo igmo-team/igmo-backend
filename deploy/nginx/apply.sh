@@ -33,28 +33,81 @@ fi
 
 CONF_B64=$(base64 < "$CONF_FILE" | tr -d '\n')
 
-# EC2에서 실행할 스크립트: 백업 -> 교체 -> 심볼릭 링크 보장 -> nginx -t -> reload(실패 시 복원)
 REMOTE_SCRIPT="set -eu
 TS=\$(date +%s)
 BACKUP=''
-if [ -e '$REMOTE_TARGET' ]; then
-  BACKUP='$REMOTE_TARGET.bak.'\$TS
-  cp -a '$REMOTE_TARGET' \"\$BACKUP\"
-fi
-echo '$CONF_B64' | base64 -d > '$REMOTE_TARGET'
-ln -sfn '$REMOTE_TARGET' '$ENABLED_LINK'
-if nginx -t; then
-  systemctl reload nginx
-  echo \"RESULT=RELOADED_OK\"
-else
+TMP_TARGET='$REMOTE_TARGET.tmp.'\$TS
+
+detect_active_port() {
+  CONFIG_DUMP=\$(nginx -T 2>/dev/null)
+  UPSTREAM_PORT=\$(printf '%s\\n' \"\$CONFIG_DUMP\" | awk '
+    /upstream[[:space:]]+igmo_backend[[:space:]]*\\{/ { inside=1; next }
+    inside && /server[[:space:]]+127\\.0\\.0\\.1:(8080|8081);/ {
+      print \$0
+      exit
+    }
+    inside && /^[[:space:]]*\\}/ { inside=0 }
+  ' | sed -nE 's/.*127\\.0\\.0\\.1:(8080|8081);.*/\\1/p')
+  if [ \"\$UPSTREAM_PORT\" = '8080' ] || [ \"\$UPSTREAM_PORT\" = '8081' ]; then
+    printf '%s' \"\$UPSTREAM_PORT\"
+    return 0
+  fi
+
+  LEGACY_PORTS=\$(printf '%s\\n' \"\$CONFIG_DUMP\" \\
+    | grep -oE 'proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:(8080|8081);' \\
+    | sed -nE 's/.*:([0-9]+);/\\1/p' \\
+    | sort -u || true)
+  if [ \"\$(printf '%s\\n' \"\$LEGACY_PORTS\" | sed '/^\$/d' | wc -l | tr -d ' ')\" = '1' ]; then
+    printf '%s' \"\$LEGACY_PORTS\"
+    return 0
+  fi
+  return 1
+}
+
+restore_config() {
   if [ -n \"\$BACKUP\" ]; then
     cp -a \"\$BACKUP\" '$REMOTE_TARGET'
   else
     rm -f '$ENABLED_LINK' '$REMOTE_TARGET'
   fi
+}
+
+ACTIVE_PORT=''
+if [ '$SITE_NAME' = 'igmo' ]; then
+  ACTIVE_PORT=\$(detect_active_port) || {
+    echo 'Unable to determine the active IGMO backend port.' >&2
+    exit 1
+  }
+fi
+
+if [ -e '$REMOTE_TARGET' ]; then
+  BACKUP='$REMOTE_TARGET.bak.'\$TS
+  cp -a '$REMOTE_TARGET' \"\$BACKUP\"
+fi
+echo '$CONF_B64' | base64 -d > \"\$TMP_TARGET\"
+if [ '$SITE_NAME' = 'igmo' ]; then
+  sed -E -i \"/^[[:space:]]*upstream[[:space:]]+igmo_backend[[:space:]]*[{]/,/^[[:space:]]*[}]/ s@127\\.0\\.0\\.1:(8080|8081);@127.0.0.1:\$ACTIVE_PORT;@\" \"\$TMP_TARGET\"
+fi
+mv \"\$TMP_TARGET\" '$REMOTE_TARGET'
+ln -sfn '$REMOTE_TARGET' '$ENABLED_LINK'
+if ! nginx -t; then
+  restore_config
+  rm -f \"\$TMP_TARGET\"
   echo \"RESULT=RESTORED_AFTER_NGINX_TEST_FAILURE\"
   exit 1
-fi"
+fi
+if ! systemctl reload nginx; then
+  restore_config
+  if nginx -t && systemctl reload nginx; then
+    echo \"RESULT=RESTORED_AFTER_NGINX_RELOAD_FAILURE\"
+  else
+    echo \"RESULT=RESTORE_FAILED_AFTER_NGINX_RELOAD_FAILURE\" >&2
+  fi
+  rm -f \"\$TMP_TARGET\"
+  exit 1
+fi
+rm -f \"\$TMP_TARGET\"
+echo \"RESULT=RELOADED_OK\""
 
 SCRIPT_B64=$(printf '%s' "$REMOTE_SCRIPT" | base64 | tr -d '\n')
 PARAMS="{\"commands\":[\"echo $SCRIPT_B64 | base64 -d | bash\"],\"executionTimeout\":[\"120\"]}"
