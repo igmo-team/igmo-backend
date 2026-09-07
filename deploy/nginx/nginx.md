@@ -157,6 +157,25 @@ Deploy Nginx workflow
 반영된다. 운영 반영 시에는 적용하려는 설정이 포함된 브랜치를 선택해야 한다. 설정 변경이 이미 merge됐다면
 `prod`를 선택하고, 아직 merge되지 않은 변경을 먼저 반영해야 한다면 해당 작업 브랜치를 선택한다.
 
+### target 선택 기준
+
+화면의 `Branch`와 `target`은 서로 다른 값을 의미한다.
+
+- `Branch`: 사용할 Nginx 설정 파일이 포함된 Git 브랜치
+- `target`: 그 브랜치에서 EC2에 반영할 Nginx 사이트 설정
+
+애플리케이션 Blue/Green 배포를 준비할 때는 `target=igmo`를 선택한다.
+
+| target | 적용 설정 | 적용 대상 | 선택 시점 |
+|---|---|---|---|
+| `igmo` | `igmo.conf` | `api.igmo.co.kr` 애플리케이션 Nginx | 애플리케이션 라우팅 또는 Blue/Green upstream 반영 |
+| `monitoring-bootstrap` | `monitoring.bootstrap.conf` | `monitoring.igmo.co.kr`의 HTTP 80 설정 | 모니터링 인증서 발급 전 ACME challenge 허용 |
+| `monitoring` | `monitoring.conf` | `monitoring.igmo.co.kr`의 운영 설정 | 모니터링 인증서 발급 후 HTTPS·Grafana Cloud redirect 적용 |
+
+`monitoring-bootstrap`은 애플리케이션 bootstrap 설정이 아니다. 이 설정은 모니터링 도메인의 ACME
+challenge 경로만 허용하고 나머지 요청은 404로 반환한다. 따라서 애플리케이션 Blue/Green 마이그레이션에는
+사용하지 않는다. `target` 입력의 기본값도 `monitoring-bootstrap`이므로 실행 전에 반드시 선택값을 확인한다.
+
 ## 애플리케이션 CD와의 관계
 
 현재 애플리케이션 CD는 Nginx 설정을 자동으로 반영하지 않는다.
