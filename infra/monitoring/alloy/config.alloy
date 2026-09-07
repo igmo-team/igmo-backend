@@ -21,14 +21,14 @@ prometheus.remote_write "grafana_cloud" {
 prometheus.scrape "igmo_app" {
   targets = [
     {
-      "__address__" = "127.0.0.1:8080",
+      "__address__" = "127.0.0.1:18080",
       "service"     = "igmo",
       "environment" = "production",
     },
   ]
   forward_to     = [prometheus.remote_write.grafana_cloud.receiver]
   job_name       = "igmo-app"
-  metrics_path   = "/actuator/prometheus"
+  metrics_path   = "/metrics"
   scrape_interval = "30s"
   scrape_timeout  = "10s"
 }
@@ -56,7 +56,7 @@ discovery.relabel "igmo_backend" {
 
   rule {
     source_labels = ["__meta_docker_container_name"]
-    regex         = "/igmo-backend"
+    regex         = "/igmo-backend(-blue|-green)?$"
     action        = "keep"
   }
 
