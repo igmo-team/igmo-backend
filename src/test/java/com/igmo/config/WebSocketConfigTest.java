@@ -47,11 +47,11 @@ class WebSocketConfigTest extends AbstractSpringBootTest {
     }
 
     @Test
-    @DisplayName("브로커에 서버 송신 10초, 클라이언트 수신 기대 10초의 heartbeat와 TaskScheduler가 설정된다.")
+    @DisplayName("브로커에 서버 송신 2초, 클라이언트 수신 기대 2초의 heartbeat와 TaskScheduler가 설정된다.")
     void 브로커에_heartbeat와_TaskScheduler가_설정된다() {
         SoftAssertions.assertSoftly(softly -> {
             softly.assertThat(simpleBrokerMessageHandler.getHeartbeatValue())
-                    .containsExactly(10000L, 10000L);
+                    .containsExactly(2000L, 2000L);
             softly.assertThat(simpleBrokerMessageHandler.getTaskScheduler()).isNotNull();
         });
     }
