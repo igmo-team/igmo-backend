@@ -25,8 +25,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             "https://www.igmo.co.kr"
     };
 
-    // 서버 송신 10초 / 클라이언트 수신 기대 10초. nginx 유휴 타임아웃보다 짧아야 한다(#43).
-    private static final long[] HEARTBEAT_MILLIS = {10_000, 10_000};
+    private static final long[] HEARTBEAT_MILLIS = {2_000, 2_000};
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
