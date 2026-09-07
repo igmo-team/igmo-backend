@@ -35,6 +35,15 @@ EC2 적용 위치: `/etc/nginx/sites-available/igmo`
 
 **필요 도구:** `aws` CLI(로그인 상태), `base64`. 자격증명이 만료되면 `aws login`으로 재인증한다.
 
+## Deploy Nginx 워크플로우
+
+`.github/workflows/deploy-nginx.yml`은 수동 실행(`workflow_dispatch`)하는 Nginx 배포 워크플로우다.
+GitHub Actions의 `Run workflow` 화면에서 선택한 브랜치를 checkout하고, 해당 브랜치의 Nginx 설정을
+EC2에 반영한다. 따라서 운영 반영 시에는 애플리케이션 배포 대상과 동일한 `prod` 브랜치를 선택한다.
+
+Blue/Green 애플리케이션 배포를 처음 적용할 때는 `target=igmo`를 먼저 실행한다. 레거시 direct proxy
+설정을 `igmo_backend` upstream 구조로 마이그레이션한 뒤 CD를 실행해야 한다.
+
 ## API 문서 Basic Auth
 
 운영 설정은 API 문서 경로만 Basic Auth로 보호한다.
