@@ -11,3 +11,21 @@ scrape_configs:
         labels:
           service: igmo
           environment: local
+
+  - job_name: igmo-app-slot-health
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+        labels:
+          service: igmo
+          environment: local
+          slot: blue
+          port: "8080"
+      - targets:
+          - host.docker.internal:8081
+        labels:
+          service: igmo
+          environment: local
+          slot: green
+          port: "8081"

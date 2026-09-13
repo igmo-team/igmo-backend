@@ -8,8 +8,8 @@
   "panels": [
     {
       "id": 1,
-      "title": "앱 지표 수집",
-      "description": "Prometheus가 앱의 /actuator/prometheus endpoint에 연결할 수 있는지 보여준다. UP은 endpoint 응답 가능 상태다.",
+      "title": "앱 인스턴스 상태·활성 슬롯",
+      "description": "로컬에서는 Blue/Green 인스턴스별 상태와 포트를, 운영에서는 현재 트래픽을 처리하는 슬롯과 포트를 보여준다.",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -64,16 +64,23 @@
           "fields": "",
           "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center"
       },
       "targets": [
         {
-          "expr": "up{job=\"igmo-app\"}",
+          "expr": "up{job=\"igmo-app\", environment=\"production\"} * on (instance, job) group_left(slot, port) (topk by (instance, job) (1, timestamp(last_over_time(igmo_deployment_slot_active{job=\"igmo-app\", environment=\"production\"}[5m]))) > bool 0)",
+          "legendFormat": "{{slot}} :{{port}}",
           "refId": "A"
+        },
+        {
+          "expr": "up{job=\"igmo-app-slot-health\", environment=\"local\"}",
+          "legendFormat": "{{slot}} :{{port}}",
+          "refId": "B"
         }
       ]
     },

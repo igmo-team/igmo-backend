@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import unittest
 
@@ -7,6 +8,7 @@ LOCAL_DATASOURCE_FILE = REPOSITORY_ROOT / "infra/monitoring/grafana/datasources.
 LOCAL_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.local.yml"
 PRODUCTION_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.yml"
 PRODUCTION_ALLOY_FILE = REPOSITORY_ROOT / "infra/monitoring/alloy/config.alloy"
+SPRING_DASHBOARD_FILE = REPOSITORY_ROOT / "infra/monitoring/grafana/provisioning/dashboards/spring-application.json"
 MONITORING_DEPLOY_SCRIPT = REPOSITORY_ROOT / "deploy/monitoring/apply.sh"
 MONITORING_DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/deploy-monitoring.yml"
 MONITORING_NGINX_CONFIG = REPOSITORY_ROOT / "deploy/nginx/monitoring.conf"
@@ -19,6 +21,12 @@ class MonitoringDeploymentTest(unittest.TestCase):
             "./grafana/datasources.local.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro",
             LOCAL_COMPOSE_FILE.read_text(),
         )
+
+    def test_local_app_compose_passes_deployment_slot_and_port(self):
+        compose_file = (REPOSITORY_ROOT / "docker-compose.yml").read_text()
+
+        self.assertIn("IGMO_DEPLOYMENT_SLOT: ${IGMO_DEPLOYMENT_SLOT:-blue}", compose_file)
+        self.assertIn("IGMO_DEPLOYMENT_PORT: ${IGMO_DEPLOYMENT_PORT:-8080}", compose_file)
 
     def test_production_alloy_sends_metrics_and_logs_with_a_secret_file(self):
         alloy_configuration = PRODUCTION_ALLOY_FILE.read_text()
@@ -68,6 +76,43 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn('regex         = "/igmo-backend(-blue|-green)?$"', alloy_configuration)
         self.assertIn("listen 127.0.0.1:18080;", nginx_configuration)
         self.assertIn("proxy_pass http://igmo_backend/actuator/prometheus;", nginx_configuration)
+
+    def test_spring_dashboard_shows_health_and_active_slot_port(self):
+        dashboard = json.loads(SPRING_DASHBOARD_FILE.read_text())
+        panel = dashboard["panels"][0]
+        active_target = panel["targets"][0]
+        local_target = panel["targets"][1]
+
+        self.assertEqual("앱 인스턴스 상태·활성 슬롯", panel["title"])
+        self.assertIn('up{job="igmo-app", environment="production"}', active_target["expr"])
+        self.assertIn("igmo_deployment_slot_active", active_target["expr"])
+        self.assertIn("topk by (instance, job)", active_target["expr"])
+        self.assertIn("timestamp(last_over_time", active_target["expr"])
+        self.assertIn("> bool 0", active_target["expr"])
+        self.assertEqual("{{slot}} :{{port}}", active_target["legendFormat"])
+        self.assertEqual('up{job="igmo-app-slot-health", environment="local"}', local_target["expr"])
+        self.assertEqual("{{slot}} :{{port}}", local_target["legendFormat"])
+        self.assertEqual("value_and_name", panel["options"]["textMode"])
+        self.assertTrue(panel["options"]["wideLayout"])
+        self.assertEqual("horizontal", panel["options"]["orientation"])
+        self.assertEqual("center", panel["options"]["justifyMode"])
+
+    def test_local_prometheus_scrapes_both_deployment_slots(self):
+        prometheus_config = (REPOSITORY_ROOT / "infra/monitoring/prometheus/prometheus.local.yml").read_text()
+
+        self.assertIn("job_name: igmo-app-slot-health", prometheus_config)
+        self.assertIn("host.docker.internal:8080", prometheus_config)
+        self.assertIn("host.docker.internal:8081", prometheus_config)
+        self.assertIn("slot: blue", prometheus_config)
+        self.assertIn("slot: green", prometheus_config)
+
+    def test_application_deployment_script_passes_slot_and_host_port(self):
+        deploy_script = (REPOSITORY_ROOT / ".github/scripts/deploy-via-ssm.sh").read_text()
+
+        self.assertIn("TARGET_SLOT='green'", deploy_script)
+        self.assertIn("TARGET_SLOT='blue'", deploy_script)
+        self.assertIn('--env IGMO_DEPLOYMENT_SLOT="\\$TARGET_SLOT"', deploy_script)
+        self.assertIn('--env IGMO_DEPLOYMENT_PORT="\\$3"', deploy_script)
 
     def test_deployment_collects_alloy_diagnostics_before_rollback(self):
         deploy_script = MONITORING_DEPLOY_SCRIPT.read_text()

@@ -5,6 +5,9 @@ spring:
     name: igmo
 
 igmo:
+  deployment:
+    slot: ${IGMO_DEPLOYMENT_SLOT:blue}
+    port: ${IGMO_DEPLOYMENT_PORT:${SERVER_PORT:8080}}
   game:
     disconnect-grace: ${IGMO_GAME_DISCONNECT_GRACE}
     prompt-duration: ${IGMO_GAME_PROMPT_DURATION}
