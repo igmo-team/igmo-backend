@@ -137,13 +137,17 @@ class GameWebSocketE2ETest {
         assertThat(document.path("operations").path("sendSubmitVote").path("action").asText()).isEqualTo("send");
         JsonNode roomTopic = document.path("channels").path("topicTopicRoomsRoomCode");
         assertThat(roomTopic.path("address").asText()).isEqualTo("/topic/rooms/{roomCode}");
-        assertThat(roomTopic.path("messages").size()).isEqualTo(RoomMessageType.values().length + 1);
+        assertThat(roomTopic.path("messages").size()).isEqualTo(RoomMessageType.values().length);
         assertThat(document.path("operations").path("receiveTopicTopicRoomsRoomCode").path("action").asText())
                 .isEqualTo("receive");
         assertThat(document.path("operations").path("receiveUserUserQueueImageGeneration").path("action").asText())
                 .isEqualTo("receive");
         assertThat(document.path("components").path("messages").has("GameResultSnapshotMessage")).isTrue();
         assertThat(document.path("components").path("messages").has("ErrorMessage")).isTrue();
+        assertThat(document.path("components").path("messages").has("RoundResultSnapshotMessage")).isTrue();
+        assertThat(document.path("components").path("messages").has("VoteSkippedRoundResultSnapshotMessage")).isFalse();
+        assertThat(document.path("components").path("messages").path("RoundResultSnapshotMessage")
+                .path("examples").size()).isEqualTo(2);
         assertThat(enumValues(
                 document.at("/components/schemas/GuessSubmissionRejectedMessageSchema/properties/status/enum")))
                 .containsExactly("REJECTED");
@@ -164,9 +168,6 @@ class GameWebSocketE2ETest {
                 .containsExactly("VOTE_SKIPPED_SNAPSHOT");
         assertThat(enumValues(document.at(
                 "/components/schemas/VoteSkippedSnapshotMessageSchema/properties/payload/properties/reason/enum")))
-                .containsExactly("ALL_PERFECT");
-        assertThat(enumValues(document.at(
-                "/components/schemas/VoteSkippedRoundResultSnapshotMessageSchema/properties/payload/properties/voteSkippedReason/enum")))
                 .containsExactly("ALL_PERFECT");
         assertThat(enumValues(document.at("/components/schemas/RoundResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("ROUND_RESULT_SNAPSHOT");
@@ -457,9 +458,9 @@ class GameWebSocketE2ETest {
                             "/topic/rooms/{roomCode}", "BROADCAST", "DIRECT", "투표 생략 안내",
                             "전원 PERFECT로 투표가 생략됐음을 마감 시각까지 표시합니다.", skipped,
                             List.of("vote", "result"), roomMessage(VoteSkippedSnapshot.class)),
-                    triggered("VoteSkippedRoundResultSnapshotMessage", "ROUND_RESULT_SNAPSHOT",
+                    triggered("RoundResultSnapshotMessage", "ROUND_RESULT_SNAPSHOT",
                             "/topic/rooms/{roomCode}", "BROADCAST", "FOLLOW_UP", "라운드 결과",
-                            "투표 생략 안내가 끝난 뒤 정답과 점수를 표시합니다.", result,
+                            "정답, 득표, 점수와 투표 생략 사유를 payload로 갱신합니다.", result,
                             List.of("result"), roomMessage(RoundResultSnapshot.class))
             ));
         } finally {

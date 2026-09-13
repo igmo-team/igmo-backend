@@ -3,6 +3,7 @@ package com.igmo.support.websocketdocs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.lang.reflect.ParameterizedType;
@@ -272,7 +273,10 @@ public class AsyncApiGenerator {
         message.put("summary", contract.description);
         message.put("description", receivedMessageDescription(contract));
         message.put("contentType", "application/json");
-        message.putArray("examples").addObject().set("payload", contract.example);
+        ArrayNode examples = message.putArray("examples");
+        for (JsonNode example : contract.examples) {
+            examples.addObject().set("payload", example);
+        }
         message.putObject("payload").put("$ref", "#/components/schemas/" + schemaId);
     }
 
@@ -341,7 +345,7 @@ public class AsyncApiGenerator {
     private String receivedMessageDescription(MessageContract message) throws IOException {
         return "### 메시지 의미\n\n" + message.description
                 + "\n\n### 클라이언트 처리\n\n" + message.clientAction
-                + "\n\n### 대표 JSON Example\n\n```json\n" + prettyJson(message.example) + "\n```";
+                + "\n\n### 대표 JSON Example\n\n```json\n" + prettyJson(message.example()) + "\n```";
     }
 
     private Set<String> subscriptionsOf(OperationContract operation) {
@@ -409,20 +413,21 @@ public class AsyncApiGenerator {
     }
 
     private ObjectNode generateSchema(MessageContract contract) {
+        JsonNode schemaExample = contract.schemaExample();
         ObjectNode schema;
         if (contract.payloadType == null) {
-            schema = inferSchema(contract.example);
+            schema = inferSchema(schemaExample);
         } else {
             try {
                 Class<?> rawType = Class.forName(contract.payloadType.rawType);
                 Map<TypeVariable<?>, Type> typeArguments = typeArguments(rawType, contract.payloadType.typeArgument);
-                schema = schemaForType(rawType, typeArguments, contract.example);
+                schema = schemaForType(rawType, typeArguments, schemaExample);
             } catch (ClassNotFoundException exception) {
                 throw new IllegalStateException("WebSocket payloadType을 찾을 수 없습니다: " + contract.payloadType.rawType, exception);
             }
         }
-        restrictEnumToObservedExample(schema, contract.example, "status");
-        restrictEnumToObservedExample(schema, contract.example, "type");
+        restrictEnumToObservedExample(schema, schemaExample, "status");
+        restrictEnumToObservedExample(schema, schemaExample, "type");
         return schema;
     }
 
@@ -680,7 +685,7 @@ public class AsyncApiGenerator {
         private final String scope;
         private final String description;
         private final String clientAction;
-        private final JsonNode example;
+        private final List<JsonNode> examples = new ArrayList<>();
         private final PayloadTypeContract payloadType;
         private final Set<String> tags;
 
@@ -691,7 +696,7 @@ public class AsyncApiGenerator {
             scope = required(node, "scope");
             description = required(node, "description");
             clientAction = required(node, "clientAction");
-            example = node.get("example");
+            examples.add(node.get("example"));
             payloadType = PayloadTypeContract.from(node.path("payloadType"));
             tags = tagsOf(node.path("tags"));
         }
@@ -705,10 +710,23 @@ public class AsyncApiGenerator {
                     || !scope.equals(candidate.scope)
                     || !title.equals(candidate.title)
                     || !Objects.equals(payloadType, candidate.payloadType)
-                    || !schemaShape(example).equals(schemaShape(candidate.example))) {
+                    || !schemaShapesCompatible(example(), candidate.example())) {
                 throw new IllegalStateException("동일 messageId의 메시지 계약이 다릅니다: " + messageId);
             }
+            examples.addAll(candidate.examples);
             tags.addAll(candidate.tags);
+        }
+
+        private JsonNode example() {
+            return examples.getFirst();
+        }
+
+        private JsonNode schemaExample() {
+            JsonNode merged = example();
+            for (JsonNode candidate : examples.subList(1, examples.size())) {
+                merged = mergeNullableExamples(merged, candidate);
+            }
+            return merged;
         }
     }
 
@@ -734,6 +752,67 @@ public class AsyncApiGenerator {
             throw new IllegalStateException("WebSocket snippet의 " + field + " 값이 비어 있습니다.");
         }
         return value;
+    }
+
+    private static boolean schemaShapesCompatible(JsonNode left, JsonNode right) {
+        if (isNullish(left) || isNullish(right)) {
+            return true;
+        }
+        if (left.isObject() || right.isObject()) {
+            if (!left.isObject() || !right.isObject()) {
+                return false;
+            }
+            Iterator<Map.Entry<String, JsonNode>> fields = left.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (!right.has(field.getKey()) || !schemaShapesCompatible(field.getValue(), right.get(field.getKey()))) {
+                    return false;
+                }
+            }
+            return sameFieldNames(left, right);
+        }
+        if (left.isArray() || right.isArray()) {
+            if (!left.isArray() || !right.isArray()) {
+                return false;
+            }
+            return left.isEmpty() || right.isEmpty() || schemaShapesCompatible(left.get(0), right.get(0));
+        }
+        return schemaShape(left).equals(schemaShape(right));
+    }
+
+    private static boolean sameFieldNames(JsonNode left, JsonNode right) {
+        Iterator<String> fields = right.fieldNames();
+        while (fields.hasNext()) {
+            if (!left.has(fields.next())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static JsonNode mergeNullableExamples(JsonNode base, JsonNode candidate) {
+        if (isNullish(base) || isNullish(candidate)) {
+            return NullNode.instance;
+        }
+        if (base.isObject() && candidate.isObject()) {
+            ObjectNode merged = base.deepCopy();
+            Iterator<Map.Entry<String, JsonNode>> fields = candidate.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                merged.set(field.getKey(), mergeNullableExamples(merged.get(field.getKey()), field.getValue()));
+            }
+            return merged;
+        }
+        if (base.isArray() && candidate.isArray() && !base.isEmpty() && !candidate.isEmpty()) {
+            ArrayNode merged = base.deepCopy();
+            merged.set(0, mergeNullableExamples(base.get(0), candidate.get(0)));
+            return merged;
+        }
+        return base.deepCopy();
+    }
+
+    private static boolean isNullish(JsonNode value) {
+        return value == null || value.isNull() || value.isMissingNode();
     }
 
     private static String schemaShape(JsonNode value) {
