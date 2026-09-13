@@ -9,6 +9,7 @@ import com.igmo.domain.exception.PerfectGuessAlreadyConfirmedException;
 import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.domain.exception.SelfVoteNotAllowedException;
 import com.igmo.domain.exception.VoteNotAllowedException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -38,6 +39,11 @@ public class Round {
     private final Set<String> perfectGuesserIds = new LinkedHashSet<>();
     private final List<VoteOption> voteOptions = new ArrayList<>();
     private final Map<String, Vote> votesByVoterId = new LinkedHashMap<>();
+    private boolean voteSkipped;
+    @Getter
+    private Instant voteSkippedStartedAt;
+    @Getter
+    private Instant voteSkippedDeadline;
     private RoundResult result;
 
     private Round(int roundNumber, String questionerId, PromptEntry answerEntry) {
@@ -97,6 +103,21 @@ public class Round {
         guessesByPlayerId.values().forEach(entry ->
                 voteOptions.add(VoteOption.of(entry.getGuessId(), entry.getGuess())));
         Collections.shuffle(voteOptions, ThreadLocalRandom.current());
+    }
+
+    public void skipVoting(Instant startedAt, Duration duration) {
+        openVoting();
+        voteSkipped = true;
+        voteSkippedStartedAt = startedAt;
+        voteSkippedDeadline = startedAt.plus(duration);
+    }
+
+    public boolean isVoteSkipped() {
+        return voteSkipped;
+    }
+
+    public boolean isVoteSkippedExpirationStale(Instant deadline) {
+        return !voteSkipped || voteSkippedDeadline == null || !voteSkippedDeadline.equals(deadline);
     }
 
     public void submitVote(String voterId, String optionId, Instant votedAt) {

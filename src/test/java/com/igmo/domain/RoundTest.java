@@ -13,6 +13,7 @@ import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.domain.exception.PerfectGuessAlreadyConfirmedException;
 import com.igmo.domain.exception.SelfVoteNotAllowedException;
 import com.igmo.domain.exception.VoteNotAllowedException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,8 @@ import org.junit.jupiter.api.Test;
 class RoundTest {
 
     private static final Instant SUBMITTED_AT = Instant.parse("2026-07-19T12:00:00Z");
+    private static final Instant VOTE_SKIPPED_STARTED_AT = SUBMITTED_AT.plusSeconds(10);
+    private static final Duration VOTE_SKIPPED_DURATION = Duration.ofSeconds(3);
 
     @Test
     @DisplayName("출제자가 아닌 플레이어가 추측을 제출하면 제출 순서대로 저장한다.")
@@ -288,6 +291,28 @@ class RoundTest {
 
         // then
         assertThat(round.getVoteOptions()).containsExactlyElementsOf(firstOpened);
+    }
+
+    @Test
+    @DisplayName("투표를 생략하면 라운드에 시작·마감 시각과 생략 상태를 보관한다.")
+    void skipVoting_라운드에_시작과_마감_시각을_보관한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+
+        // when
+        round.skipVoting(VOTE_SKIPPED_STARTED_AT, VOTE_SKIPPED_DURATION);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(round.isVoteSkipped()).isTrue();
+            softly.assertThat(round.getVoteSkippedStartedAt()).isEqualTo(VOTE_SKIPPED_STARTED_AT);
+            softly.assertThat(round.getVoteSkippedDeadline())
+                    .isEqualTo(VOTE_SKIPPED_STARTED_AT.plus(VOTE_SKIPPED_DURATION));
+            softly.assertThat(round.isVoteSkippedExpirationStale(
+                    VOTE_SKIPPED_STARTED_AT.plus(VOTE_SKIPPED_DURATION))).isFalse();
+            softly.assertThat(round.isVoteSkippedExpirationStale(
+                    VOTE_SKIPPED_STARTED_AT.plus(VOTE_SKIPPED_DURATION).plusSeconds(1))).isTrue();
+        });
     }
 
     @Test

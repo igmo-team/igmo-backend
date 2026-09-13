@@ -21,6 +21,10 @@ public record RoomMessage<T>(
         return new RoomMessage<>(RoomMessageType.VOTE_SNAPSHOT, payload);
     }
 
+    public static RoomMessage<VoteSkippedSnapshot> voteSkippedSnapshot(VoteSkippedSnapshot payload) {
+        return new RoomMessage<>(RoomMessageType.VOTE_SKIPPED_SNAPSHOT, payload);
+    }
+
     public static RoomMessage<RoundResultSnapshot> roundResultSnapshot(RoundResultSnapshot payload) {
         return new RoomMessage<>(RoomMessageType.ROUND_RESULT_SNAPSHOT, payload);
     }

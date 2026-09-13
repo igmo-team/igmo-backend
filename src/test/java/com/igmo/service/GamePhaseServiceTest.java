@@ -59,6 +59,7 @@ import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteOptionView;
 import com.igmo.web.dto.VoteDisabledReason;
 import com.igmo.web.dto.VoteSkippedReason;
+import com.igmo.web.dto.VoteSkippedSnapshot;
 import com.igmo.web.dto.VoteSnapshot;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -135,6 +136,7 @@ class GamePhaseServiceTest {
         ReflectionTestUtils.setField(gamePhaseService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gamePhaseService, "guessDuration", Duration.ofSeconds(60));
         ReflectionTestUtils.setField(gamePhaseService, "voteDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(gamePhaseService, "voteSkippedDuration", Duration.ofSeconds(3));
         ReflectionTestUtils.setField(gamePhaseService, "resultDuration", Duration.ofSeconds(10));
         ReflectionTestUtils.setField(
                 gamePhaseService,
@@ -1069,8 +1071,8 @@ class GamePhaseServiceTest {
     }
 
     @Test
-    @DisplayName("출제자를 제외한 전원이 PERFECT면 가짜 프롬프트 제출 후 바로 결과를 공개한다.")
-    void submitGuess_전원이_PERFECT면_바로_결과를_공개한다() {
+    @DisplayName("출제자를 제외한 전원이 PERFECT면 투표 생략 스냅샷을 보내고 3초 후 결과를 공개한다.")
+    void submitGuess_전원이_PERFECT면_투표생략_스냅샷후_결과를_공개한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
         gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
@@ -1082,11 +1084,30 @@ class GamePhaseServiceTest {
         gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
 
         // then
-        RoundResultSnapshot snapshot = captureRoundResultSnapshotBroadcast();
+        VoteSkippedSnapshot skippedSnapshot = captureVoteSkippedSnapshotBroadcast();
         SoftAssertions.assertSoftly(softly -> {
-            softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.RESULTS);
-            softly.assertThat(snapshot.voteSkippedReason()).isEqualTo(VoteSkippedReason.ALL_PERFECT);
-            softly.assertThat(snapshot.players())
+            softly.assertThat(skippedSnapshot.roomCode()).isEqualTo("ABCD");
+            softly.assertThat(skippedSnapshot.roundNumber()).isEqualTo(1);
+            softly.assertThat(skippedSnapshot.phase()).isEqualTo(GamePhase.VOTE_SKIPPED);
+            softly.assertThat(skippedSnapshot.reason()).isEqualTo(VoteSkippedReason.ALL_PERFECT);
+            softly.assertThat(Duration.between(skippedSnapshot.startedAt(), skippedSnapshot.deadline()))
+                    .isEqualTo(Duration.ofSeconds(3));
+            softly.assertThat(gameRegistry.find("ABCD").orElseThrow().getPlayers())
+                    .filteredOn(player -> player.getId().equals(playerIds.get(1))
+                            || player.getId().equals(playerIds.get(2)))
+                    .extracting(player -> player.getScore())
+                    .containsOnly(0);
+        });
+
+        Runnable voteSkippedExpiration = captureLastScheduledDeadline(3);
+        clearInvocations(messagingTemplate);
+        voteSkippedExpiration.run();
+
+        RoundResultSnapshot resultSnapshot = captureRoundResultSnapshotBroadcast();
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(resultSnapshot.phase()).isEqualTo(GamePhase.RESULTS);
+            softly.assertThat(resultSnapshot.voteSkippedReason()).isEqualTo(VoteSkippedReason.ALL_PERFECT);
+            softly.assertThat(resultSnapshot.players())
                     .filteredOn(player -> player.id().equals(playerIds.get(1)) || player.id().equals(playerIds.get(2)))
                     .extracting(player -> player.score())
                     .containsOnly(3);
@@ -1516,6 +1537,16 @@ class GamePhaseServiceTest {
                 .reduce((previous, current) -> current)
                 .orElseThrow();
         return (VoteSnapshot) message.payload();
+    }
+
+    private VoteSkippedSnapshot captureVoteSkippedSnapshotBroadcast() {
+        ArgumentCaptor<RoomMessage> captor = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate, atLeastOnce()).convertAndSend(eq("/topic/rooms/ABCD"), captor.capture());
+        RoomMessage message = captor.getAllValues().stream()
+                .filter(value -> value.type() == RoomMessageType.VOTE_SKIPPED_SNAPSHOT)
+                .reduce((previous, current) -> current)
+                .orElseThrow();
+        return (VoteSkippedSnapshot) message.payload();
     }
 
     private RoundResultSnapshot captureRoundResultSnapshotBroadcast() {

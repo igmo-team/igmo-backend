@@ -22,6 +22,7 @@ import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
+import com.igmo.web.dto.VoteSkippedSnapshot;
 import com.igmo.web.dto.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
@@ -47,6 +48,8 @@ public class GamePhaseService {
     private Duration guessDuration;
     @Value("${igmo.game.vote-duration}")
     private Duration voteDuration;
+    @Value("${igmo.game.vote-skipped-duration}")
+    private Duration voteSkippedDuration;
     @Value("${igmo.game.result-duration}")
     private Duration resultDuration;
     @Value("${igmo.game.image-generation-completion-delay}")
@@ -96,7 +99,7 @@ public class GamePhaseService {
 
     public void onPlayerRemoved(String code) {
         boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, room ->
-                room.getPhase() == GamePhase.GENERATING && room.hasAllImagesGenerated())
+                        room.getPhase() == GamePhase.GENERATING && room.hasAllImagesGenerated())
                 .orElse(false);
         if (shouldSchedulePlayingTransition) {
             gamePhaseScheduler.cancelPrompt(code);
@@ -197,8 +200,14 @@ public class GamePhaseService {
 
     private RoomMessage<?> completeGuessSubmission(String code, GameRoom room, Instant completedAt) {
         GamePhase fromPhase = room.getPhase();
-        room.completeGuessSubmission(completedAt, voteDuration);
+        room.completeGuessSubmission(completedAt, voteDuration, voteSkippedDuration);
         logPhaseTransition(code, fromPhase, room.getPhase());
+
+        if (room.getPhase() == GamePhase.VOTE_SKIPPED) {
+            scheduleVoteSkippedExpiration(code, room.getCurrentRound().getVoteSkippedDeadline());
+            return RoomMessage.voteSkippedSnapshot(VoteSkippedSnapshot.from(room));
+        }
+
         if (room.hasAllCurrentRoundVotes()) {
             fromPhase = room.getPhase();
             room.completeVoting(completedAt, resultDuration);
@@ -277,6 +286,27 @@ public class GamePhaseService {
                     lockedRoom.completeVoting(Instant.now(), resultDuration);
                     logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
                     scheduleResultExpiration(code, lockedRoom.getResultDeadline());
+                    return RoundResultSnapshot.from(lockedRoom);
+                })
+                .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
+    }
+
+    private void scheduleVoteSkippedExpiration(String code, Instant deadline) {
+        gamePhaseScheduler.scheduleVoteSkipped(code, deadline, () -> runVoteSkippedExpiration(code, deadline));
+    }
+
+    private void runVoteSkippedExpiration(String code, Instant deadline) {
+        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+                    if (lockedRoom.isVoteSkippedExpirationStale(deadline)) {
+                        return null;
+                    }
+
+                    Instant expiredAt = Instant.now();
+                    GamePhase fromPhase = lockedRoom.getPhase();
+                    lockedRoom.completeVoteSkipped(expiredAt, resultDuration);
+                    logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
+                    scheduleResultExpiration(code, lockedRoom.getResultDeadline());
+
                     return RoundResultSnapshot.from(lockedRoom);
                 })
                 .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));

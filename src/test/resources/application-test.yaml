@@ -4,6 +4,7 @@ igmo:
     prompt-duration: 1s
     guess-duration: 1s
     vote-duration: 1s
+    vote-skipped-duration: 3s
     result-duration: 1s
     image-generation-completion-delay: 1s
   ai:

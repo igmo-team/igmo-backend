@@ -5,6 +5,7 @@ public enum GamePhase {
     GENERATING,
     PLAYING,
     VOTING,
+    VOTE_SKIPPED,
     RESULTS,
     ENDED
 }
