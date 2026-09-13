@@ -19,7 +19,7 @@ class GameMetricsTest {
         when(gameRoom.getCode()).thenReturn("ABCD");
         gameRegistry.saveIfAbsent(gameRoom);
 
-        new GameMetrics(meterRegistry, gameRegistry);
+        new GameMetrics(meterRegistry, gameRegistry, "blue", "8080");
 
         assertThat(meterRegistry.get("game.room.active").gauge().value()).isEqualTo(1.0);
     }
@@ -27,7 +27,7 @@ class GameMetricsTest {
     @Test
     void 메시지타입_전송경로_결과별로_전송_메트릭을_기록한다() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        GameMetrics gameMetrics = new GameMetrics(meterRegistry, new GameRegistry());
+        GameMetrics gameMetrics = new GameMetrics(meterRegistry, new GameRegistry(), "blue", "8080");
 
         gameMetrics.recordWebSocketMessageSend(
                 WebSocketMessageType.ROUND_SNAPSHOT,
@@ -52,5 +52,17 @@ class GameMetricsTest {
                         "outcome", "FAILURE")
                 .counter()
                 .count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void 배포_슬롯과_호스트_포트를_측정한다() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+        new GameMetrics(meterRegistry, new GameRegistry(), "green", "8081");
+
+        assertThat(meterRegistry.get("igmo.deployment.slot.active")
+                .tags("slot", "green", "port", "8081")
+                .gauge()
+                .value()).isEqualTo(1.0);
     }
 }

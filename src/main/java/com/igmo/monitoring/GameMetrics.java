@@ -2,11 +2,13 @@ package com.igmo.monitoring;
 
 import com.igmo.store.GameRegistry;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -19,12 +21,21 @@ public class GameMetrics {
     private final MeterRegistry meterRegistry;
     private final Set<String> activeWebSocketSessionIds = ConcurrentHashMap.newKeySet();
 
-    public GameMetrics(MeterRegistry meterRegistry, GameRegistry gameRegistry) {
+    public GameMetrics(
+            MeterRegistry meterRegistry,
+            GameRegistry gameRegistry,
+            @Value("${igmo.deployment.slot:blue}") String deploymentSlot,
+            @Value("${igmo.deployment.port:8080}") String deploymentPort
+    ) {
         this.meterRegistry = meterRegistry;
         imageGenerationDuration = meterRegistry.timer("image.generation.duration");
         imageGenerationFailure = meterRegistry.counter("image.generation.failure");
         imageUploadDuration = meterRegistry.timer("image.upload.duration");
         imageUploadFailure = meterRegistry.counter("image.upload.failure");
+        Gauge.builder("igmo.deployment.slot.active", () -> 1)
+                .description("현재 트래픽을 처리하는 배포 슬롯과 호스트 포트")
+                .tags("slot", deploymentSlot, "port", deploymentPort)
+                .register(meterRegistry);
         meterRegistry.gauge("websocket.connection.active", activeWebSocketSessionIds, Set::size);
         meterRegistry.gauge("game.room.active", gameRegistry, GameRegistry::count);
     }

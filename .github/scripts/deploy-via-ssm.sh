@@ -161,9 +161,11 @@ ACTIVE_PORT=\$(read_active_port)
 if [ "\$ACTIVE_PORT" = '8080' ]; then
     TARGET_PORT='8081'
     TARGET_CONTAINER='igmo-backend-green'
+    TARGET_SLOT='green'
 elif [ "\$ACTIVE_PORT" = '8081' ]; then
     TARGET_PORT='8080'
     TARGET_CONTAINER='igmo-backend-blue'
+    TARGET_SLOT='blue'
 else
     echo 'Unable to determine the active IGMO backend port.' >&2
     exit 1
@@ -207,6 +209,8 @@ start_container() {
     --memory 1280m \
     --env SPRING_PROFILES_ACTIVE=prod \
     --env SERVER_PORT="\$SERVER_PORT" \
+    --env IGMO_DEPLOYMENT_SLOT="\$TARGET_SLOT" \
+    --env IGMO_DEPLOYMENT_PORT="\$3" \
     --env 'JAVA_TOOL_OPTIONS=-Xms128m -Xmx768m -Duser.timezone=Asia/Seoul' \
     --env GEMINI_API_KEY="\$GEMINI_API_KEY" \
     --env IGMO_AI_GEMINI_MODEL="\$IGMO_AI_GEMINI_MODEL" \
