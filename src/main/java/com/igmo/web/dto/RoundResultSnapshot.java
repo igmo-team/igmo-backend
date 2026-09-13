@@ -54,14 +54,14 @@ public record RoundResultSnapshot(
                 round.getAnswerEntry().getPrompt(),
                 room.getResultStartedAt(),
                 room.getResultDeadline(),
-                voteSkippedReason(round, room),
+                voteSkippedReason(round),
                 results,
                 players
         );
     }
 
-    private static VoteSkippedReason voteSkippedReason(Round round, GameRoom room) {
-        if (round.hasAllPerfectGuessers(room.getPlayers().stream().map(Player::getId).toList())) {
+    private static VoteSkippedReason voteSkippedReason(Round round) {
+        if (round.isVoteSkipped()) {
             return VoteSkippedReason.ALL_PERFECT;
         }
         return null;

@@ -16,6 +16,7 @@ public class GamePhaseScheduler {
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingVoteExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingVoteSkippedExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingResultExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingPlayingTransitions = new ConcurrentHashMap<>();
 
@@ -51,6 +52,14 @@ public class GamePhaseScheduler {
         cancel(code, pendingVoteExpirations);
     }
 
+    public void scheduleVoteSkipped(String code, Instant deadline, Runnable task) {
+        scheduleReplacing(code, deadline, task, pendingVoteSkippedExpirations, phaseDeadlineScheduler);
+    }
+
+    public void cancelVoteSkipped(String code) {
+        cancel(code, pendingVoteSkippedExpirations);
+    }
+
     public void scheduleResult(String code, Instant deadline, Runnable task) {
         scheduleReplacing(code, deadline, task, pendingResultExpirations, phaseDeadlineScheduler);
     }
@@ -77,6 +86,7 @@ public class GamePhaseScheduler {
         cancelPrompt(code);
         cancelGuess(code);
         cancelVote(code);
+        cancelVoteSkipped(code);
         cancelResult(code);
         cancelPlayingTransition(code);
     }

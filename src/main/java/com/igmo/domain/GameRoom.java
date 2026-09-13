@@ -309,11 +309,19 @@ public class GameRoom {
         }
     }
 
-    public synchronized void completeGuessSubmission(Instant now, Duration voteDuration) {
+    public synchronized void completeGuessSubmission(
+            Instant now,
+            Duration voteDuration,
+            Duration voteSkippedDuration
+    ) {
         if (!isGuessing()) {
             return;
         }
         if (isGuessExpired(now) || hasAllCurrentRoundGuesses()) {
+            if (getCurrentRound().hasAllPerfectGuessers(players.keySet())) {
+                openVoteSkipped(now, voteSkippedDuration);
+                return;
+            }
             openVoting(now, voteDuration);
         }
     }
@@ -336,6 +344,13 @@ public class GameRoom {
         if (isVoteExpired(now) || hasAllCurrentRoundVotes()) {
             openResults(now, resultDuration);
         }
+    }
+
+    public synchronized void completeVoteSkipped(Instant now, Duration resultDuration) {
+        if (!isVoteSkipped()) {
+            return;
+        }
+        openResults(now, resultDuration);
     }
 
     // 결과 확인 시간이 지나면 다음 라운드로 넘어가고, 마지막 라운드였다면 게임을 종료한다.
@@ -367,6 +382,13 @@ public class GameRoom {
 
     public synchronized boolean isVoteExpirationStale(Instant deadline) {
         return voteDeadline == null || !voteDeadline.equals(deadline);
+    }
+
+    public synchronized boolean isVoteSkippedExpirationStale(Instant deadline) {
+        Round currentRound = getCurrentRound();
+        return !isVoteSkipped()
+                || currentRound == null
+                || currentRound.isVoteSkippedExpirationStale(deadline);
     }
 
     public synchronized boolean isResultExpirationStale(Instant deadline) {
@@ -451,6 +473,10 @@ public class GameRoom {
         return phase == GamePhase.VOTING;
     }
 
+    private boolean isVoteSkipped() {
+        return phase == GamePhase.VOTE_SKIPPED;
+    }
+
     private boolean isResults() {
         return phase == GamePhase.RESULTS;
     }
@@ -469,6 +495,15 @@ public class GameRoom {
         currentRound.openVoting();
         voteStartedAt = openedAt;
         voteDeadline = openedAt.plus(voteDuration);
+    }
+
+    private void openVoteSkipped(Instant openedAt, Duration voteSkippedDuration) {
+        Round currentRound = getCurrentRound();
+        if (currentRound == null) {
+            return;
+        }
+        phase = GamePhase.VOTE_SKIPPED;
+        currentRound.skipVoting(openedAt, voteSkippedDuration);
     }
 
     // RESULTS 전환과 점수 확정, 점수 반영, 결과 마감 설정은 함께 일어나야 하는 하나의 전이다.

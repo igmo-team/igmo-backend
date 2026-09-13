@@ -44,6 +44,7 @@ class GameRoomTest {
     private static final Duration GUESS_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final Instant VOTING_OPENED_AT = Instant.parse("2026-07-06T10:05:10Z");
     private static final Duration VOTE_DURATION = Duration.ofSeconds(30);
+    private static final Duration VOTE_SKIPPED_DURATION = Duration.ofSeconds(3);
     private static final Instant RESULTS_OPENED_AT = Instant.parse("2026-07-06T10:05:40Z");
     private static final Duration RESULT_DURATION = Duration.ofSeconds(15);
     private static final Instant PROMPT_DEADLINE = PROMPT_STARTED_AT.plus(PROMPT_DURATION);
@@ -1301,7 +1302,7 @@ class GameRoomTest {
         room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
 
         // when
-        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
+        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION, VOTE_SKIPPED_DURATION);
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -1319,7 +1320,10 @@ class GameRoomTest {
         room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
 
         // when
-        room.completeGuessSubmission(GUESS_STARTED_AT.plus(GUESS_DURATION).plusSeconds(1), VOTE_DURATION);
+        room.completeGuessSubmission(
+                GUESS_STARTED_AT.plus(GUESS_DURATION).plusSeconds(1),
+                VOTE_DURATION,
+                VOTE_SKIPPED_DURATION);
 
         // then
         assertThat(room.getPhase()).isEqualTo(GamePhase.VOTING);
@@ -1334,7 +1338,10 @@ class GameRoomTest {
         room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
 
         // when
-        room.completeGuessSubmission(GUESS_STARTED_AT.plusSeconds(10), VOTE_DURATION);
+        room.completeGuessSubmission(
+                GUESS_STARTED_AT.plusSeconds(10),
+                VOTE_DURATION,
+                VOTE_SKIPPED_DURATION);
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -1368,7 +1375,7 @@ class GameRoomTest {
         room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
 
         // when
-        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
+        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION, VOTE_SKIPPED_DURATION);
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -1376,6 +1383,54 @@ class GameRoomTest {
             softly.assertThat(room.getCurrentRound().getVoteOptions()).hasSize(3);
             softly.assertThat(room.getVoteStartedAt()).isEqualTo(VOTING_OPENED_AT);
             softly.assertThat(room.getVoteDeadline()).isEqualTo(VOTING_OPENED_AT.plus(VOTE_DURATION));
+        });
+    }
+
+    @Test
+    @DisplayName("전원이 PERFECT면 VOTE_SKIPPED 단계로 전환하고 3초 마감을 설정한다.")
+    void completeGuessSubmission_전원이_PERFECT면_VOTE_SKIPPED로_전환한다() throws Exception {
+        GameRoom room = createRoomWithSkippedVote();
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.VOTE_SKIPPED);
+            softly.assertThat(room.getCurrentRound().getVoteSkippedStartedAt()).isEqualTo(VOTING_OPENED_AT);
+            softly.assertThat(room.getCurrentRound().getVoteSkippedDeadline())
+                    .isEqualTo(VOTING_OPENED_AT.plus(VOTE_SKIPPED_DURATION));
+            softly.assertThat(room.getCurrentRound().getVoteOptions()).hasSize(3);
+        });
+    }
+
+    @Test
+    @DisplayName("투표 생략 마감 작업이 실행되면 RESULTS 단계로 전환한다.")
+    void completeVoteSkipped_마감작업이_실행되면_RESULTS로_전환한다() throws Exception {
+        GameRoom room = createRoomWithSkippedVote();
+        Instant expiredAt = room.getCurrentRound().getVoteSkippedDeadline();
+
+        room.completeVoteSkipped(expiredAt, RESULT_DURATION);
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getPhase()).isEqualTo(GamePhase.RESULTS);
+            softly.assertThat(room.getResultStartedAt()).isEqualTo(expiredAt);
+            softly.assertThat(room.getResultDeadline()).isEqualTo(expiredAt.plus(RESULT_DURATION));
+        });
+    }
+
+    @Test
+    @DisplayName("다음 라운드로 넘어가면 새 라운드의 투표 생략 시각은 비어 있다.")
+    void advanceRound_다음_라운드의_투표생략_시각은_초기화된다() throws Exception {
+        // given
+        GameRoom room = createRoomWithSkippedVote();
+        Instant skippedDeadline = room.getCurrentRound().getVoteSkippedDeadline();
+        room.completeVoteSkipped(skippedDeadline, RESULT_DURATION);
+
+        // when
+        room.advanceRound(skippedDeadline.plus(RESULT_DURATION), GUESS_DURATION);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(room.getCurrentRound().isVoteSkipped()).isFalse();
+            softly.assertThat(room.getCurrentRound().getVoteSkippedStartedAt()).isNull();
+            softly.assertThat(room.getCurrentRound().getVoteSkippedDeadline()).isNull();
         });
     }
 
@@ -1650,7 +1705,19 @@ class GameRoomTest {
         String guest2Id = room.getPlayers().get(2).getId();
         room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
         room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
-        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
+        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION, VOTE_SKIPPED_DURATION);
+        return room;
+    }
+
+    private GameRoom createRoomWithSkippedVote() throws Exception {
+        GameRoom room = createRoomInGuessing();
+        String guest1Id = room.getPlayers().get(1).getId();
+        String guest2Id = room.getPlayers().get(2).getId();
+        room.submitGuess(guest1Id, "호스트프롬프트", GUESS_STARTED_AT);
+        room.submitGuess(guest1Id, "강아지가 기타를 치는 장면", GUESS_STARTED_AT.plusSeconds(1));
+        room.submitGuess(guest2Id, "호스트프롬프트", GUESS_STARTED_AT);
+        room.submitGuess(guest2Id, "고양이가 드럼을 치는 장면", GUESS_STARTED_AT.plusSeconds(1));
+        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION, VOTE_SKIPPED_DURATION);
         return room;
     }
 

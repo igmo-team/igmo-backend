@@ -179,7 +179,7 @@ class RoundResultSnapshotTest {
         }
         room.submitGuess(guest1.getId(), "강아지가 기타를 치는 장면", GUESS_STARTED_AT);
         room.submitGuess(guest2.getId(), "고양이가 드럼을 치는 장면", GUESS_STARTED_AT);
-        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION);
+        room.completeGuessSubmission(VOTING_OPENED_AT, VOTE_DURATION, Duration.ofSeconds(3));
         String answerOptionId = room.getCurrentRound().getAnswerEntry().getPromptId();
         String guess1OptionId = room.getCurrentRound().getGuesses().get(0).getGuessId();
         if (perfectGuess) {

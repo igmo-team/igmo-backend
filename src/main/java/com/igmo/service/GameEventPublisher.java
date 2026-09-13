@@ -148,6 +148,7 @@ public class GameEventPublisher {
             case PROMPT_SUBMISSION_SNAPSHOT -> GamePhase.GENERATING;
             case ROUND_SNAPSHOT -> GamePhase.PLAYING;
             case VOTE_SNAPSHOT -> GamePhase.VOTING;
+            case VOTE_SKIPPED_SNAPSHOT -> GamePhase.VOTE_SKIPPED;
             case ROUND_RESULT_SNAPSHOT -> GamePhase.RESULTS;
             case GAME_RESULT_SNAPSHOT -> GamePhase.ENDED;
         };

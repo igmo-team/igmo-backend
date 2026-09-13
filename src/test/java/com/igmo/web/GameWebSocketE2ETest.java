@@ -32,11 +32,14 @@ import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteRequest;
+import com.igmo.web.dto.VoteSkippedSnapshot;
 import com.igmo.web.dto.VoteSnapshot;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -75,6 +78,7 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
                 "igmo.game.prompt-duration=30s",
                 "igmo.game.guess-duration=30s",
                 "igmo.game.vote-duration=30s",
+                "igmo.game.vote-skipped-duration=100ms",
                 "igmo.game.result-duration=100ms",
                 "igmo.game.image-generation-completion-delay=10ms"
         }
@@ -133,7 +137,7 @@ class GameWebSocketE2ETest {
         assertThat(document.path("operations").path("sendSubmitVote").path("action").asText()).isEqualTo("send");
         JsonNode roomTopic = document.path("channels").path("topicTopicRoomsRoomCode");
         assertThat(roomTopic.path("address").asText()).isEqualTo("/topic/rooms/{roomCode}");
-        assertThat(roomTopic.path("messages").size()).isEqualTo(RoomMessageType.values().length);
+        assertThat(roomTopic.path("messages").size()).isEqualTo(RoomMessageType.values().length + 1);
         assertThat(document.path("operations").path("receiveTopicTopicRoomsRoomCode").path("action").asText())
                 .isEqualTo("receive");
         assertThat(document.path("operations").path("receiveUserUserQueueImageGeneration").path("action").asText())
@@ -155,6 +159,15 @@ class GameWebSocketE2ETest {
                 .containsExactly("PROMPT_SUBMISSION_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/VoteSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("VOTE_SNAPSHOT");
+        assertThat(enumValues(document.at(
+                "/components/schemas/VoteSkippedSnapshotMessageSchema/properties/type/enum")))
+                .containsExactly("VOTE_SKIPPED_SNAPSHOT");
+        assertThat(enumValues(document.at(
+                "/components/schemas/VoteSkippedSnapshotMessageSchema/properties/payload/properties/reason/enum")))
+                .containsExactly("ALL_PERFECT");
+        assertThat(enumValues(document.at(
+                "/components/schemas/VoteSkippedRoundResultSnapshotMessageSchema/properties/payload/properties/voteSkippedReason/enum")))
+                .containsExactly("ALL_PERFECT");
         assertThat(enumValues(document.at("/components/schemas/RoundResultSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("ROUND_RESULT_SNAPSHOT");
         assertThat(enumValues(document.at(
@@ -392,6 +405,62 @@ class GameWebSocketE2ETest {
                     triggered("OwnVoteOptionNoticeMessage", "OWN_VOTE_OPTION", "/user/queue/vote-own-option", "USER",
                             "FOLLOW_UP", "본인 투표 보기 안내", "voteAllowed와 optionId에 따라 선택 불가 보기를 처리합니다.", ownVoteOption,
                             List.of("vote"), payload(OwnVoteOptionNotice.class))
+            ));
+        } finally {
+            scenario.close();
+        }
+    }
+
+    @Test
+    @DisplayName("전원 PERFECT 시 투표 생략 안내와 후속 라운드 결과를 문서화한다.")
+    void submitGuess_전원PERFECT_투표생략과결과를문서화한다() throws Exception {
+        PlayingScenario playing = preparePlayingScenario();
+        GameScenario scenario = playing.scenario();
+        try {
+            List<PlayerConnection> guessers = nonQuestioners(scenario, playing.roundSnapshot());
+            PlayerConnection first = guessers.get(0);
+            PlayerConnection second = guessers.get(1);
+            String answer = promptForQuestioner(scenario, playing.roundSnapshot());
+            GuessRequest lastRequest = new GuessRequest("second fake guess");
+            scenario.clearAllQueues();
+
+            first.session().send(sendDestination(scenario, "guesses"), new GuessRequest(answer));
+            awaitMessage(first.guessSubmissionMessages(), message ->
+                    message.path("status").asText().equals("PERFECT_RETRY_REQUIRED"), "first PERFECT");
+            first.session().send(sendDestination(scenario, "guesses"), new GuessRequest("first fake guess"));
+            awaitMessage(first.guessSubmissionMessages(), message ->
+                    message.path("status").asText().equals("SUBMITTED"), "first fake guess");
+            second.session().send(sendDestination(scenario, "guesses"), new GuessRequest(answer));
+            awaitMessage(second.guessSubmissionMessages(), message ->
+                    message.path("status").asText().equals("PERFECT_RETRY_REQUIRED"), "second PERFECT");
+            second.session().send(sendDestination(scenario, "guesses"), lastRequest);
+
+            JsonNode skipped = awaitTopic(scenario, RoomMessageType.VOTE_SKIPPED_SNAPSHOT.name());
+            JsonNode result = awaitTopic(scenario, RoomMessageType.ROUND_RESULT_SNAPSHOT.name());
+            JsonNode skippedPayload = skipped.path("payload");
+            assertThat(skippedPayload.path("roomCode").asText()).isEqualTo(scenario.roomCode());
+            assertThat(skippedPayload.path("roundNumber").asInt()).isEqualTo(1);
+            assertThat(skippedPayload.path("phase").asText()).isEqualTo("VOTE_SKIPPED");
+            assertThat(skippedPayload.path("reason").asText()).isEqualTo("ALL_PERFECT");
+            assertThat(Duration.between(
+                    Instant.parse(skippedPayload.path("startedAt").asText()),
+                    Instant.parse(skippedPayload.path("deadline").asText())))
+                    .isEqualTo(Duration.ofMillis(100));
+            assertThat(result.path("payload").path("phase").asText()).isEqualTo("RESULTS");
+
+            writeSnippet("submit-guess-vote-skipped", snippet(
+                    "submitGuess", "추측 제출", List.of("guess", "result"),
+                    "라운드 추측 단계에서 출제자가 아닌 플레이어가 추측 문장을 보냅니다.",
+                    request("/app/rooms/{roomCode}/guesses", "GuessRequest", "현재 라운드의 추측을 제출합니다.",
+                            lastRequest),
+                    triggered("VoteSkippedSnapshotMessage", "VOTE_SKIPPED_SNAPSHOT",
+                            "/topic/rooms/{roomCode}", "BROADCAST", "DIRECT", "투표 생략 안내",
+                            "전원 PERFECT로 투표가 생략됐음을 마감 시각까지 표시합니다.", skipped,
+                            List.of("vote", "result"), roomMessage(VoteSkippedSnapshot.class)),
+                    triggered("VoteSkippedRoundResultSnapshotMessage", "ROUND_RESULT_SNAPSHOT",
+                            "/topic/rooms/{roomCode}", "BROADCAST", "FOLLOW_UP", "라운드 결과",
+                            "투표 생략 안내가 끝난 뒤 정답과 점수를 표시합니다.", result,
+                            List.of("result"), roomMessage(RoundResultSnapshot.class))
             ));
         } finally {
             scenario.close();

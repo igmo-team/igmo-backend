@@ -10,6 +10,7 @@ igmo:
     prompt-duration: ${IGMO_GAME_PROMPT_DURATION}
     guess-duration: ${IGMO_GAME_GUESS_DURATION}
     vote-duration: ${IGMO_GAME_VOTE_DURATION}
+    vote-skipped-duration: ${IGMO_GAME_VOTE_SKIPPED_DURATION:3s}
     result-duration: ${IGMO_GAME_RESULT_DURATION}
     image-generation-completion-delay: ${IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY}
   ai:
