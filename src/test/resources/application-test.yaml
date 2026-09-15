@@ -1,6 +1,6 @@
 spring:
   lifecycle:
-    timeout-per-shutdown-phase: 1300s
+    timeout-per-shutdown-phase: 60s
 
 igmo:
   game:
