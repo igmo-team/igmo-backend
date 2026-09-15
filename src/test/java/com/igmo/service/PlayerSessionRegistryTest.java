@@ -16,6 +16,66 @@ class PlayerSessionRegistryTest {
     private final PlayerKey playerKey = new PlayerKey("ABCD", "player-1");
 
     @Test
+    @DisplayName("방에 속한 여러 플레이어의 모든 세션을 조회한다.")
+    void sessionIdsForRoom_여러_플레이어의_모든_세션을_반환한다() {
+        // given
+        registry.register(playerKey, "session-1");
+        registry.register(playerKey, "session-2");
+        registry.register(new PlayerKey("ABCD", "player-2"), "session-3");
+
+        // when
+        var sessionIds = registry.sessionIdsForRoom("ABCD");
+
+        // then
+        assertThat(sessionIds).containsExactlyInAnyOrder("session-1", "session-2", "session-3");
+    }
+
+    @Test
+    @DisplayName("플레이어 ID가 같아도 다른 방의 세션은 조회에서 제외한다.")
+    void sessionIdsForRoom_다른_방의_세션은_제외한다() {
+        // given
+        registry.register(playerKey, "session-1");
+        registry.register(new PlayerKey("EFGH", "player-1"), "other-room-session");
+
+        // when
+        var sessionIds = registry.sessionIdsForRoom("ABCD");
+
+        // then
+        assertThat(sessionIds).containsExactly("session-1");
+    }
+
+    @Test
+    @DisplayName("세션이 없는 방을 조회하면 빈 집합을 반환한다.")
+    void sessionIdsForRoom_세션이_없는_방은_빈_집합을_반환한다() {
+        // given
+        registry.register(playerKey, "session-1");
+
+        // when
+        var sessionIds = registry.sessionIdsForRoom("EFGH");
+
+        // then
+        assertThat(sessionIds).isEmpty();
+    }
+
+    @Test
+    @DisplayName("해제한 세션과 정리된 플레이어의 세션은 조회에서 제외한다.")
+    void sessionIdsForRoom_해제하거나_정리한_세션은_제외한다() {
+        // given
+        PlayerKey otherPlayer = new PlayerKey("ABCD", "player-2");
+        registry.register(playerKey, "session-1");
+        registry.register(playerKey, "session-2");
+        registry.register(otherPlayer, "session-3");
+        registry.unregister(playerKey, "session-1");
+        registry.clear(otherPlayer);
+
+        // when
+        var sessionIds = registry.sessionIdsForRoom("ABCD");
+
+        // then
+        assertThat(sessionIds).containsExactly("session-2");
+    }
+
+    @Test
     @DisplayName("같은 플레이어의 여러 세션을 등록하고 마지막 세션 해제 시 key를 제거한다.")
     void registerAndUnregister_여러_세션을_추적하고_마지막_해제_시_key를_제거한다() {
         // when

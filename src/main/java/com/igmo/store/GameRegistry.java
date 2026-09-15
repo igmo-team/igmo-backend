@@ -1,6 +1,7 @@
 package com.igmo.store;
 
 import com.igmo.domain.GameRoom;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,6 +18,10 @@ public class GameRegistry {
 
     public Optional<GameRoom> find(String code) {
         return Optional.ofNullable(rooms.get(code));
+    }
+
+    public List<GameRoom> snapshot() {
+        return List.copyOf(rooms.values());
     }
 
     public int count() {
