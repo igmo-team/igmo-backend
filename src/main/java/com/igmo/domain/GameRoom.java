@@ -29,9 +29,9 @@ import lombok.Getter;
 
 public class GameRoom {
 
-    private static final int MAX_PLAYERS = 8;
-    private static final Duration PROMPT_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
-    private static final Duration GUESS_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
+    public static final int MAX_PLAYERS = 8;
+    public static final Duration PROMPT_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
+    public static final Duration GUESS_SUBMISSION_GRACE_PERIOD = Duration.ofSeconds(2);
     private static final AutoPromptPrefix[] AUTO_PROMPT_PREFIXES = AutoPromptPrefix.values();
 
     @Getter

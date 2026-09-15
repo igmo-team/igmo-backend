@@ -117,13 +117,15 @@ class GamePhaseServiceTest {
                     "2K");
     private final SamplePromptProvider samplePromptProvider =
             new SamplePromptProvider(new ObjectMapper(), SAMPLE_PROMPTS_JSON, "test");
+    private final GameDrainLifecycle gameDrainLifecycle = mock(GameDrainLifecycle.class);
     private final GamePhaseService gamePhaseService =
             new GamePhaseService(
                     gameRoomRepository,
                     gamePhaseScheduler,
                     eventPublisher,
                     imageGenerationService,
-                    samplePromptProvider);
+                    samplePromptProvider,
+                    gameDrainLifecycle);
     private final Logger gamePhaseLogger = (Logger) LoggerFactory.getLogger(GamePhaseService.class);
     private ListAppender<ILoggingEvent> gamePhaseLogAppender;
 
@@ -1431,6 +1433,7 @@ class GamePhaseServiceTest {
         // then
         GameResultSnapshot snapshot = captureGameResultSnapshotBroadcast();
         assertThat(snapshot.phase()).isEqualTo(GamePhase.ENDED);
+        verify(gameDrainLifecycle).onGameEnded("ABCD");
     }
 
     @Test

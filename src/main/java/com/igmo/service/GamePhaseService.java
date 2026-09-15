@@ -20,6 +20,7 @@ import com.igmo.web.dto.ImageGenerationEvent;
 import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
+import com.igmo.web.dto.RoomMessageType;
 import com.igmo.web.dto.RoundResultSnapshot;
 import com.igmo.web.dto.RoundSnapshot;
 import com.igmo.web.dto.VoteSkippedSnapshot;
@@ -41,6 +42,7 @@ public class GamePhaseService {
     private final GameEventPublisher eventPublisher;
     private final ImageGenerationService imageGenerationService;
     private final SamplePromptProvider samplePromptProvider;
+    private final GameDrainLifecycle gameDrainLifecycle;
 
     @Value("${igmo.game.prompt-duration}")
     private Duration promptDuration;
@@ -60,13 +62,15 @@ public class GamePhaseService {
             GamePhaseScheduler gamePhaseScheduler,
             GameEventPublisher eventPublisher,
             ImageGenerationService imageGenerationService,
-            SamplePromptProvider samplePromptProvider
+            SamplePromptProvider samplePromptProvider,
+            GameDrainLifecycle gameDrainLifecycle
     ) {
         this.gameRoomRepository = gameRoomRepository;
         this.gamePhaseScheduler = gamePhaseScheduler;
         this.eventPublisher = eventPublisher;
         this.imageGenerationService = imageGenerationService;
         this.samplePromptProvider = samplePromptProvider;
+        this.gameDrainLifecycle = gameDrainLifecycle;
     }
 
     public void startGame(String code, String playerId) {
@@ -323,7 +327,12 @@ public class GamePhaseService {
                     }
                     return advanceRoundAndPrepare(code, lockedRoom);
                 })
-                .ifPresent(message -> eventPublisher.publish(code, message));
+                .ifPresent(message -> {
+                    eventPublisher.publish(code, message);
+                    if (message.type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
+                        gameDrainLifecycle.onGameEnded(code);
+                    }
+                });
     }
 
     private RoomMessage<?> advanceRoundAndPrepare(String code, GameRoom room) {

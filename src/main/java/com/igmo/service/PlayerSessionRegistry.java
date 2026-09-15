@@ -5,6 +5,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -57,6 +58,13 @@ public class PlayerSessionRegistry {
 
     public void clear(PlayerKey playerKey) {
         withPlayerLock(playerKey, () -> activeSessions.remove(playerKey));
+    }
+
+    public Set<String> sessionIdsForRoom(String roomCode) {
+        return activeSessions.entrySet().stream()
+                .filter(entry -> entry.getKey().roomCode().equals(roomCode))
+                .flatMap(entry -> entry.getValue().stream())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     public void withPlayerLock(PlayerKey playerKey, Runnable action) {

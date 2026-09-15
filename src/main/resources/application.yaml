@@ -3,6 +3,8 @@ spring:
     import: optional:file:.env[.properties]
   application:
     name: igmo
+  lifecycle:
+    timeout-per-shutdown-phase: ${IGMO_GAME_DRAIN_TIMEOUT}
 
 igmo:
   deployment:

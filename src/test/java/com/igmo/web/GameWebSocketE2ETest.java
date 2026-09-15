@@ -80,7 +80,8 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
                 "igmo.game.vote-duration=30s",
                 "igmo.game.vote-skipped-duration=100ms",
                 "igmo.game.result-duration=100ms",
-                "igmo.game.image-generation-completion-delay=10ms"
+                "igmo.game.image-generation-completion-delay=10ms",
+                "spring.lifecycle.timeout-per-shutdown-phase=600s"
         }
 )
 @ActiveProfiles("test")
