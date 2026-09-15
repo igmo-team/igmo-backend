@@ -84,14 +84,22 @@ class MonitoringDeploymentTest(unittest.TestCase):
         local_target = panel["targets"][1]
 
         self.assertEqual("앱 인스턴스 상태·활성 슬롯", panel["title"])
-        self.assertIn('up{job="igmo-app", environment="production"}', active_target["expr"])
-        self.assertIn("igmo_deployment_slot_active", active_target["expr"])
-        self.assertIn("topk by (instance, job)", active_target["expr"])
-        self.assertIn("timestamp(last_over_time", active_target["expr"])
-        self.assertIn("> bool 0", active_target["expr"])
+        self.assertEqual(
+            'up{job="igmo-app", environment="production"} '
+            '* on (instance, job) group_left(slot, port) '
+            'igmo_deployment_slot_active{job="igmo-app", environment="production"}',
+            active_target["expr"],
+        )
+        self.assertTrue(active_target["instant"])
+        self.assertNotIn("last_over_time", active_target["expr"])
+        self.assertNotIn("timestamp", active_target["expr"])
+        self.assertNotIn("topk", active_target["expr"])
+        self.assertNotIn("[5m]", active_target["expr"])
         self.assertEqual("{{slot}} :{{port}}", active_target["legendFormat"])
         self.assertEqual('up{job="igmo-app-slot-health", environment="local"}', local_target["expr"])
+        self.assertNotIn("instant", local_target)
         self.assertEqual("{{slot}} :{{port}}", local_target["legendFormat"])
+        self.assertEqual(["lastNotNull"], panel["options"]["reduceOptions"]["calcs"])
         self.assertEqual("value_and_name", panel["options"]["textMode"])
         self.assertTrue(panel["options"]["wideLayout"])
         self.assertEqual("horizontal", panel["options"]["orientation"])

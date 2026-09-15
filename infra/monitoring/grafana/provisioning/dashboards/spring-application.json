@@ -73,7 +73,8 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"igmo-app\", environment=\"production\"} * on (instance, job) group_left(slot, port) (topk by (instance, job) (1, timestamp(last_over_time(igmo_deployment_slot_active{job=\"igmo-app\", environment=\"production\"}[5m]))) > bool 0)",
+          "expr": "up{job=\"igmo-app\", environment=\"production\"} * on (instance, job) group_left(slot, port) igmo_deployment_slot_active{job=\"igmo-app\", environment=\"production\"}",
+          "instant": true,
           "legendFormat": "{{slot}} :{{port}}",
           "refId": "A"
         },
