@@ -23,6 +23,7 @@ require_value IGMO_GAME_GUESS_DURATION
 require_value IGMO_GAME_VOTE_DURATION
 require_value IGMO_GAME_RESULT_DURATION
 require_value IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY
+require_value IGMO_GAME_DRAIN_TIMEOUT
 require_value IGMO_IMAGE_STORAGE_S3_BUCKET
 require_value IGMO_IMAGE_STORAGE_S3_REGION
 require_value IGMO_IMAGE_STORAGE_S3_KEY_PREFIX
@@ -53,6 +54,13 @@ if [[ ! "$IMAGE_URI" =~ ^[A-Za-z0-9._:/@-]+$ ]]; then
   exit 1
 fi
 
+if [[ ! "$IGMO_GAME_DRAIN_TIMEOUT" =~ ^[1-9][0-9]*s$ ]]; then
+  echo 'IGMO_GAME_DRAIN_TIMEOUT must be a positive number of seconds, for example 300s.' >&2
+  exit 1
+fi
+DRAIN_TIMEOUT_SECONDS="${IGMO_GAME_DRAIN_TIMEOUT%s}"
+SSM_EXECUTION_TIMEOUT_SECONDS=$((DRAIN_TIMEOUT_SECONDS + 60))
+
 REMOTE_COMMAND=$(cat <<EOF
 set -eu
 
@@ -68,6 +76,7 @@ IGMO_GAME_GUESS_DURATION='${IGMO_GAME_GUESS_DURATION}'
 IGMO_GAME_VOTE_DURATION='${IGMO_GAME_VOTE_DURATION}'
 IGMO_GAME_RESULT_DURATION='${IGMO_GAME_RESULT_DURATION}'
 IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY='${IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY}'
+IGMO_GAME_DRAIN_TIMEOUT='${IGMO_GAME_DRAIN_TIMEOUT}'
 IGMO_IMAGE_STORAGE_S3_BUCKET='${IGMO_IMAGE_STORAGE_S3_BUCKET}'
 IGMO_IMAGE_STORAGE_S3_REGION='${IGMO_IMAGE_STORAGE_S3_REGION}'
 IGMO_IMAGE_STORAGE_S3_KEY_PREFIX='${IGMO_IMAGE_STORAGE_S3_KEY_PREFIX}'
@@ -98,6 +107,13 @@ fi
 
 NGINX_CONFIG='/etc/nginx/sites-available/igmo'
 CONTAINER_PORT='8080'
+
+if [[ ! "\$IGMO_GAME_DRAIN_TIMEOUT" =~ ^[1-9][0-9]*s$ ]]; then
+  echo 'IGMO_GAME_DRAIN_TIMEOUT must be a positive number of seconds, for example 300s.' >&2
+  exit 1
+fi
+DRAIN_TIMEOUT_SECONDS="\${IGMO_GAME_DRAIN_TIMEOUT%s}"
+STOP_TIMEOUT_SECONDS=$((DRAIN_TIMEOUT_SECONDS + 30))
 
 read_active_port() {
   CONFIG_DUMP=\$(nginx -T 2>/dev/null)
@@ -132,7 +148,11 @@ running_containers_on_port() {
 
 cleanup_target() {
   if docker container inspect "\$TARGET_CONTAINER" >/dev/null 2>&1; then
-    docker rm --force "\$TARGET_CONTAINER" >/dev/null 2>&1
+    TARGET_RUNNING=\$(docker inspect --format '{{.State.Running}}' "\$TARGET_CONTAINER")
+    if [ "\$TARGET_RUNNING" = 'true' ] && ! docker stop --time "\$STOP_TIMEOUT_SECONDS" "\$TARGET_CONTAINER" >/dev/null; then
+      return 1
+    fi
+    docker rm "\$TARGET_CONTAINER" >/dev/null
   fi
 }
 
@@ -205,7 +225,7 @@ start_container() {
   docker run --detach \
     --name "\$2" \
     --restart always \
-    --stop-timeout 20 \
+    --stop-timeout "\$STOP_TIMEOUT_SECONDS" \
     --memory 1280m \
     --env SPRING_PROFILES_ACTIVE=prod \
     --env SERVER_PORT="\$SERVER_PORT" \
@@ -221,6 +241,7 @@ start_container() {
     --env IGMO_GAME_VOTE_DURATION="\$IGMO_GAME_VOTE_DURATION" \
     --env IGMO_GAME_RESULT_DURATION="\$IGMO_GAME_RESULT_DURATION" \
     --env IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY="\$IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY" \
+    --env IGMO_GAME_DRAIN_TIMEOUT="\$IGMO_GAME_DRAIN_TIMEOUT" \
     --env IGMO_IMAGE_STORAGE_S3_BUCKET="\$IGMO_IMAGE_STORAGE_S3_BUCKET" \
     --env IGMO_IMAGE_STORAGE_S3_REGION="\$IGMO_IMAGE_STORAGE_S3_REGION" \
     --env IGMO_IMAGE_STORAGE_S3_KEY_PREFIX="\$IGMO_IMAGE_STORAGE_S3_KEY_PREFIX" \
@@ -375,7 +396,17 @@ if [ "\$(docker inspect --format '{{.State.Running}}' "\$TARGET_CONTAINER")" != 
   exit 1
 fi
 
-if ! docker rm --force "\$ACTIVE_CONTAINER" >/dev/null 2>&1; then
+if ! docker stop --time "\$STOP_TIMEOUT_SECONDS" "\$ACTIVE_CONTAINER" >/dev/null 2>&1; then
+  echo 'The active container could not be stopped gracefully.' >&2
+  exit 1
+fi
+
+if [ "\$(docker inspect --format '{{.State.Running}}' "\$ACTIVE_CONTAINER")" = 'true' ]; then
+  echo 'The active container is still running after graceful stop.' >&2
+  exit 1
+fi
+
+if ! docker rm "\$ACTIVE_CONTAINER" >/dev/null 2>&1; then
   echo 'The active container could not be removed.' >&2
   echo 'IGMO_DEPLOY_TARGET_CLEANUP_STATUS=not_required'
   exit 1
@@ -395,7 +426,8 @@ EOF
 
 PARAMETERS=$(jq --null-input \
   --arg command "$REMOTE_COMMAND" \
-  '{commands: [$command], executionTimeout: ["300"]}')
+  --arg execution_timeout "$SSM_EXECUTION_TIMEOUT_SECONDS" \
+  '{commands: [$command], executionTimeout: [$execution_timeout]}')
 
 DEPLOY_COMMENT="Deploy ${CONTAINER_NAME} ${IMAGE_URI##*:}"
 DEPLOY_COMMENT="${DEPLOY_COMMENT:0:100}"
@@ -412,7 +444,8 @@ COMMAND_ID=$(aws ssm send-command \
 echo "SSM command: ${COMMAND_ID}"
 
 STATUS='Pending'
-for _ in $(seq 1 60); do
+POLL_ATTEMPTS=$(( (SSM_EXECUTION_TIMEOUT_SECONDS + 30) / 5 ))
+for _ in $(seq 1 "$POLL_ATTEMPTS"); do
   STATUS=$(aws ssm get-command-invocation \
     --region "$AWS_REGION" \
     --command-id "$COMMAND_ID" \
@@ -465,6 +498,9 @@ elif grep -Fq 'The Nginx reload failed.' <<< "$INVOCATION_JSON"; then
 elif grep -Fq 'The active container could not be removed.' <<< "$INVOCATION_JSON"; then
   DEPLOY_FAILURE_STAGE='Active Container Cleanup'
   DEPLOY_FAILURE_REASON='Nginx 전환 후 기존 Active 컨테이너 제거에 실패했습니다.'
+elif grep -Fq 'The active container could not be stopped gracefully.' <<< "$INVOCATION_JSON"; then
+  DEPLOY_FAILURE_STAGE='Active Container Drain'
+  DEPLOY_FAILURE_REASON='기존 Active 컨테이너가 Game Drain 시간 내 정상 종료되지 않았습니다.'
 fi
 
 if grep -Fq 'IGMO_DEPLOY_TARGET_CLEANUP_STATUS=success' <<< "$INVOCATION_JSON"; then
