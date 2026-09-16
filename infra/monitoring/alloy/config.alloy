@@ -47,6 +47,21 @@ prometheus.scrape "ec2_host" {
   scrape_timeout  = "10s"
 }
 
+prometheus.scrape "docker_containers" {
+  targets = [
+    {
+      "__address__" = "127.0.0.1:18081",
+      "service"     = "igmo-container",
+      "environment" = "production",
+    },
+  ]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  job_name        = "docker-containers"
+  metrics_path    = "/metrics"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+}
+
 discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
 }

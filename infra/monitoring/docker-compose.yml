@@ -29,5 +29,26 @@ services:
     mem_limit: 32m
     restart: unless-stopped
 
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    network_mode: host
+    command:
+      - --docker_only=true
+      - --listen_ip=127.0.0.1
+      - --port=18081
+      - --storage_duration=2m
+      - --housekeeping_interval=15s
+      - --enable_metrics=memory,oom_event
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    devices:
+      - /dev/kmsg
+    privileged: true
+    mem_limit: 128m
+    restart: unless-stopped
+
 volumes:
   alloy-data:

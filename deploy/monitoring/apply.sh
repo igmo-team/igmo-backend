@@ -100,7 +100,7 @@ docker compose -f \"\$STACK_ROOT/docker-compose.yml\" up -d --force-recreate --r
 curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:12345/-/ready
 
 sleep 10
-for SERVICE in alloy node-exporter; do
+for SERVICE in alloy node-exporter cadvisor; do
   CONTAINER_ID=\$(docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps -q \"\$SERVICE\")
   if [ -z \"\$CONTAINER_ID\" ]; then
     echo \"관측 컨테이너를 찾지 못했습니다: \$SERVICE\" >&2
@@ -117,6 +117,8 @@ done
 
 curl --fail http://127.0.0.1:12345/-/ready
 curl --fail http://127.0.0.1:12345/-/healthy
+curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 \
+  http://127.0.0.1:18081/metrics | grep -q 'container_memory_working_set_bytes'
 
 docker compose -f \"\$STACK_ROOT/docker-compose.yml\" ps
 ROLLBACK_NEEDED=false

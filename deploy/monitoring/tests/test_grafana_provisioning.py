@@ -186,6 +186,11 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertNotIn("grafana:\n", production_compose)
         self.assertNotIn("loki:\n", production_compose)
         self.assertIn("mem_limit: 256m", production_compose)
+        self.assertIn("cadvisor:", production_compose)
+        self.assertIn("ghcr.io/google/cadvisor:0.55.1", production_compose)
+        self.assertIn("--docker_only=true", production_compose)
+        self.assertIn("--port=18081", production_compose)
+        self.assertIn("mem_limit: 128m", production_compose)
         self.assertIn(
             "/opt/igmo/monitoring-secrets/grafana-cloud-ingest-token:/run/secrets/grafana-cloud-ingest-token:ro",
             production_compose,
@@ -200,6 +205,8 @@ class MonitoringDeploymentTest(unittest.TestCase):
         )
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
+        self.assertIn("for SERVICE in alloy node-exporter cadvisor; do", MONITORING_DEPLOY_SCRIPT.read_text())
+        self.assertIn("127.0.0.1:18081/metrics", MONITORING_DEPLOY_SCRIPT.read_text())
 
     def test_production_alloy_tracks_active_backend_and_blue_green_logs(self):
         alloy_configuration = PRODUCTION_ALLOY_FILE.read_text()
@@ -210,6 +217,22 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn('regex         = "/igmo-backend(-blue|-green)?$"', alloy_configuration)
         self.assertIn("listen 127.0.0.1:18080;", nginx_configuration)
         self.assertIn("proxy_pass http://igmo_backend/actuator/prometheus;", nginx_configuration)
+
+    def test_instance_dashboard_shows_container_memory_usage_and_limits(self):
+        dashboard = json.loads((REPOSITORY_ROOT / "infra/monitoring/grafana/provisioning/dashboards/instance.json").read_text())
+        panels_by_title = {panel["title"]: panel for panel in dashboard["panels"]}
+
+        memory_table = panels_by_title["컨테이너 메모리 현황"]
+        memory_timeseries = panels_by_title["컨테이너 메모리 추이"]
+        memory_ratio = panels_by_title["메모리 리밋 대비 사용률"]
+
+        table_expressions = [target["expr"] for target in memory_table["targets"]]
+        self.assertTrue(any("container_memory_working_set_bytes" in expr for expr in table_expressions))
+        self.assertTrue(any("container_spec_memory_limit_bytes" in expr for expr in table_expressions))
+        self.assertIn("container_memory_working_set_bytes", memory_timeseries["targets"][0]["expr"])
+        self.assertIn("container_spec_memory_limit_bytes", memory_timeseries["targets"][1]["expr"])
+        self.assertIn("container_memory_working_set_bytes", memory_ratio["targets"][0]["expr"])
+        self.assertIn("container_spec_memory_limit_bytes", memory_ratio["targets"][0]["expr"])
 
     def test_spring_dashboard_shows_health_and_active_slot_port(self):
         dashboard = json.loads(SPRING_DASHBOARD_FILE.read_text())
