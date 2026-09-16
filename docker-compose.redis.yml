@@ -1,0 +1,35 @@
+name: igmo-redis
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: igmo-redis
+    restart: always
+    stop_grace_period: 30s
+    mem_limit: 512m
+    volumes:
+      - redis-data:/data
+    networks:
+      igmo-runtime:
+        aliases:
+          - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  redis-data:
+    name: igmo-redis-data
+
+networks:
+  igmo-runtime:
+    external: true
+    name: igmo-runtime

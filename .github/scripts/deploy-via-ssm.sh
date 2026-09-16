@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 CONTAINER_NAME="igmo-backend"
+REDIS_CONTAINER_NAME="igmo-redis"
 PRODUCTION_COMPOSE_FILE="docker-compose.prod.yml"
 
 require_value() {
@@ -134,6 +135,7 @@ RUNTIME_ENV_FILE_B64='${RUNTIME_ENV_FILE_B64}'
 STOP_TIMEOUT_SECONDS='${STOP_TIMEOUT_SECONDS}'
 STOP_GRACE_PERIOD='${STOP_GRACE_PERIOD}'
 CONTAINER_NAME='${CONTAINER_NAME}'
+REDIS_CONTAINER_NAME='${REDIS_CONTAINER_NAME}'
 COMPOSE_PROJECT_NAME='igmo-production'
 COMPOSE_DIRECTORY='/opt/igmo'
 COMPOSE_FILE="\$COMPOSE_DIRECTORY/docker-compose.prod.yml"
@@ -151,6 +153,22 @@ fi
 
 if ! docker compose version >/dev/null 2>&1; then
   echo 'Docker Compose v2 is not installed on the instance.' >&2
+  exit 1
+fi
+
+if ! docker network inspect igmo-runtime >/dev/null 2>&1; then
+  echo 'Redis runtime network is missing. Start docker-compose.redis.yml before deploying the application.' >&2
+  exit 1
+fi
+
+if [ "\$(docker inspect --format '{{.State.Running}}' "\$REDIS_CONTAINER_NAME" 2>/dev/null || true)" != 'true' ]; then
+  echo 'Redis container is not running. Start docker-compose.redis.yml before deploying the application.' >&2
+  exit 1
+fi
+
+if ! docker network inspect --format '{{range .Containers}}{{.Name}}{{"\\n"}}{{end}}' igmo-runtime 2>/dev/null \
+  | grep -Fxq "\$REDIS_CONTAINER_NAME"; then
+  echo 'Redis container is not attached to igmo-runtime.' >&2
   exit 1
 fi
 
