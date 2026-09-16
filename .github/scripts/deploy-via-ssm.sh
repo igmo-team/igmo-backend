@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 CONTAINER_NAME="igmo-backend"
+PRODUCTION_COMPOSE_FILE="docker-compose.prod.yml"
 
 require_value() {
   local name="$1"
@@ -30,14 +31,74 @@ require_value IGMO_IMAGE_STORAGE_S3_KEY_PREFIX
 require_value IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET
 require_value IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX
 
+if [[ ! -f "$PRODUCTION_COMPOSE_FILE" ]]; then
+  echo "Production Compose file is missing: ${PRODUCTION_COMPOSE_FILE}" >&2
+  exit 1
+fi
+
 SERVER_PORT="${SERVER_PORT:-8080}"
 IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL="${IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL:-}"
 IGMO_ADMIN_IMAGE_GENERATION_USERNAME="${IGMO_ADMIN_IMAGE_GENERATION_USERNAME:-}"
 IGMO_ADMIN_IMAGE_GENERATION_PASSWORD="${IGMO_ADMIN_IMAGE_GENERATION_PASSWORD:-}"
 IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS="${IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS:-}"
 IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES="${IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES:-}"
-IGMO_ADMIN_IMAGE_GENERATION_USERNAME_B64=$(printf '%s' "$IGMO_ADMIN_IMAGE_GENERATION_USERNAME" | base64 | tr -d '\n')
-IGMO_ADMIN_IMAGE_GENERATION_PASSWORD_B64=$(printf '%s' "$IGMO_ADMIN_IMAGE_GENERATION_PASSWORD" | base64 | tr -d '\n')
+PRODUCTION_COMPOSE_FILE_B64=$(base64 < "$PRODUCTION_COMPOSE_FILE" | tr -d '\n')
+
+dotenv_quote() {
+  local value="$1"
+  local quoted="'"
+  local character
+
+  while [[ -n "$value" ]]; do
+    character="${value%"${value#?}"}"
+    value="${value#?}"
+    if [[ "$character" == "'" ]]; then
+      quoted+="\\'"
+    else
+      quoted+="$character"
+    fi
+  done
+
+  quoted+="'"
+  printf '%s' "$quoted"
+}
+
+dotenv_line() {
+  local name="$1"
+  local value="$2"
+
+  printf '%s=' "$name"
+  dotenv_quote "$value"
+  printf '\n'
+}
+
+runtime_environment() {
+  dotenv_line SPRING_PROFILES_ACTIVE prod
+  dotenv_line SERVER_PORT "$SERVER_PORT"
+  dotenv_line JAVA_TOOL_OPTIONS '-Xms128m -Xmx768m -Duser.timezone=Asia/Seoul'
+  dotenv_line GEMINI_API_KEY "$GEMINI_API_KEY"
+  dotenv_line IGMO_AI_GEMINI_MODEL "$IGMO_AI_GEMINI_MODEL"
+  dotenv_line IGMO_AI_GEMINI_IMAGE_SIZE "$IGMO_AI_GEMINI_IMAGE_SIZE"
+  dotenv_line IGMO_GAME_DISCONNECT_GRACE "$IGMO_GAME_DISCONNECT_GRACE"
+  dotenv_line IGMO_GAME_PROMPT_DURATION "$IGMO_GAME_PROMPT_DURATION"
+  dotenv_line IGMO_GAME_GUESS_DURATION "$IGMO_GAME_GUESS_DURATION"
+  dotenv_line IGMO_GAME_VOTE_DURATION "$IGMO_GAME_VOTE_DURATION"
+  dotenv_line IGMO_GAME_RESULT_DURATION "$IGMO_GAME_RESULT_DURATION"
+  dotenv_line IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY "$IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY"
+  dotenv_line IGMO_GAME_DRAIN_TIMEOUT "$IGMO_GAME_DRAIN_TIMEOUT"
+  dotenv_line IGMO_IMAGE_STORAGE_S3_BUCKET "$IGMO_IMAGE_STORAGE_S3_BUCKET"
+  dotenv_line IGMO_IMAGE_STORAGE_S3_REGION "$IGMO_IMAGE_STORAGE_S3_REGION"
+  dotenv_line IGMO_IMAGE_STORAGE_S3_KEY_PREFIX "$IGMO_IMAGE_STORAGE_S3_KEY_PREFIX"
+  dotenv_line IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL "$IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL"
+  dotenv_line IGMO_ADMIN_IMAGE_GENERATION_USERNAME "$IGMO_ADMIN_IMAGE_GENERATION_USERNAME"
+  dotenv_line IGMO_ADMIN_IMAGE_GENERATION_PASSWORD "$IGMO_ADMIN_IMAGE_GENERATION_PASSWORD"
+  dotenv_line IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS "$IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS"
+  dotenv_line IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES "$IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES"
+  dotenv_line IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET "$IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET"
+  dotenv_line IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX "$IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX"
+}
+
+RUNTIME_ENV_FILE_B64=$(runtime_environment | base64 | tr -d '\n')
 
 if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ ]]; then
   echo "Invalid AWS_REGION: ${AWS_REGION}" >&2
@@ -59,6 +120,8 @@ if [[ ! "$IGMO_GAME_DRAIN_TIMEOUT" =~ ^[1-9][0-9]*s$ ]]; then
   exit 1
 fi
 DRAIN_TIMEOUT_SECONDS="${IGMO_GAME_DRAIN_TIMEOUT%s}"
+STOP_TIMEOUT_SECONDS=$((DRAIN_TIMEOUT_SECONDS + 30))
+STOP_GRACE_PERIOD="${STOP_TIMEOUT_SECONDS}s"
 SSM_EXECUTION_TIMEOUT_SECONDS=$((DRAIN_TIMEOUT_SECONDS + 60))
 
 REMOTE_COMMAND=$(cat <<EOF
@@ -67,27 +130,13 @@ set -eu
 AWS_REGION='${AWS_REGION}'
 IMAGE_URI='${IMAGE_URI}'
 SERVER_PORT='${SERVER_PORT}'
-GEMINI_API_KEY='${GEMINI_API_KEY}'
-IGMO_AI_GEMINI_MODEL='${IGMO_AI_GEMINI_MODEL}'
-IGMO_AI_GEMINI_IMAGE_SIZE='${IGMO_AI_GEMINI_IMAGE_SIZE}'
-IGMO_GAME_DISCONNECT_GRACE='${IGMO_GAME_DISCONNECT_GRACE}'
-IGMO_GAME_PROMPT_DURATION='${IGMO_GAME_PROMPT_DURATION}'
-IGMO_GAME_GUESS_DURATION='${IGMO_GAME_GUESS_DURATION}'
-IGMO_GAME_VOTE_DURATION='${IGMO_GAME_VOTE_DURATION}'
-IGMO_GAME_RESULT_DURATION='${IGMO_GAME_RESULT_DURATION}'
-IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY='${IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY}'
-IGMO_GAME_DRAIN_TIMEOUT='${IGMO_GAME_DRAIN_TIMEOUT}'
-IGMO_IMAGE_STORAGE_S3_BUCKET='${IGMO_IMAGE_STORAGE_S3_BUCKET}'
-IGMO_IMAGE_STORAGE_S3_REGION='${IGMO_IMAGE_STORAGE_S3_REGION}'
-IGMO_IMAGE_STORAGE_S3_KEY_PREFIX='${IGMO_IMAGE_STORAGE_S3_KEY_PREFIX}'
-IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL='${IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL}'
-IGMO_ADMIN_IMAGE_GENERATION_USERNAME=\$(printf '%s' '${IGMO_ADMIN_IMAGE_GENERATION_USERNAME_B64}' | base64 -d)
-IGMO_ADMIN_IMAGE_GENERATION_PASSWORD=\$(printf '%s' '${IGMO_ADMIN_IMAGE_GENERATION_PASSWORD_B64}' | base64 -d)
-IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS='${IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS}'
-IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES='${IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES}'
-IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET='${IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET}'
-IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX='${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX}'
+RUNTIME_ENV_FILE_B64='${RUNTIME_ENV_FILE_B64}'
+STOP_TIMEOUT_SECONDS='${STOP_TIMEOUT_SECONDS}'
+STOP_GRACE_PERIOD='${STOP_GRACE_PERIOD}'
 CONTAINER_NAME='${CONTAINER_NAME}'
+COMPOSE_PROJECT_NAME='igmo-production'
+COMPOSE_DIRECTORY='/opt/igmo'
+COMPOSE_FILE="\$COMPOSE_DIRECTORY/docker-compose.prod.yml"
 REGISTRY="\${IMAGE_URI%%/*}"
 
 if ! command -v aws >/dev/null 2>&1; then
@@ -100,6 +149,11 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! docker compose version >/dev/null 2>&1; then
+  echo 'Docker Compose v2 is not installed on the instance.' >&2
+  exit 1
+fi
+
 if ! command -v curl >/dev/null 2>&1; then
   echo 'curl is not installed on the instance.' >&2
   exit 1
@@ -107,13 +161,24 @@ fi
 
 NGINX_CONFIG='/etc/nginx/sites-available/igmo'
 CONTAINER_PORT='8080'
+export IMAGE_URI STOP_GRACE_PERIOD
 
-if [[ ! "\$IGMO_GAME_DRAIN_TIMEOUT" =~ ^[1-9][0-9]*s$ ]]; then
-  echo 'IGMO_GAME_DRAIN_TIMEOUT must be a positive number of seconds, for example 300s.' >&2
+mkdir -p "\$COMPOSE_DIRECTORY"
+printf '%s' '${PRODUCTION_COMPOSE_FILE_B64}' | base64 -d > "\$COMPOSE_FILE"
+chmod 600 "\$COMPOSE_FILE"
+mkdir -p /run/igmo
+chmod 700 /run/igmo
+RUNTIME_ENV_FILE='/run/igmo/prod.env'
+RUNTIME_ENV_TEMP_FILE=\$(mktemp /run/igmo/prod.env.XXXXXX)
+trap 'rm -f "\$RUNTIME_ENV_TEMP_FILE"' EXIT
+printf '%s' "\$RUNTIME_ENV_FILE_B64" | base64 -d > "\$RUNTIME_ENV_TEMP_FILE"
+chmod 600 "\$RUNTIME_ENV_TEMP_FILE"
+mv -f "\$RUNTIME_ENV_TEMP_FILE" "\$RUNTIME_ENV_FILE"
+chmod 600 /run/igmo/prod.env
+if ! docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" config -q; then
+  echo 'Production Compose configuration is invalid.' >&2
   exit 1
 fi
-DRAIN_TIMEOUT_SECONDS="\${IGMO_GAME_DRAIN_TIMEOUT%s}"
-STOP_TIMEOUT_SECONDS=$((DRAIN_TIMEOUT_SECONDS + 30))
 
 read_active_port() {
   CONFIG_DUMP=\$(nginx -T 2>/dev/null)
@@ -147,6 +212,15 @@ running_containers_on_port() {
 }
 
 cleanup_target() {
+  COMPOSE_TARGET_CONTAINER_IDS=\$(docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" ps --all --quiet "\$TARGET_SERVICE" 2>/dev/null || true)
+  if [ -n "\$COMPOSE_TARGET_CONTAINER_IDS" ]; then
+    if ! docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" stop --timeout "\$STOP_TIMEOUT_SECONDS" "\$TARGET_SERVICE" >/dev/null; then
+      return 1
+    fi
+    docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" rm --force "\$TARGET_SERVICE" >/dev/null
+    return 0
+  fi
+
   if docker container inspect "\$TARGET_CONTAINER" >/dev/null 2>&1; then
     TARGET_RUNNING=\$(docker inspect --format '{{.State.Running}}' "\$TARGET_CONTAINER")
     if [ "\$TARGET_RUNNING" = 'true' ] && ! docker stop --time "\$STOP_TIMEOUT_SECONDS" "\$TARGET_CONTAINER" >/dev/null; then
@@ -181,11 +255,11 @@ ACTIVE_PORT=\$(read_active_port)
 if [ "\$ACTIVE_PORT" = '8080' ]; then
     TARGET_PORT='8081'
     TARGET_CONTAINER='igmo-backend-green'
-    TARGET_SLOT='green'
+    TARGET_SERVICE='app-green'
 elif [ "\$ACTIVE_PORT" = '8081' ]; then
     TARGET_PORT='8080'
     TARGET_CONTAINER='igmo-backend-blue'
-    TARGET_SLOT='blue'
+    TARGET_SERVICE='app-blue'
 else
     echo 'Unable to determine the active IGMO backend port.' >&2
     exit 1
@@ -197,6 +271,11 @@ if [ "\$(printf '%s\n' "\$ACTIVE_CONTAINERS" | sed '/^$/d' | wc -l | tr -d ' ')"
   exit 1
 fi
 ACTIVE_CONTAINER=\$(printf '%s\n' "\$ACTIVE_CONTAINERS" | sed '/^$/d' | head -1)
+if [ "\$ACTIVE_PORT" = '8080' ]; then
+  ACTIVE_SERVICE='app-blue'
+else
+  ACTIVE_SERVICE='app-green'
+fi
 
 aws ecr get-login-password --region "\$AWS_REGION" \
   | docker login --username AWS --password-stdin "\$REGISTRY"
@@ -222,44 +301,10 @@ if [ -n "\$(printf '%s\n' "\$TARGET_OWNERS" | sed '/^$/d')" ]; then
 fi
 
 start_container() {
-  docker run --detach \
-    --name "\$2" \
-    --restart always \
-    --stop-timeout "\$STOP_TIMEOUT_SECONDS" \
-    --memory 1280m \
-    --env SPRING_PROFILES_ACTIVE=prod \
-    --env SERVER_PORT="\$SERVER_PORT" \
-    --env IGMO_DEPLOYMENT_SLOT="\$TARGET_SLOT" \
-    --env IGMO_DEPLOYMENT_PORT="\$3" \
-    --env 'JAVA_TOOL_OPTIONS=-Xms128m -Xmx768m -Duser.timezone=Asia/Seoul' \
-    --env GEMINI_API_KEY="\$GEMINI_API_KEY" \
-    --env IGMO_AI_GEMINI_MODEL="\$IGMO_AI_GEMINI_MODEL" \
-    --env IGMO_AI_GEMINI_IMAGE_SIZE="\$IGMO_AI_GEMINI_IMAGE_SIZE" \
-    --env IGMO_GAME_DISCONNECT_GRACE="\$IGMO_GAME_DISCONNECT_GRACE" \
-    --env IGMO_GAME_PROMPT_DURATION="\$IGMO_GAME_PROMPT_DURATION" \
-    --env IGMO_GAME_GUESS_DURATION="\$IGMO_GAME_GUESS_DURATION" \
-    --env IGMO_GAME_VOTE_DURATION="\$IGMO_GAME_VOTE_DURATION" \
-    --env IGMO_GAME_RESULT_DURATION="\$IGMO_GAME_RESULT_DURATION" \
-    --env IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY="\$IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY" \
-    --env IGMO_GAME_DRAIN_TIMEOUT="\$IGMO_GAME_DRAIN_TIMEOUT" \
-    --env IGMO_IMAGE_STORAGE_S3_BUCKET="\$IGMO_IMAGE_STORAGE_S3_BUCKET" \
-    --env IGMO_IMAGE_STORAGE_S3_REGION="\$IGMO_IMAGE_STORAGE_S3_REGION" \
-    --env IGMO_IMAGE_STORAGE_S3_KEY_PREFIX="\$IGMO_IMAGE_STORAGE_S3_KEY_PREFIX" \
-    --env IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL="\$IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL" \
-    --env IGMO_ADMIN_IMAGE_GENERATION_USERNAME="\$IGMO_ADMIN_IMAGE_GENERATION_USERNAME" \
-    --env IGMO_ADMIN_IMAGE_GENERATION_PASSWORD="\$IGMO_ADMIN_IMAGE_GENERATION_PASSWORD" \
-    --env IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS="\$IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_MODELS" \
-    --env IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES="\$IGMO_ADMIN_IMAGE_GENERATION_ALLOWED_IMAGE_SIZES" \
-    --env IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET="\$IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET" \
-    --env IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX="\$IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX" \
-    --publish "127.0.0.1:\$3:\$CONTAINER_PORT" \
-    --log-driver local \
-    --log-opt max-size=10m \
-    --log-opt max-file=3 \
-    "\$1"
+  docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" up -d --no-deps "\$1"
 }
 
-if ! start_container "\$IMAGE_URI" "\$TARGET_CONTAINER" "\$TARGET_PORT"; then
+if ! start_container "\$TARGET_SERVICE"; then
   if cleanup_target; then
     echo 'IGMO_DEPLOY_TARGET_CLEANUP_STATUS=success'
   else
@@ -396,7 +441,25 @@ if [ "\$(docker inspect --format '{{.State.Running}}' "\$TARGET_CONTAINER")" != 
   exit 1
 fi
 
-if ! docker stop --time "\$STOP_TIMEOUT_SECONDS" "\$ACTIVE_CONTAINER" >/dev/null 2>&1; then
+stop_active_container() {
+  COMPOSE_ACTIVE_CONTAINER_IDS=\$(docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" ps --all --quiet "\$ACTIVE_SERVICE" 2>/dev/null || true)
+  if [ -n "\$COMPOSE_ACTIVE_CONTAINER_IDS" ]; then
+    docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" stop --timeout "\$STOP_TIMEOUT_SECONDS" "\$ACTIVE_SERVICE" >/dev/null
+  else
+    docker stop --time "\$STOP_TIMEOUT_SECONDS" "\$ACTIVE_CONTAINER" >/dev/null 2>&1
+  fi
+}
+
+remove_active_container() {
+  COMPOSE_ACTIVE_CONTAINER_IDS=\$(docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" ps --all --quiet "\$ACTIVE_SERVICE" 2>/dev/null || true)
+  if [ -n "\$COMPOSE_ACTIVE_CONTAINER_IDS" ]; then
+    docker compose --project-name "\$COMPOSE_PROJECT_NAME" --file "\$COMPOSE_FILE" rm --force "\$ACTIVE_SERVICE" >/dev/null
+  else
+    docker rm "\$ACTIVE_CONTAINER" >/dev/null 2>&1
+  fi
+}
+
+if ! stop_active_container; then
   echo 'The active container could not be stopped gracefully.' >&2
   exit 1
 fi
@@ -406,7 +469,7 @@ if [ "\$(docker inspect --format '{{.State.Running}}' "\$ACTIVE_CONTAINER")" = '
   exit 1
 fi
 
-if ! docker rm "\$ACTIVE_CONTAINER" >/dev/null 2>&1; then
+if ! remove_active_container; then
   echo 'The active container could not be removed.' >&2
   echo 'IGMO_DEPLOY_TARGET_CLEANUP_STATUS=not_required'
   exit 1

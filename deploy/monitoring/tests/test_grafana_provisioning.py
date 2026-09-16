@@ -1,5 +1,10 @@
+import base64
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -23,10 +28,139 @@ class MonitoringDeploymentTest(unittest.TestCase):
         )
 
     def test_local_app_compose_passes_deployment_slot_and_port(self):
-        compose_file = (REPOSITORY_ROOT / "docker-compose.yml").read_text()
+        compose_file = (REPOSITORY_ROOT / "docker-compose.local.yml").read_text()
 
         self.assertIn("IGMO_DEPLOYMENT_SLOT: ${IGMO_DEPLOYMENT_SLOT:-blue}", compose_file)
         self.assertIn("IGMO_DEPLOYMENT_PORT: ${IGMO_DEPLOYMENT_PORT:-8080}", compose_file)
+
+    def test_production_compose_defines_blue_green_services(self):
+        compose_file = (REPOSITORY_ROOT / "docker-compose.prod.yml").read_text()
+
+        self.assertIn("app-blue:", compose_file)
+        self.assertIn("app-green:", compose_file)
+        self.assertIn('container_name: igmo-backend-blue', compose_file)
+        self.assertIn('container_name: igmo-backend-green', compose_file)
+        self.assertIn('127.0.0.1:8080:8080', compose_file)
+        self.assertIn('127.0.0.1:8081:8080', compose_file)
+        self.assertIn('env_file:\n    - /run/igmo/prod.env', compose_file)
+        self.assertIn('stop_grace_period: ${STOP_GRACE_PERIOD:-30s}', compose_file)
+        self.assertIn('mem_limit: 1280m', compose_file)
+
+        deploy_script = (REPOSITORY_ROOT / ".github/scripts/deploy-via-ssm.sh").read_text()
+        self.assertIn('PRODUCTION_COMPOSE_FILE="docker-compose.prod.yml"', deploy_script)
+        self.assertIn("PRODUCTION_COMPOSE_FILE_B64=$(base64", deploy_script)
+        self.assertIn('mkdir -p /run/igmo', deploy_script)
+        self.assertIn("RUNTIME_ENV_FILE='/run/igmo/prod.env'", deploy_script)
+        self.assertIn('chmod 600 /run/igmo/prod.env', deploy_script)
+        self.assertIn('export IMAGE_URI STOP_GRACE_PERIOD', deploy_script)
+        self.assertNotIn('cat /run/igmo/prod.env', deploy_script)
+        self.assertIn('dotenv_quote()', deploy_script)
+        self.assertIn('dotenv_line IGMO_ADMIN_IMAGE_GENERATION_PASSWORD', deploy_script)
+        self.assertIn('printf \'%s\' \'${PRODUCTION_COMPOSE_FILE_B64}\' | base64 -d', deploy_script)
+        self.assertIn('docker compose --project-name "\\$COMPOSE_PROJECT_NAME" --file "\\$COMPOSE_FILE" config -q', deploy_script)
+
+    def test_deploy_script_preserves_special_characters_in_runtime_env(self):
+        if shutil.which("docker") is None:
+            self.skipTest("Docker Compose integration dependencies are unavailable")
+        if subprocess.run(
+            ["docker", "info"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode != 0:
+            self.skipTest("Docker daemon is unavailable")
+
+        password = 'abc$TOKEN # "double" \'single\' \\ backslash\nsecond'
+        deployment_environment = os.environ.copy()
+        deployment_environment.update(
+            {
+                "AWS_REGION": "ap-northeast-2",
+                "EC2_INSTANCE_ID": "i-0123456789abcdef0",
+                "IMAGE_URI": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/igmo:abc123",
+                "GEMINI_API_KEY": "gemini-key",
+                "IGMO_AI_GEMINI_MODEL": "gemini-2.5-flash",
+                "IGMO_AI_GEMINI_IMAGE_SIZE": "1K",
+                "IGMO_GAME_DISCONNECT_GRACE": "30s",
+                "IGMO_GAME_PROMPT_DURATION": "60s",
+                "IGMO_GAME_GUESS_DURATION": "60s",
+                "IGMO_GAME_VOTE_DURATION": "60s",
+                "IGMO_GAME_RESULT_DURATION": "60s",
+                "IGMO_GAME_IMAGE_GENERATION_COMPLETION_DELAY": "5s",
+                "IGMO_GAME_DRAIN_TIMEOUT": "300s",
+                "IGMO_IMAGE_STORAGE_S3_BUCKET": "igmo-images",
+                "IGMO_IMAGE_STORAGE_S3_REGION": "ap-northeast-2",
+                "IGMO_IMAGE_STORAGE_S3_KEY_PREFIX": "images/",
+                "IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET": "igmo-admin-images",
+                "IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX": "admin/",
+                "IGMO_ADMIN_IMAGE_GENERATION_USERNAME": "admin",
+                "IGMO_ADMIN_IMAGE_GENERATION_PASSWORD": password,
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            deploy_script = (REPOSITORY_ROOT / ".github/scripts/deploy-via-ssm.sh").read_text()
+            functions_start = deploy_script.index("dotenv_quote()")
+            functions_end = deploy_script.index("\nRUNTIME_ENV_FILE_B64=", functions_start)
+            runtime_functions = deploy_script[functions_start:functions_end]
+            runtime_environment = subprocess.run(
+                ["bash", "-c", f"{runtime_functions}\nruntime_environment"],
+                env=deployment_environment,
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+            env_file = temporary_path / "prod.env"
+            env_file.write_bytes(runtime_environment.stdout)
+            compose_file = temporary_path / "compose.yml"
+            compose_file.write_text(
+                "services:\n"
+                "  app:\n"
+                "    image: eclipse-temurin:25-jre-alpine\n"
+                "    entrypoint: [\"/bin/sh\"]\n"
+                "    env_file:\n"
+                f"      - \"{env_file}\"\n",
+                encoding="utf-8",
+            )
+
+            try:
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "run",
+                        "--rm",
+                        "--no-deps",
+                        "app",
+                        "-c",
+                        "printf %s \"$IGMO_ADMIN_IMAGE_GENERATION_PASSWORD\" | base64",
+                    ],
+                    env={**os.environ, "COMPOSE_DISABLE_ENV_FILE": "1"},
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            finally:
+                subprocess.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "down",
+                        "--volumes",
+                        "--remove-orphans",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=30,
+                )
+
+            self.assertEqual(password, base64.b64decode(result.stdout).decode())
 
     def test_production_alloy_sends_metrics_and_logs_with_a_secret_file(self):
         alloy_configuration = PRODUCTION_ALLOY_FILE.read_text()
@@ -118,10 +252,27 @@ class MonitoringDeploymentTest(unittest.TestCase):
     def test_application_deployment_script_passes_slot_and_host_port(self):
         deploy_script = (REPOSITORY_ROOT / ".github/scripts/deploy-via-ssm.sh").read_text()
 
-        self.assertIn("TARGET_SLOT='green'", deploy_script)
-        self.assertIn("TARGET_SLOT='blue'", deploy_script)
-        self.assertIn('--env IGMO_DEPLOYMENT_SLOT="\\$TARGET_SLOT"', deploy_script)
-        self.assertIn('--env IGMO_DEPLOYMENT_PORT="\\$3"', deploy_script)
+        self.assertIn("TARGET_SERVICE='app-green'", deploy_script)
+        self.assertIn("TARGET_SERVICE='app-blue'", deploy_script)
+        self.assertIn("ACTIVE_SERVICE='app-blue'", deploy_script)
+        self.assertIn("ACTIVE_SERVICE='app-green'", deploy_script)
+        self.assertIn(
+            'docker compose --project-name "\\$COMPOSE_PROJECT_NAME" --file "\\$COMPOSE_FILE" up -d --no-deps "\\$1"',
+            deploy_script,
+        )
+        self.assertIn(
+            'docker compose --project-name "\\$COMPOSE_PROJECT_NAME" --file "\\$COMPOSE_FILE" stop --timeout "\\$STOP_TIMEOUT_SECONDS" "\\$ACTIVE_SERVICE"',
+            deploy_script,
+        )
+        self.assertIn(
+            'docker compose --project-name "\\$COMPOSE_PROJECT_NAME" --file "\\$COMPOSE_FILE" rm --force "\\$ACTIVE_SERVICE"',
+            deploy_script,
+        )
+        self.assertNotIn("docker run --detach", deploy_script)
+        self.assertNotIn(
+            'docker compose --project-name "\\$COMPOSE_PROJECT_NAME" --file "\\$COMPOSE_FILE" down',
+            deploy_script,
+        )
 
     def test_deployment_collects_alloy_diagnostics_before_rollback(self):
         deploy_script = MONITORING_DEPLOY_SCRIPT.read_text()
