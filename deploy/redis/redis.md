@@ -90,4 +90,23 @@ docker compose -f /opt/igmo/docker-compose.redis.yml up -d
 문제 발생 시 알려진 Git revision의 Compose 파일을 EC2에 다시 배치하고
 `config -q` 통과 후 `up -d`를 실행해 롤백한다.
 
+## 로컬 호스트 실행
+
+IDE 또는 `./gradlew bootRun`으로 Spring Boot를 실행할 때는 Redis의 로컬 override를
+사용한다. Redis 컨테이너는 `127.0.0.1:6379`만 호스트에 공개하며, 운영용 기본
+Compose 파일에는 포트 매핑이 없다.
+
+```bash
+docker network inspect igmo-runtime >/dev/null 2>&1 \
+  || docker network create --driver bridge igmo-runtime
+docker compose \
+  -f docker-compose.redis.yml \
+  -f docker-compose.redis.local.yml \
+  up -d
+IGMO_REDIS_HOST=localhost SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+```
+
+Docker Compose로 앱을 실행할 때는 앱이 `igmo-runtime` network의 `redis:6379`를
+사용하므로 `docker-compose.local.yml`의 기본값을 사용한다.
+
 앱 Blue/Green 배포는 `igmo-production` Compose 프로젝트의 서비스만 교체한다. 따라서 한 슬롯이 종료되거나 두 슬롯이 동시에 실행되어도 두 앱 컨테이너는 동일한 `igmo-runtime` network에서 하나의 `redis` 컨테이너를 바라본다.

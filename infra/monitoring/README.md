@@ -64,21 +64,38 @@ Cloud UI 직접 수정은 다음 동기화에서 Git JSON으로 덮어써질 수
 
 ### IDE에서 Spring Boot 실행
 
-먼저 관측 컨테이너만 실행한다.
+먼저 외부 runtime network와 로컬 Redis를 실행한다. Redis Compose 기본 파일은
+운영과 동일하게 호스트 포트를 공개하지 않으므로, 호스트에서 실행하는 Spring Boot가
+접근할 수 있도록 로컬 override를 함께 사용한다.
 
 ```bash
+docker network inspect igmo-runtime >/dev/null 2>&1 \
+  || docker network create --driver bridge igmo-runtime
+docker compose \
+  -f docker-compose.redis.yml \
+  -f docker-compose.redis.local.yml \
+  up -d
 docker compose -f infra/monitoring/docker-compose.local.yml up --build
 ```
 
 IDE 앱은 일반 `local` 프로필로 실행한다. Prometheus는 Docker Desktop의 `host.docker.internal:8080`을 통해 IDE 앱의 `/actuator/prometheus`를 수집한다. IDE 로그는 Loki로 수집하지 않는다.
 
 ```bash
-SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+IGMO_REDIS_HOST=localhost SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
+
+`application-local.yaml`의 Redis 호스트 기본값도 `localhost`다. 위 명령의
+`IGMO_REDIS_HOST=localhost`는 프로젝트 `.env`에 Docker용 `redis` 값이 있어도
+호스트 실행 경로가 `localhost:6379`를 사용하도록 명시한다.
 
 ### Docker에서 Spring Boot 실행
 
-기존 루트 Compose로 앱을 실행한다. 앱 컨테이너의 `8080` 포트를 통해 Prometheus가 같은 방식으로 메트릭을 수집하고, Alloy는 앱 컨테이너 stdout을 Loki로 전송한다. Compose가 컨테이너 로그를 JSON으로 출력하도록 설정하므로 Grafana에서 로그 레벨·검색어 필터도 동작한다.
+Redis를 위 로컬 Compose로 실행한 상태에서 기존 루트 Compose로 앱을 실행한다. 앱
+컨테이너는 `igmo-runtime` network의 `redis:6379`를 사용하므로 호스트 실행과 Redis
+접근 경로가 다르다. 앱 컨테이너의 `8080` 포트를 통해 Prometheus가 같은 방식으로
+메트릭을 수집하고, Alloy는 앱 컨테이너 stdout을 Loki로 전송한다. Compose가
+컨테이너 로그를 JSON으로 출력하도록 설정하므로 Grafana에서 로그 레벨·검색어
+필터도 동작한다.
 
 ```bash
 docker compose --env-file .env up --build

@@ -7,8 +7,11 @@ import unittest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 REDIS_COMPOSE_FILE = REPOSITORY_ROOT / "docker-compose.redis.yml"
+LOCAL_REDIS_OVERRIDE_FILE = REPOSITORY_ROOT / "docker-compose.redis.local.yml"
 PRODUCTION_COMPOSE_FILE = REPOSITORY_ROOT / "docker-compose.prod.yml"
 REDIS_RUNBOOK_FILE = REPOSITORY_ROOT / "deploy/redis/redis.md"
+LOCAL_PROFILE_FILE = REPOSITORY_ROOT / "src/main/resources/application-local.yaml"
+LOCAL_RUNBOOK_FILE = REPOSITORY_ROOT / "infra/monitoring/README.md"
 
 
 class RedisComposeTest(unittest.TestCase):
@@ -78,6 +81,38 @@ class RedisComposeTest(unittest.TestCase):
             deploy_script,
         )
         self.assertIn("grep -Fxq \"\\$REDIS_CONTAINER_NAME\"", deploy_script)
+
+    def test_local_redis_override_supports_host_boot_run(self):
+        if shutil.which("docker") is None:
+            self.skipTest("Docker Compose is unavailable")
+
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(REDIS_COMPOSE_FILE),
+                "-f",
+                str(LOCAL_REDIS_OVERRIDE_FILE),
+                "config",
+                "--format",
+                "json",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        compose = json.loads(result.stdout)
+        redis_ports = compose["services"]["redis"]["ports"]
+
+        self.assertEqual(1, len(redis_ports))
+        self.assertEqual("127.0.0.1", redis_ports[0]["host_ip"])
+        self.assertEqual("6379", redis_ports[0]["published"])
+        self.assertEqual(6379, redis_ports[0]["target"])
+        self.assertEqual("tcp", redis_ports[0]["protocol"])
+        self.assertIn("host: ${IGMO_REDIS_HOST:localhost}", LOCAL_PROFILE_FILE.read_text())
+        self.assertIn("port: ${IGMO_REDIS_PORT:6379}", LOCAL_PROFILE_FILE.read_text())
+        self.assertIn("IGMO_REDIS_HOST=localhost SPRING_PROFILES_ACTIVE=local ./gradlew bootRun", LOCAL_RUNBOOK_FILE.read_text())
 
     def test_redis_runbook_documents_manual_ec2_provisioning(self):
         runbook = REDIS_RUNBOOK_FILE.read_text()
