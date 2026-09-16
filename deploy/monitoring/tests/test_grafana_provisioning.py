@@ -188,6 +188,7 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn("mem_limit: 256m", production_compose)
         self.assertIn("cadvisor:", production_compose)
         self.assertIn("ghcr.io/google/cadvisor:0.55.1", production_compose)
+        self.assertIn("CADVISOR_HEALTHCHECK_URL: http://127.0.0.1:18081/healthz", production_compose)
         self.assertIn("--docker_only=true", production_compose)
         self.assertIn("--port=18081", production_compose)
         self.assertIn("mem_limit: 128m", production_compose)
@@ -206,6 +207,8 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
         self.assertIn("for SERVICE in alloy node-exporter cadvisor; do", MONITORING_DEPLOY_SCRIPT.read_text())
+        self.assertIn("CONTAINER_HEALTH=none", MONITORING_DEPLOY_SCRIPT.read_text())
+        self.assertIn(r"health=\$CONTAINER_HEALTH", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertIn("127.0.0.1:18081/metrics", MONITORING_DEPLOY_SCRIPT.read_text())
 
     def test_production_alloy_tracks_active_backend_and_blue_green_logs(self):
@@ -217,6 +220,16 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn('regex         = "/igmo-backend(-blue|-green)?$"', alloy_configuration)
         self.assertIn("listen 127.0.0.1:18080;", nginx_configuration)
         self.assertIn("proxy_pass http://igmo_backend/actuator/prometheus;", nginx_configuration)
+
+    def test_monitoring_workflow_uses_monitoring_stack_input(self):
+        workflow = MONITORING_DEPLOY_WORKFLOW.read_text()
+
+        self.assertIn("deploy_monitoring_stack:", workflow)
+        self.assertIn('description: "모니터링 스택 배포"', workflow)
+        self.assertIn("inputs.deploy_monitoring_stack", workflow)
+        self.assertIn("deploy-monitoring-stack:", workflow)
+        self.assertNotIn("deploy_alloy", workflow)
+        self.assertNotIn("deploy-alloy:", workflow)
 
     def test_instance_dashboard_shows_container_memory_usage_and_limits(self):
         dashboard = json.loads((REPOSITORY_ROOT / "infra/monitoring/grafana/provisioning/dashboards/instance.json").read_text())

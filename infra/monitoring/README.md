@@ -18,7 +18,7 @@ GitHub 저장소 `production` 환경에 `GRAFANA_CLOUD_INGEST_TOKEN` secret을 �
 2. 워크플로에서 Alloy, node_exporter, cAdvisor가 실행 중이고 재시작 횟수가 0인지 확인한다.
 3. Alloy readiness·health endpoint(`http://127.0.0.1:12345/-/ready`, `/-/healthy`)와 cAdvisor metrics endpoint(`http://127.0.0.1:18081/metrics`)가 성공했는지 확인한다.
 
-cAdvisor는 Docker 컨테이너별 cgroup 메모리 사용량과 메모리 리밋을 수집한다. 호스트의 Docker 상태와 cgroup 정보를 읽기 위해 운영 EC2의 호스트 경로를 read-only로 마운트하며, 메트릭 endpoint는 `127.0.0.1:18081`에만 바인딩한다.
+cAdvisor는 Docker 컨테이너별 cgroup 메모리 사용량과 메모리 리밋을 수집한다. 호스트의 Docker 상태와 cgroup 정보를 읽기 위해 운영 EC2의 호스트 경로를 read-only로 마운트하며, 메트릭 endpoint는 `127.0.0.1:18081`에만 바인딩한다. 이미지 기본 healthcheck도 이 포트의 `healthz`를 검사하도록 설정한다.
 
 배포는 `/opt/igmo/monitoring-secrets/grafana-cloud-ingest-token`에 토큰을 저장하고, Alloy 컨테이너에 read-only로 마운트한다. Grafana Cloud 수집·조회는 배포 중 잠시 중단될 수 있다.
 
@@ -42,10 +42,10 @@ GitHub 저장소 수준 `Variables`에 다음 비밀이 아닌 값을 설정한�
 
 Cloud 반영은 GitHub Actions의 `Deploy Monitoring`을 수동 실행할 때만 수행한다.
 
-- `deploy_alloy`: Alloy, node_exporter, cAdvisor 배포
+- `deploy_monitoring_stack`: Alloy, node_exporter, cAdvisor 배포
 - `sync_dashboards`: Grafana Cloud 대시보드 동기화
 
-둘 다 `false`이면 실패한다. 대시보드만 수정한 경우 `deploy_alloy=false`, `sync_dashboards=true`로 실행한다.
+둘 다 `false`이면 실패한다. 대시보드만 수정한 경우 `deploy_monitoring_stack=false`, `sync_dashboards=true`로 실행한다.
 
 로컬 dry-run은 다음처럼 실행한다. Cloud API 조회 없이 JSON 렌더링과 UID 검증만 수행한다.
 

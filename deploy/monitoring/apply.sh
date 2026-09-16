@@ -109,8 +109,18 @@ for SERVICE in alloy node-exporter cadvisor; do
 
   CONTAINER_STATUS=\$(docker inspect --format '{{.State.Status}}' \"\$CONTAINER_ID\")
   RESTART_COUNT=\$(docker inspect --format '{{.RestartCount}}' \"\$CONTAINER_ID\")
-  if [ \"\$CONTAINER_STATUS\" != running ] || [ \"\$RESTART_COUNT\" -ne 0 ]; then
-    echo \"관측 컨테이너가 안정적으로 실행되지 않습니다: \$SERVICE status=\$CONTAINER_STATUS restarts=\$RESTART_COUNT\" >&2
+  CONTAINER_HEALTH=none
+  if [ \"\$SERVICE\" = cadvisor ]; then
+    for _ in \$(seq 1 30); do
+      CONTAINER_HEALTH=\$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \"\$CONTAINER_ID\")
+      if [ \"\$CONTAINER_HEALTH\" = healthy ]; then
+        break
+      fi
+      sleep 2
+    done
+  fi
+  if [ \"\$CONTAINER_STATUS\" != running ] || [ \"\$RESTART_COUNT\" -ne 0 ] || { [ \"\$SERVICE\" = cadvisor ] && [ \"\$CONTAINER_HEALTH\" != healthy ]; }; then
+    echo \"관측 컨테이너가 안정적으로 실행되지 않습니다: \$SERVICE status=\$CONTAINER_STATUS health=\$CONTAINER_HEALTH restarts=\$RESTART_COUNT\" >&2
     exit 1
   fi
 done
