@@ -42,10 +42,10 @@ GitHub 저장소 수준 `Variables`에 다음 비밀이 아닌 값을 설정한�
 
 Cloud 반영은 GitHub Actions의 `Deploy Monitoring`을 수동 실행할 때만 수행한다.
 
-- `deploy_alloy`: Alloy, node_exporter, cAdvisor 배포
+- `deploy_monitoring_stack`: Alloy, node_exporter, cAdvisor 배포
 - `sync_dashboards`: Grafana Cloud 대시보드 동기화
 
-둘 다 `false`이면 실패한다. 대시보드만 수정한 경우 `deploy_alloy=false`, `sync_dashboards=true`로 실행한다.
+둘 다 `false`이면 실패한다. 대시보드만 수정한 경우 `deploy_monitoring_stack=false`, `sync_dashboards=true`로 실행한다.
 
 로컬 dry-run은 다음처럼 실행한다. Cloud API 조회 없이 JSON 렌더링과 UID 검증만 수행한다.
 

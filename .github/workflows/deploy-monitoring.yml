@@ -3,8 +3,8 @@ name: Deploy Monitoring
 on:
   workflow_dispatch:
     inputs:
-      deploy_alloy:
-        description: "Alloy 배포"
+      deploy_monitoring_stack:
+        description: "모니터링 스택 배포"
         required: false
         default: true
         type: boolean
@@ -31,15 +31,15 @@ jobs:
       - name: Require at least one deployment target
         shell: bash
         run: |
-          if [[ "${{ inputs.deploy_alloy }}" != true && "${{ inputs.sync_dashboards }}" != true ]]; then
-            echo "Set deploy_alloy or sync_dashboards to true." >&2
+          if [[ "${{ inputs.deploy_monitoring_stack }}" != true && "${{ inputs.sync_dashboards }}" != true ]]; then
+            echo "Set deploy_monitoring_stack or sync_dashboards to true." >&2
             exit 1
           fi
 
-  deploy-alloy:
+  deploy-monitoring-stack:
     name: Deploy monitoring stack
     needs: validate-input
-    if: ${{ inputs.deploy_alloy }}
+    if: ${{ inputs.deploy_monitoring_stack }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20

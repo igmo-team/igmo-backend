@@ -218,6 +218,16 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn("listen 127.0.0.1:18080;", nginx_configuration)
         self.assertIn("proxy_pass http://igmo_backend/actuator/prometheus;", nginx_configuration)
 
+    def test_monitoring_workflow_uses_monitoring_stack_input(self):
+        workflow = MONITORING_DEPLOY_WORKFLOW.read_text()
+
+        self.assertIn("deploy_monitoring_stack:", workflow)
+        self.assertIn('description: "모니터링 스택 배포"', workflow)
+        self.assertIn("inputs.deploy_monitoring_stack", workflow)
+        self.assertIn("deploy-monitoring-stack:", workflow)
+        self.assertNotIn("deploy_alloy", workflow)
+        self.assertNotIn("deploy-alloy:", workflow)
+
     def test_instance_dashboard_shows_container_memory_usage_and_limits(self):
         dashboard = json.loads((REPOSITORY_ROOT / "infra/monitoring/grafana/provisioning/dashboards/instance.json").read_text())
         panels_by_title = {panel["title"]: panel for panel in dashboard["panels"]}
