@@ -188,6 +188,7 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn("mem_limit: 256m", production_compose)
         self.assertIn("cadvisor:", production_compose)
         self.assertIn("ghcr.io/google/cadvisor:0.55.1", production_compose)
+        self.assertIn("CADVISOR_HEALTHCHECK_URL: http://127.0.0.1:18081/healthz", production_compose)
         self.assertIn("--docker_only=true", production_compose)
         self.assertIn("--port=18081", production_compose)
         self.assertIn("mem_limit: 128m", production_compose)
@@ -206,6 +207,8 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MONITORING_DEPLOY_WORKFLOW.read_text())
         self.assertIn("for SERVICE in alloy node-exporter cadvisor; do", MONITORING_DEPLOY_SCRIPT.read_text())
+        self.assertIn("CONTAINER_HEALTH=none", MONITORING_DEPLOY_SCRIPT.read_text())
+        self.assertIn(r"health=\$CONTAINER_HEALTH", MONITORING_DEPLOY_SCRIPT.read_text())
         self.assertIn("127.0.0.1:18081/metrics", MONITORING_DEPLOY_SCRIPT.read_text())
 
     def test_production_alloy_tracks_active_backend_and_blue_green_logs(self):
