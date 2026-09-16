@@ -1,0 +1,31 @@
+x-app-common: &app-common
+  image: ${IMAGE_URI:?IMAGE_URI is required}
+  env_file:
+    - /run/igmo/prod.env
+  restart: always
+  stop_grace_period: ${STOP_GRACE_PERIOD:-30s}
+  mem_limit: 1280m
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  app-blue:
+    <<: *app-common
+    container_name: igmo-backend-blue
+    environment:
+      IGMO_DEPLOYMENT_SLOT: blue
+      IGMO_DEPLOYMENT_PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  app-green:
+    <<: *app-common
+    container_name: igmo-backend-green
+    environment:
+      IGMO_DEPLOYMENT_SLOT: green
+      IGMO_DEPLOYMENT_PORT: "8081"
+    ports:
+      - "127.0.0.1:8081:8080"
