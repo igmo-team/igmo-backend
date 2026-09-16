@@ -3,6 +3,10 @@ spring:
     import: optional:file:.env[.properties]
   application:
     name: igmo
+  data:
+    redis:
+      host: ${IGMO_REDIS_HOST:redis}
+      port: ${IGMO_REDIS_PORT:6379}
   lifecycle:
     timeout-per-shutdown-phase: ${IGMO_GAME_DRAIN_TIMEOUT}
 

@@ -5,6 +5,8 @@ x-app-common: &app-common
   restart: always
   stop_grace_period: ${STOP_GRACE_PERIOD:-30s}
   mem_limit: 1280m
+  networks:
+    - igmo-runtime
   logging:
     driver: local
     options:
@@ -29,3 +31,8 @@ services:
       IGMO_DEPLOYMENT_PORT: "8081"
     ports:
       - "127.0.0.1:8081:8080"
+
+networks:
+  igmo-runtime:
+    external: true
+    name: igmo-runtime
