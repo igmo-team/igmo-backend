@@ -3,6 +3,7 @@ package com.igmo.store;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,5 +75,25 @@ class RedisGameRoomStateRepositoryTest {
         repository.delete("ABCD");
 
         verify(redisTemplate).delete("igmo:game-room:ABCD");
+    }
+
+    @Test
+    @DisplayName("GameRoomRepository의 상태 변경 후 Redis에 최신 상태를 저장한다.")
+    void gameRoomRepository_상태변경후Redis에최신상태를저장한다() {
+        RedisGameRoomStateRepository redisStateRepository = mock(RedisGameRoomStateRepository.class);
+        GameRegistry gameRegistry = new GameRegistry();
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        gameRegistry.saveIfAbsent(room);
+        GameRoomRepository gameRoomRepository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisStateRepository)
+        );
+
+        gameRoomRepository.update("ABCD", currentRoom -> {
+            currentRoom.changePlayerReady(currentRoom.getPlayers().getFirst().getId(), true);
+            return null;
+        });
+
+        verify(redisStateRepository, times(1)).save(room);
     }
 }

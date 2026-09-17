@@ -4,23 +4,39 @@ import com.igmo.domain.GameRoom;
 import com.igmo.service.exception.RoomNotFoundException;
 import java.util.Optional;
 import java.util.function.Function;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class GameRoomRepository {
 
     private final GameRegistry gameRegistry;
+    private final Optional<RedisGameRoomStateRepository> redisStateRepository;
 
     public GameRoomRepository(GameRegistry gameRegistry) {
+        this(gameRegistry, Optional.empty());
+    }
+
+    @Autowired
+    public GameRoomRepository(
+            GameRegistry gameRegistry,
+            Optional<RedisGameRoomStateRepository> redisStateRepository
+    ) {
         this.gameRegistry = gameRegistry;
+        this.redisStateRepository = redisStateRepository;
     }
 
     public boolean saveIfAbsent(GameRoom room) {
-        return gameRegistry.saveIfAbsent(room);
+        boolean saved = gameRegistry.saveIfAbsent(room);
+        if (saved) {
+            redisStateRepository.ifPresent(repository -> repository.save(room));
+        }
+        return saved;
     }
 
     public void remove(String code) {
         gameRegistry.remove(code);
+        redisStateRepository.ifPresent(repository -> repository.delete(code));
     }
 
     public <T> T update(String code, Function<GameRoom, T> operation) {
@@ -30,7 +46,9 @@ public class GameRoomRepository {
             if (isDetached(code, room)) {
                 throw new RoomNotFoundException();
             }
-            return operation.apply(room);
+            T result = operation.apply(room);
+            persist(code, room);
+            return result;
         }
     }
 
@@ -44,8 +62,20 @@ public class GameRoomRepository {
             if (isDetached(code, room)) {
                 return Optional.empty();
             }
-            return Optional.ofNullable(operation.apply(room));
+            T result = operation.apply(room);
+            persist(code, room);
+            return Optional.ofNullable(result);
         }
+    }
+
+    private void persist(String code, GameRoom room) {
+        redisStateRepository.ifPresent(repository -> {
+            if (isDetached(code, room)) {
+                repository.delete(code);
+                return;
+            }
+            repository.save(room);
+        });
     }
 
     private boolean isDetached(String code, GameRoom room) {
