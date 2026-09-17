@@ -89,7 +89,7 @@ IDE 앱은 일반 `local` 프로필로 실행한다. Prometheus는 Docker Deskto
 IGMO_REDIS_HOST=localhost SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-`application-local.yaml`의 Redis 호스트 기본값도 `localhost`다. 위 명령의
+공통 `application.yaml`이 `IGMO_REDIS_HOST`와 `IGMO_REDIS_PORT`를 읽는다. 위 명령의
 `IGMO_REDIS_HOST=localhost`는 프로젝트 `.env`에 Docker용 `redis` 값이 있어도
 호스트 실행 경로가 `localhost:6379`를 사용하도록 명시한다.
 

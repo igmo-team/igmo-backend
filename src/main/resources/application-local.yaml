@@ -1,9 +1,3 @@
-spring:
-  data:
-    redis:
-      host: ${IGMO_REDIS_HOST:localhost}
-      port: ${IGMO_REDIS_PORT:6379}
-
 logging:
   level:
     root: info
