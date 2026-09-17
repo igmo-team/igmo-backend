@@ -110,8 +110,9 @@ class RedisComposeTest(unittest.TestCase):
         self.assertEqual("6379", redis_ports[0]["published"])
         self.assertEqual(6379, redis_ports[0]["target"])
         self.assertEqual("tcp", redis_ports[0]["protocol"])
-        self.assertIn("host: ${IGMO_REDIS_HOST:localhost}", LOCAL_PROFILE_FILE.read_text())
-        self.assertIn("port: ${IGMO_REDIS_PORT:6379}", LOCAL_PROFILE_FILE.read_text())
+        local_profile = LOCAL_PROFILE_FILE.read_text()
+        self.assertNotIn("IGMO_REDIS_HOST", local_profile)
+        self.assertNotIn("IGMO_REDIS_PORT", local_profile)
         self.assertIn("IGMO_REDIS_HOST=localhost SPRING_PROFILES_ACTIVE=local ./gradlew bootRun", LOCAL_RUNBOOK_FILE.read_text())
 
     def test_redis_runbook_documents_manual_ec2_provisioning(self):
