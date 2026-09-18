@@ -1,5 +1,20 @@
 # Igmo : AI 이미지로 프롬프트 추측하기 게임
 
+## 로컬 Docker 실행
+
+JAR과 API·WebSocket 문서는 Docker 이미지 빌드 전에 생성합니다. 테스트에서 사용하는 Testcontainers가 호스트의 Docker 데몬을 사용할 수 있어야 합니다.
+
+```bash
+PUPPETEER_SKIP_DOWNLOAD=true npm ci
+./gradlew clean bootJar --no-daemon
+docker compose -f docker-compose.local.yml build
+docker compose -f docker-compose.local.yml up -d
+```
+
+Dockerfile은 `build/libs/app.jar`를 실행 이미지에 복사하므로 `bootJar`를 먼저 실행해야 합니다.
+
+CI 검증과 운영 배포 흐름은 [CI/CD 배포 문서](docs/ci-cd.md)를 참고합니다.
+
 ## 🛠️ 1. 구체적인 서비스 아이디어 & 게임 룰
 
 이 게임은 "AI가 그린 그림을 보고 프롬프트를 추측하여 원본 프롬프트를 맞추는 게임"입니다. 디스코드나 보이스 채널을 켜고 친구들끼리 플레이할 때 최고의 재미를 보장합니다.
