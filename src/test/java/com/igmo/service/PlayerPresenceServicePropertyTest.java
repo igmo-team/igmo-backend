@@ -6,10 +6,12 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.igmo.store.GameRegistry;
 import com.igmo.support.AbstractNonWebSpringBootTest;
 import com.igmo.web.dto.CreateGameResponse;
 import java.time.Instant;
 import java.util.concurrent.ScheduledFuture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +32,9 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
     @Autowired
     private PlayerSessionRegistry playerSessionRegistry;
 
+    @Autowired
+    private GameRegistry gameRegistry;
+
     @MockitoBean(name = "disconnectGraceScheduler")
     private TaskScheduler disconnectGraceScheduler;
 
@@ -38,6 +43,11 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
 
     @MockitoBean(name = "imageGenerationCompletionScheduler")
     private TaskScheduler imageGenerationCompletionScheduler;
+
+    @AfterEach
+    void 테스트_게임방을_정리한다() {
+        gameRegistry.snapshot().forEach(room -> gameRegistry.remove(room.getCode()));
+    }
 
     @Test
     @DisplayName("연결 끊김 유예 시간은 igmo.game.disconnect-grace 프로퍼티 값을 사용한다.")
