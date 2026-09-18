@@ -58,6 +58,7 @@ jobs:
       DEPLOY_SHA: ${{ github.sha }}
 
     steps:
+      # 1. production 환경변수가 모두 설정되었는지 먼저 확인합니다.
       - name: Validate deployment configuration
         id: validate
         shell: bash
@@ -84,53 +85,22 @@ jobs:
           : "${IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET:?Set IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET in the production environment}"
           : "${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX:?Set IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX in the production environment}"
 
+      # 2. 배포 시작 사실을 Discord에 알립니다. 알림 실패는 배포를 중단시키지 않습니다.
       - name: Notify Discord of deployment start
         if: ${{ success() }}
         continue-on-error: true
         env:
           DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
-        shell: bash
-        run: |
-          if [[ -z "${DISCORD_DEPLOY_WEBHOOK_URL:-}" ]]; then
-            echo "::warning::DISCORD_DEPLOY_WEBHOOK_URL is not configured; skipping Discord notification."
-            exit 0
-          fi
+        run: bash .github/scripts/notify-discord.sh start
 
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          CONTENT=$(cat <<EOF
-          🚀 IGMO 배포 시작
-
-          Production 배포를 시작합니다.
-
-          환경: production
-          Commit: ${SHORT_SHA}
-          배포자: ${GITHUB_ACTOR}
-
-          GitHub Actions: ${WORKFLOW_URL}
-          EOF
-          )
-          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
-
-          HTTP_STATUS="000"
-          if ! HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            --max-time 15 \
-            --header 'Content-Type: application/json' \
-            --data "$PAYLOAD" \
-            "$DISCORD_DEPLOY_WEBHOOK_URL" 2>/dev/null); then
-            HTTP_STATUS="000"
-          fi
-
-          if [[ "$HTTP_STATUS" != 2* ]]; then
-            echo "::warning::Discord deployment start notification failed (HTTP ${HTTP_STATUS})."
-          fi
-
+      # 3. 이번 배포 대상 commit을 runner에 내려받습니다.
       - name: Checkout repository
         id: checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_SHA }}
 
+      # 4. Spring Boot와 Gradle 빌드에 사용할 Java 25를 준비합니다.
       - name: Set up JDK
         id: setup_java
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
@@ -140,6 +110,7 @@ jobs:
           java-version: 25
           cache: gradle
 
+      # 5. WebSocket 문서 생성에 사용할 Node.js와 npm 캐시를 준비합니다.
       - name: Set up Node.js
         id: setup_node
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
@@ -148,15 +119,13 @@ jobs:
           node-version: 24
           cache: npm
 
+      # 6. 테스트를 통과한 뒤 API·WebSocket 문서와 실행 가능한 JAR을 만듭니다.
       - name: Build application JAR and documents
         id: build_artifact
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
-        run: |
-          PUPPETEER_SKIP_DOWNLOAD=true npm ci
-          ./gradlew clean bootJar --no-daemon \
-            -Popenapi.server-url="$OPENAPI_SERVER_URL" \
-            -Pwebsocket-docs.server-url="$WEBSOCKET_DOCS_SERVER_URL"
+        run: bash .github/scripts/build-artifact.sh
 
+      # 7. 이후 ECR과 EC2에 접근할 AWS 권한을 OIDC로 설정합니다.
       - name: Configure AWS credentials
         id: aws_auth
         uses: aws-actions/configure-aws-credentials@v6
@@ -165,10 +134,12 @@ jobs:
           role-session-name: igmo-prod-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # 8. 생성한 Docker 이미지를 업로드할 ECR에 로그인합니다.
       - name: Log in to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # 9. deploy_only 실행이면 새 이미지를 만들지 않고 기존 이미지만 확인합니다.
       - name: Verify existing image for deploy-only
         id: verify_image
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_only }}
@@ -177,16 +148,19 @@ jobs:
             --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$DEPLOY_SHA" >/dev/null
 
+      # 10. ARM64 이미지 빌드에 필요한 에뮬레이터를 준비합니다.
       - name: Set up QEMU
         id: qemu
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
         uses: docker/setup-qemu-action@v4
 
+      # 11. ARM64 Docker 이미지를 빌드할 Buildx를 준비합니다.
       - name: Set up Docker Buildx
         id: buildx
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
         uses: docker/setup-buildx-action@v4
 
+      # 12. JAR이 포함된 이미지를 만들고 ECR에 commit SHA 태그로 업로드합니다.
       - name: Build and push ARM64 image
         id: build_push
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
@@ -199,53 +173,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # 13. SSM을 통해 EC2에서 Blue-Green 배포를 실행합니다.
       - name: Deploy image through AWS Systems Manager
         id: deploy
         env:
           IMAGE_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.DEPLOY_SHA }}
         run: bash .github/scripts/deploy-via-ssm.sh
 
+      # 14. EC2 배포가 성공했을 때 결과를 Discord에 알립니다.
       - name: Notify Discord of successful deployment
         if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
         continue-on-error: true
         env:
           DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
-        shell: bash
-        run: |
-          if [[ -z "${DISCORD_DEPLOY_WEBHOOK_URL:-}" ]]; then
-            echo "::warning::DISCORD_DEPLOY_WEBHOOK_URL is not configured; skipping Discord notification."
-            exit 0
-          fi
+        run: bash .github/scripts/notify-discord.sh success
 
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          CONTENT=$(cat <<EOF
-          ✅ IGMO 배포 성공
-
-          Production 배포가 정상적으로 완료되었습니다.
-
-          환경: production
-          Commit: ${SHORT_SHA}
-          배포자: ${GITHUB_ACTOR}
-          Health Check: 정상
-          GitHub Actions: ${WORKFLOW_URL}
-          EOF
-          )
-          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
-
-          HTTP_STATUS="000"
-          if ! HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            --max-time 15 \
-            --header 'Content-Type: application/json' \
-            --data "$PAYLOAD" \
-            "$DISCORD_DEPLOY_WEBHOOK_URL" 2>/dev/null); then
-            HTTP_STATUS="000"
-          fi
-
-          if [[ "$HTTP_STATUS" != 2* ]]; then
-            echo "::warning::Discord deployment success notification failed (HTTP ${HTTP_STATUS})."
-          fi
-
+      # 15. 앞 단계가 실패했을 때 실패 단계와 복구 상태를 Discord에 알립니다.
       - name: Notify Discord of failed deployment
         if: ${{ !cancelled() && failure() && steps.deploy.outcome != 'success' }}
         continue-on-error: true
@@ -267,88 +210,4 @@ jobs:
           DEPLOY_FAILURE_REASON: ${{ steps.deploy.outputs.failure_reason }}
           DEPLOY_CLEANUP_STATUS: ${{ steps.deploy.outputs.cleanup_status }}
           DEPLOY_NGINX_RECOVERY_STATUS: ${{ steps.deploy.outputs.nginx_recovery_status }}
-        shell: bash
-        run: |
-          if [[ -z "${DISCORD_DEPLOY_WEBHOOK_URL:-}" ]]; then
-            echo "::warning::DISCORD_DEPLOY_WEBHOOK_URL is not configured; skipping Discord notification."
-            exit 0
-          fi
-
-          FAILURE_STAGE="Unknown CD failure"
-          FAILURE_REASON="실패 단계를 특정하지 못했습니다. GitHub Actions 로그를 확인해주세요."
-          RECOVERY_LINE=""
-
-          if [[ "${VALIDATE_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="Deployment configuration validation"
-            FAILURE_REASON="production 배포 설정 검증에 실패했습니다."
-          elif [[ "${CHECKOUT_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="Checkout"
-            FAILURE_REASON="배포 대상 commit checkout에 실패했습니다."
-          elif [[ "${SETUP_JAVA_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="JDK setup"
-            FAILURE_REASON="JDK 설정에 실패했습니다."
-          elif [[ "${SETUP_NODE_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="Node.js setup"
-            FAILURE_REASON="Node.js 설정에 실패했습니다."
-          elif [[ "${BUILD_ARTIFACT_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="Gradle build / document generation"
-            FAILURE_REASON="테스트·문서 생성·JAR 빌드에 실패했습니다."
-          elif [[ "${AWS_AUTH_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="AWS authentication"
-            FAILURE_REASON="AWS OIDC 인증에 실패했습니다."
-          elif [[ "${ECR_LOGIN_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="ECR login"
-            FAILURE_REASON="Amazon ECR 로그인에 실패했습니다."
-          elif [[ "${VERIFY_IMAGE_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="ECR image verification"
-            FAILURE_REASON="deploy-only 대상 이미지 검증에 실패했습니다."
-          elif [[ "${QEMU_OUTCOME:-}" == "failure" || "${BUILDX_OUTCOME:-}" == "failure" || "${BUILD_PUSH_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="Docker Build / Push"
-            FAILURE_REASON="Docker 이미지 Build / Push에 실패했습니다."
-          elif [[ "${DEPLOY_OUTCOME:-}" == "failure" ]]; then
-            FAILURE_STAGE="${DEPLOY_FAILURE_STAGE:-AWS SSM Deployment}"
-            FAILURE_REASON="${DEPLOY_FAILURE_REASON:-SSM 배포 명령이 성공 상태로 완료되지 않았습니다. 상세 원인은 GitHub Actions 로그를 확인해주세요.}"
-          fi
-
-          if [[ "${DEPLOY_CLEANUP_STATUS:-}" == "success" ]]; then
-            RECOVERY_LINE="Target 컨테이너 정리: 성공"
-          elif [[ "${DEPLOY_CLEANUP_STATUS:-}" == "failed" ]]; then
-            RECOVERY_LINE="Target 컨테이너 정리: 실패"
-          fi
-
-          if [[ "${DEPLOY_NGINX_RECOVERY_STATUS:-}" == "failed" ]]; then
-            RECOVERY_LINE="${RECOVERY_LINE}
-          Nginx 설정 복구: 실패"
-          fi
-
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          CONTENT=$(cat <<EOF
-          🚨 IGMO 배포 실패
-
-          Production 배포 과정에서 문제가 발생했습니다.
-
-          환경: production
-          Commit: ${SHORT_SHA}
-          배포자: ${GITHUB_ACTOR}
-          실패 단계: ${FAILURE_STAGE}
-          원인: ${FAILURE_REASON}
-          ${RECOVERY_LINE}
-
-          GitHub Actions: ${WORKFLOW_URL}
-          EOF
-          )
-          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
-
-          HTTP_STATUS="000"
-          if ! HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            --max-time 15 \
-            --header 'Content-Type: application/json' \
-            --data "$PAYLOAD" \
-            "$DISCORD_DEPLOY_WEBHOOK_URL" 2>/dev/null); then
-            HTTP_STATUS="000"
-          fi
-
-          if [[ "$HTTP_STATUS" != 2* ]]; then
-            echo "::warning::Discord deployment failure notification failed (HTTP ${HTTP_STATUS})."
-          fi
+        run: bash .github/scripts/notify-discord.sh failure
