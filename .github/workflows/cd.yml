@@ -58,7 +58,14 @@ jobs:
       DEPLOY_SHA: ${{ github.sha }}
 
     steps:
-      # 1. production 환경변수가 모두 설정되었는지 먼저 확인합니다.
+      # 1. 이번 배포 대상 commit을 runner에 내려받습니다.
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      # 2. production 환경변수가 모두 설정되었는지 확인합니다.
       - name: Validate deployment configuration
         id: validate
         shell: bash
@@ -85,20 +92,13 @@ jobs:
           : "${IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET:?Set IGMO_ADMIN_IMAGE_STORAGE_S3_BUCKET in the production environment}"
           : "${IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX:?Set IGMO_ADMIN_IMAGE_STORAGE_S3_KEY_PREFIX in the production environment}"
 
-      # 2. 배포 시작 사실을 Discord에 알립니다. 알림 실패는 배포를 중단시키지 않습니다.
+      # 3. 배포 시작 사실을 Discord에 알립니다. 알림 실패는 배포를 중단시키지 않습니다.
       - name: Notify Discord of deployment start
         if: ${{ success() }}
         continue-on-error: true
         env:
           DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
         run: bash .github/scripts/notify-discord.sh start
-
-      # 3. 이번 배포 대상 commit을 runner에 내려받습니다.
-      - name: Checkout repository
-        id: checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ env.DEPLOY_SHA }}
 
       # 4. Spring Boot와 Gradle 빌드에 사용할 Java 25를 준비합니다.
       - name: Set up JDK
