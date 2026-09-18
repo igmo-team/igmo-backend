@@ -131,6 +131,32 @@ jobs:
         with:
           ref: ${{ env.DEPLOY_SHA }}
 
+      - name: Set up JDK
+        id: setup_java
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: Set up Node.js
+        id: setup_node
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Build application JAR and documents
+        id: build_artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_only }}
+        run: |
+          PUPPETEER_SKIP_DOWNLOAD=true npm ci
+          ./gradlew clean bootJar --no-daemon \
+            -Popenapi.server-url="$OPENAPI_SERVER_URL" \
+            -Pwebsocket-docs.server-url="$WEBSOCKET_DOCS_SERVER_URL"
+
       - name: Configure AWS credentials
         id: aws_auth
         uses: aws-actions/configure-aws-credentials@v6
@@ -170,9 +196,6 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.DEPLOY_SHA }}
-          build-args: |
-            OPENAPI_SERVER_URL=${{ env.OPENAPI_SERVER_URL }}
-            WEBSOCKET_DOCS_SERVER_URL=${{ env.WEBSOCKET_DOCS_SERVER_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -230,6 +253,9 @@ jobs:
           DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
           VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
           CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SETUP_JAVA_OUTCOME: ${{ steps.setup_java.outcome }}
+          SETUP_NODE_OUTCOME: ${{ steps.setup_node.outcome }}
+          BUILD_ARTIFACT_OUTCOME: ${{ steps.build_artifact.outcome }}
           AWS_AUTH_OUTCOME: ${{ steps.aws_auth.outcome }}
           ECR_LOGIN_OUTCOME: ${{ steps.ecr-login.outcome }}
           VERIFY_IMAGE_OUTCOME: ${{ steps.verify_image.outcome }}
@@ -258,6 +284,15 @@ jobs:
           elif [[ "${CHECKOUT_OUTCOME:-}" == "failure" ]]; then
             FAILURE_STAGE="Checkout"
             FAILURE_REASON="배포 대상 commit checkout에 실패했습니다."
+          elif [[ "${SETUP_JAVA_OUTCOME:-}" == "failure" ]]; then
+            FAILURE_STAGE="JDK setup"
+            FAILURE_REASON="JDK 설정에 실패했습니다."
+          elif [[ "${SETUP_NODE_OUTCOME:-}" == "failure" ]]; then
+            FAILURE_STAGE="Node.js setup"
+            FAILURE_REASON="Node.js 설정에 실패했습니다."
+          elif [[ "${BUILD_ARTIFACT_OUTCOME:-}" == "failure" ]]; then
+            FAILURE_STAGE="Gradle build / document generation"
+            FAILURE_REASON="테스트·문서 생성·JAR 빌드에 실패했습니다."
           elif [[ "${AWS_AUTH_OUTCOME:-}" == "failure" ]]; then
             FAILURE_STAGE="AWS authentication"
             FAILURE_REASON="AWS OIDC 인증에 실패했습니다."

@@ -103,6 +103,7 @@ tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
 }
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
+    archiveFileName.set("app.jar")
     from(generatedApiSpecResourceDir) {
         into("BOOT-INF/classes/static/api-spec")
     }

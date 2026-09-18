@@ -4,5 +4,9 @@
 .git
 .gradle
 .idea
-build
+node_modules
+build/*
+!build/
+!build/libs/
+!build/libs/app.jar
 out
