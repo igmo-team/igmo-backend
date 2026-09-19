@@ -65,6 +65,7 @@ public class GameRoom {
     private final List<Round> rounds = new ArrayList<>();
     private final GameStartPolicy gameStartPolicy;
     private int currentRoundIndex;
+    private long version;
 
     private GameRoom(String code, Player host, GameStartPolicy gameStartPolicy) {
         this.code = code;
@@ -80,6 +81,153 @@ public class GameRoom {
 
     public static GameRoom create(String code, Player host, GameStartPolicy gameStartPolicy) {
         return new GameRoom(code, host, gameStartPolicy);
+    }
+
+    public static GameRoom restore(GameRoomState state) {
+        validateSchemaVersion(state);
+        Map<String, Player> restoredPlayers = restorePlayers(state.players());
+        Player host = findHost(state.hostId(), restoredPlayers);
+        validateCurrentRoundIndex(state);
+
+        GameRoom room = restoreRoom(state, host, restoredPlayers);
+        Map<String, PromptEntry> promptsById = restorePromptEntries(room, state.promptEntries());
+        restoreRounds(room, state.rounds(), promptsById);
+        return room;
+    }
+
+    private static void validateSchemaVersion(GameRoomState state) {
+        if (state.schemaVersion() != GameRoomState.CURRENT_SCHEMA_VERSION) {
+            throw new IllegalStateException(
+                    "지원하지 않는 게임방 상태 스키마 버전입니다: " + state.schemaVersion()
+            );
+        }
+    }
+
+    private static Map<String, Player> restorePlayers(List<GameRoomState.PlayerState> playerStates) {
+        Map<String, Player> restoredPlayers = new LinkedHashMap<>();
+        playerStates.forEach(playerState -> restoredPlayers.put(
+                playerState.id(),
+                Player.restore(
+                        playerState.id(),
+                        playerState.secret(),
+                        playerState.nickname(),
+                        playerState.score(),
+                        playerState.ready()
+                )
+        ));
+        return restoredPlayers;
+    }
+
+    private static Player findHost(String hostId, Map<String, Player> players) {
+        Player host = players.get(hostId);
+        if (host == null || players.isEmpty()) {
+            throw new IllegalStateException("게임방 상태의 방장 또는 참가자가 없습니다.");
+        }
+        return host;
+    }
+
+    private static void validateCurrentRoundIndex(GameRoomState state) {
+        boolean invalidRoundIndex = (state.rounds().isEmpty() && state.currentRoundIndex() != 0)
+                || (!state.rounds().isEmpty() && state.currentRoundIndex() >= state.rounds().size());
+        if (invalidRoundIndex) {
+            throw new IllegalStateException("게임방 상태의 현재 라운드 인덱스가 올바르지 않습니다.");
+        }
+    }
+
+    private static GameRoom restoreRoom(
+            GameRoomState state,
+            Player host,
+            Map<String, Player> restoredPlayers
+    ) {
+        GameRoom room = new GameRoom(
+                state.roomCode(),
+                host,
+                GameStartPolicy.restore(state.gameStartPolicy().minimumPlayers())
+        );
+        room.players.clear();
+        room.players.putAll(restoredPlayers);
+        room.hostId = state.hostId();
+        room.version = state.version();
+        room.phase = state.phase();
+        room.promptStartedAt = state.promptStartedAt();
+        room.promptDeadline = state.promptDeadline();
+        room.finalPromptSubmissionDeadline = state.finalPromptSubmissionDeadline();
+        room.guessStartedAt = state.guessStartedAt();
+        room.guessDeadline = state.guessDeadline();
+        room.finalGuessSubmissionDeadline = state.finalGuessSubmissionDeadline();
+        room.voteStartedAt = state.voteStartedAt();
+        room.voteDeadline = state.voteDeadline();
+        room.resultStartedAt = state.resultStartedAt();
+        room.resultDeadline = state.resultDeadline();
+        room.currentRoundIndex = state.currentRoundIndex();
+        return room;
+    }
+
+    private static Map<String, PromptEntry> restorePromptEntries(
+            GameRoom room,
+            List<GameRoomState.PromptEntryState> promptStates
+    ) {
+        Map<String, PromptEntry> promptsById = new LinkedHashMap<>();
+        promptStates.forEach(promptState -> {
+            PromptEntry promptEntry = PromptEntry.restore(
+                    promptState.promptId(),
+                    promptState.playerId(),
+                    promptState.prompt(),
+                    promptState.submittedAt(),
+                    promptState.status(),
+                    promptState.imageUrl()
+            );
+            room.promptEntriesByPlayerId.put(promptEntry.getPlayerId(), promptEntry);
+            promptsById.put(promptEntry.getPromptId(), promptEntry);
+        });
+        return promptsById;
+    }
+
+    private static void restoreRounds(
+            GameRoom room,
+            List<GameRoomState.RoundState> roundStates,
+            Map<String, PromptEntry> promptsById
+    ) {
+        roundStates.forEach(roundState -> room.rounds.add(restoreRound(roundState, promptsById)));
+    }
+
+    private static Round restoreRound(
+            GameRoomState.RoundState roundState,
+            Map<String, PromptEntry> promptsById
+    ) {
+        PromptEntry answerEntry = promptsById.get(roundState.answerPromptId());
+        if (answerEntry == null) {
+            throw new IllegalStateException(
+                    "라운드의 정답 프롬프트가 없습니다: " + roundState.answerPromptId()
+            );
+        }
+        RoundResult result = roundState.result() == null
+                ? null
+                : RoundResult.of(roundState.result().scoreDetailsByPlayerId());
+        return Round.restore(
+                roundState.roundNumber(),
+                roundState.questionerId(),
+                answerEntry,
+                roundState.guesses().stream()
+                        .map(guess -> GuessEntry.restore(
+                                guess.guessId(),
+                                guess.playerId(),
+                                guess.guess(),
+                                guess.submittedAt()
+                        ))
+                        .toList(),
+                roundState.perfectGuesserIds(),
+                roundState.voteOptions().stream()
+                        .map(option -> VoteOption.of(option.optionId(), option.text()))
+                        .toList(),
+                roundState.votes().stream()
+                        .map(vote -> Vote.of(vote.voterId(), vote.optionId(), vote.votedAt()))
+                        .toList(),
+                roundState.voteSkipped(),
+                roundState.voteSkippedStartedAt(),
+                roundState.voteSkippedDeadline(),
+                result
+        );
     }
 
     public synchronized String addPlayer(Player player) {
@@ -113,6 +261,26 @@ public class GameRoom {
 
     public synchronized List<PromptEntry> getPromptEntries() {
         return List.copyOf(promptEntriesByPlayerId.values());
+    }
+
+    public synchronized List<Round> getRounds() {
+        return List.copyOf(rounds);
+    }
+
+    public synchronized int getCurrentRoundIndex() {
+        return currentRoundIndex;
+    }
+
+    public synchronized int getGameStartMinimumPlayers() {
+        return gameStartPolicy.minimumPlayers();
+    }
+
+    public synchronized long getVersion() {
+        return version;
+    }
+
+    public synchronized void incrementVersion() {
+        version++;
     }
 
     public synchronized boolean isEmpty() {

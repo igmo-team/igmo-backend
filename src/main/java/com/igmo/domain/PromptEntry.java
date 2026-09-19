@@ -20,8 +20,35 @@ public class PromptEntry {
         this.status = PromptEntryStatus.WAITING;
     }
 
+    private PromptEntry(
+            String promptId,
+            String playerId,
+            String prompt,
+            Instant submittedAt,
+            PromptEntryStatus status,
+            String imageUrl
+    ) {
+        this.promptId = promptId;
+        this.playerId = playerId;
+        this.prompt = prompt;
+        this.submittedAt = submittedAt;
+        this.status = status;
+        this.imageUrl = imageUrl;
+    }
+
     public static PromptEntry waiting(String playerId) {
         return new PromptEntry(playerId);
+    }
+
+    public static PromptEntry restore(
+            String promptId,
+            String playerId,
+            String prompt,
+            Instant submittedAt,
+            PromptEntryStatus status,
+            String imageUrl
+    ) {
+        return new PromptEntry(promptId, playerId, prompt, submittedAt, status, imageUrl);
     }
 
     public void submit(String prompt, Instant submittedAt) {

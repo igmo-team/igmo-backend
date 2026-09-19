@@ -21,6 +21,18 @@ public class Player {
         this.ready = false;
     }
 
+    private Player(String id, String secret, String nickname, int score, boolean ready) {
+        this.id = id;
+        this.secret = secret;
+        this.nickname = new Nickname(nickname);
+        this.score = score;
+        this.ready = ready;
+    }
+
+    public static Player restore(String id, String secret, String nickname, int score, boolean ready) {
+        return new Player(id, secret, nickname, score, ready);
+    }
+
     public void changeReady(boolean ready) {
         this.ready = ready;
     }

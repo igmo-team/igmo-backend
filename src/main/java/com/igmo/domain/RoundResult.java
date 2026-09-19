@@ -32,6 +32,10 @@ public class RoundResult {
         return totals;
     }
 
+    public Map<String, Map<ScoreReason, Integer>> getScoreDetailsByPlayerId() {
+        return scoreDetailsByPlayerId;
+    }
+
     private static Map<String, Map<ScoreReason, Integer>> deepCopy(
             Map<String, Map<ScoreReason, Integer>> source
     ) {

@@ -1699,6 +1699,204 @@ class GameRoomTest {
                 .containsExactly(guest1Id, hostId, guest2Id);
     }
 
+    @Test
+    @DisplayName("저장된 전체 게임 상태를 GameRoom 객체로 복원한다.")
+    void restore_저장된_전체상태를_GameRoom으로_복원한다() {
+        // given
+        GameRoomState state = fullState();
+
+        // when
+        GameRoom restored = GameRoom.restore(state);
+
+        // then
+        assertThat(GameRoomState.from(restored)).isEqualTo(state);
+    }
+
+    @Test
+    @DisplayName("방장이 참가자 목록에 없으면 복원을 거부한다.")
+    void restore_방장이_참가자목록에_없으면_예외를_던진다() {
+        // given
+        GameRoomState state = state(
+                "unknown-host",
+                0,
+                List.of(player("guest-id", "참가자")),
+                List.of(),
+                List.of()
+        );
+
+        // when // then
+        assertThatThrownBy(() -> GameRoom.restore(state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("게임방 상태의 방장 또는 참가자가 없습니다.");
+    }
+
+    @Test
+    @DisplayName("참가자가 없는 상태는 복원을 거부한다.")
+    void restore_참가자가_없으면_예외를_던진다() {
+        // given
+        GameRoomState state = state("host-id", 0, List.of(), List.of(), List.of());
+
+        // when // then
+        assertThatThrownBy(() -> GameRoom.restore(state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("게임방 상태의 방장 또는 참가자가 없습니다.");
+    }
+
+    @Test
+    @DisplayName("현재 라운드 인덱스가 라운드 목록 범위를 벗어나면 복원을 거부한다.")
+    void restore_현재라운드인덱스가_범위를_벗어나면_예외를_던진다() {
+        // given
+        GameRoomState state = state(
+                "host-id",
+                1,
+                List.of(player("host-id", "호스트")),
+                List.of(prompt("answer-id", "host-id", "정답")),
+                List.of(round("answer-id"))
+        );
+
+        // when // then
+        assertThatThrownBy(() -> GameRoom.restore(state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("게임방 상태의 현재 라운드 인덱스가 올바르지 않습니다.");
+    }
+
+    @Test
+    @DisplayName("라운드가 참조하는 정답 프롬프트가 없으면 복원을 거부한다.")
+    void restore_정답프롬프트가_없으면_예외를_던진다() {
+        // given
+        GameRoomState state = state(
+                "host-id",
+                0,
+                List.of(player("host-id", "호스트")),
+                List.of(),
+                List.of(round("missing-answer-id"))
+        );
+
+        // when // then
+        assertThatThrownBy(() -> GameRoom.restore(state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("라운드의 정답 프롬프트가 없습니다: missing-answer-id");
+    }
+
+    private GameRoomState fullState() {
+        return state(
+                "host-id",
+                0,
+                List.of(
+                        new GameRoomState.PlayerState("host-id", "host-secret", "호스트", 10, true),
+                        new GameRoomState.PlayerState("guest-id", "guest-secret", "참가자", 4, false)
+                ),
+                List.of(
+                        new GameRoomState.PromptEntryState(
+                                "answer-id",
+                                "guest-id",
+                                "정답 프롬프트",
+                                PROMPT_STARTED_AT.plusSeconds(2),
+                                PromptEntryStatus.READY,
+                                "https://cdn.example.com/answer.png"
+                        ),
+                        new GameRoomState.PromptEntryState(
+                                "guess-id",
+                                "host-id",
+                                "추측",
+                                PROMPT_STARTED_AT.plusSeconds(3),
+                                PromptEntryStatus.READY,
+                                null
+                        )
+                ),
+                List.of(new GameRoomState.RoundState(
+                        1,
+                        "guest-id",
+                        "answer-id",
+                        List.of(new GameRoomState.GuessState(
+                                "guess-id",
+                                "host-id",
+                                "추측",
+                                PROMPT_STARTED_AT.plusSeconds(4)
+                        )),
+                        List.of(),
+                        List.of(
+                                new GameRoomState.VoteOptionState("answer-id", "정답 프롬프트"),
+                                new GameRoomState.VoteOptionState("guess-id", "추측")
+                        ),
+                        List.of(new GameRoomState.VoteState(
+                                "host-id",
+                                "answer-id",
+                                PROMPT_STARTED_AT.plusSeconds(5)
+                        )),
+                        false,
+                        null,
+                        null,
+                        new GameRoomState.RoundResultState(Map.of(
+                                "host-id", Map.of(ScoreReason.CORRECT_ANSWER, 2),
+                                "guest-id", Map.of(ScoreReason.QUESTIONER, 2)
+                        ))
+                ))
+        );
+    }
+
+    private GameRoomState state(
+            String hostId,
+            int currentRoundIndex,
+            List<GameRoomState.PlayerState> players,
+            List<GameRoomState.PromptEntryState> promptEntries,
+            List<GameRoomState.RoundState> rounds
+    ) {
+        return new GameRoomState(
+                GameRoomState.CURRENT_SCHEMA_VERSION,
+                7,
+                "ABCD",
+                hostId,
+                GamePhase.RESULTS,
+                PROMPT_STARTED_AT,
+                PROMPT_STARTED_AT.plusSeconds(30),
+                PROMPT_STARTED_AT.plusSeconds(32),
+                PROMPT_STARTED_AT.plusSeconds(40),
+                PROMPT_STARTED_AT.plusSeconds(70),
+                PROMPT_STARTED_AT.plusSeconds(72),
+                PROMPT_STARTED_AT.plusSeconds(80),
+                PROMPT_STARTED_AT.plusSeconds(110),
+                PROMPT_STARTED_AT.plusSeconds(120),
+                PROMPT_STARTED_AT.plusSeconds(135),
+                currentRoundIndex,
+                new GameRoomState.GameStartPolicyState(2),
+                players,
+                promptEntries,
+                rounds
+        );
+    }
+
+    private GameRoomState.PlayerState player(String id, String nickname) {
+        return new GameRoomState.PlayerState(id, id + "-secret", nickname, 0, false);
+    }
+
+    private GameRoomState.PromptEntryState prompt(String id, String playerId, String text) {
+        return new GameRoomState.PromptEntryState(
+                id,
+                playerId,
+                text,
+                PROMPT_STARTED_AT,
+                PromptEntryStatus.READY,
+                null
+        );
+    }
+
+    private GameRoomState.RoundState round(String answerPromptId) {
+        return new GameRoomState.RoundState(
+                1,
+                "host-id",
+                answerPromptId,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                null,
+                null,
+                null
+        );
+    }
+
     private GameRoom createRoomInVoting() throws Exception {
         GameRoom room = createRoomInGuessing();
         String guest1Id = room.getPlayers().get(1).getId();

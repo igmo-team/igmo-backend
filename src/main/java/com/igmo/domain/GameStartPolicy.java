@@ -22,6 +22,10 @@ public final class GameStartPolicy {
         return new GameStartPolicy(LOCAL_MINIMUM_PLAYERS);
     }
 
+    public static GameStartPolicy restore(int minimumPlayers) {
+        return new GameStartPolicy(minimumPlayers);
+    }
+
     public boolean canStart(int playerCount) {
         return playerCount >= minimumPlayers;
     }
