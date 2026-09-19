@@ -29,7 +29,10 @@ public class GameRoomRepository {
     public boolean saveIfAbsent(GameRoom room) {
         boolean saved = gameRegistry.saveIfAbsent(room);
         if (saved) {
-            redisStateRepository.ifPresent(repository -> repository.save(room));
+            redisStateRepository.ifPresent(repository -> {
+                room.incrementVersion();
+                repository.save(room);
+            });
         }
         return saved;
     }
@@ -37,6 +40,23 @@ public class GameRoomRepository {
     public void remove(String code) {
         gameRegistry.remove(code);
         redisStateRepository.ifPresent(repository -> repository.delete(code));
+    }
+
+    public Optional<GameRoom> restore(String code) {
+        Optional<GameRoom> existing = gameRegistry.find(code);
+        if (existing.isPresent()) {
+            return existing;
+        }
+        Optional<GameRoom> restored = redisStateRepository.flatMap(
+                repository -> repository.restore(code)
+        );
+        if (restored.isEmpty()) {
+            return Optional.empty();
+        }
+        if (gameRegistry.saveIfAbsent(restored.get())) {
+            return restored;
+        }
+        return gameRegistry.find(code);
     }
 
     public <T> T update(String code, Function<GameRoom, T> operation) {
@@ -74,6 +94,7 @@ public class GameRoomRepository {
                 repository.delete(code);
                 return;
             }
+            room.incrementVersion();
             repository.save(room);
         });
     }
