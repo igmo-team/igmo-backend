@@ -8,6 +8,8 @@ BUILD_ENV=(
   "HOME=${HOME}"
   "PATH=${PATH}"
   "CI=${CI:-}"
+  "LANG=C.UTF-8"
+  "LC_ALL=C.UTF-8"
 )
 
 if [[ -n "${JAVA_HOME:-}" ]]; then
