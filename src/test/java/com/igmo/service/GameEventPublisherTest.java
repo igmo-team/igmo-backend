@@ -125,6 +125,23 @@ class GameEventPublisherTest {
     }
 
     @Test
+    @DisplayName("게임방 상태를 해당 플레이어의 개인큐로 전송한다.")
+    void sendRoomState_개인큐_성공_메트릭을_한번_기록한다() {
+        // given
+        RoomMessage<?> snapshot = RoomMessage.lobbySnapshot(mock(LobbySnapshot.class));
+
+        // when
+        eventPublisher.sendRoomState("player-1", "ABCD", snapshot);
+
+        // then
+        verify(messagingTemplate).convertAndSendToUser("player-1", "/queue/room-state", snapshot);
+        verify(gameMetrics).recordWebSocketMessageSend(
+                WebSocketMessageType.LOBBY_SNAPSHOT,
+                WebSocketChannelType.PRIVATE_QUEUE,
+                WebSocketMessageOutcome.SUCCESS);
+    }
+
+    @Test
     @DisplayName("이미지 생성 이벤트 개인큐 성공 시 성공 메트릭을 한 번 기록한다.")
     void sendImageGenerationEvent_개인큐_성공_메트릭을_한번_기록한다() {
         // given
