@@ -54,4 +54,3 @@ SoftAssertions.assertSoftly(softly -> {
 - 연결·구독 안내는 `src/test/resources/websocket-docs/overview.md`, operation·message 계약은 E2E snippet에서 관리한다.
 - `build/generated-snippets/websocket`과 `build/generated/websocket-docs`는 직접 수정하지 않는다. 검증은 `npm ci` 후
   `./gradlew validateWebSocketDocs --no-daemon`, HTML 확인은 `./gradlew generateWebSocketDocs --no-daemon`을 사용한다.
-
