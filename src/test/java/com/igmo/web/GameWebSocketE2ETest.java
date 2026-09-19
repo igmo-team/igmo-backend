@@ -136,10 +136,13 @@ class GameWebSocketE2ETest {
         assertThat(document.path("operations").path("sendSubmitPrompt").path("action").asText()).isEqualTo("send");
         assertThat(document.path("operations").path("sendSubmitGuess").path("action").asText()).isEqualTo("send");
         assertThat(document.path("operations").path("sendSubmitVote").path("action").asText()).isEqualTo("send");
+        assertThat(document.path("operations").path("sendSyncRoomState").path("action").asText()).isEqualTo("send");
         JsonNode roomTopic = document.path("channels").path("topicTopicRoomsRoomCode");
         assertThat(roomTopic.path("address").asText()).isEqualTo("/topic/rooms/{roomCode}");
         assertThat(roomTopic.path("messages").size()).isEqualTo(RoomMessageType.values().length);
         assertThat(document.path("operations").path("receiveTopicTopicRoomsRoomCode").path("action").asText())
+                .isEqualTo("receive");
+        assertThat(document.path("operations").path("receiveUserUserQueueRoomState").path("action").asText())
                 .isEqualTo("receive");
         assertThat(document.path("operations").path("receiveUserUserQueueImageGeneration").path("action").asText())
                 .isEqualTo("receive");
@@ -207,6 +210,39 @@ class GameWebSocketE2ETest {
                     triggered("LobbySnapshotMessage", "LOBBY_SNAPSHOT", "/topic/rooms/{roomCode}", "BROADCAST",
                             "직접 응답", "최신 로비 상태", "로비 UI의 플레이어 준비 상태를 최신 payload로 갱신합니다.", lobby,
                             List.of("lobby"), roomMessage(LobbySnapshot.class))
+            ));
+        } finally {
+            scenario.close();
+        }
+    }
+
+    @Test
+    @DisplayName("상태 동기화 요청을 보내면 요청 플레이어의 개인큐로 현재 방 상태를 문서화한다.")
+    void syncRoomState_요청한_플레이어에게만_현재상태를_전송한다() throws Exception {
+        // given
+        GameScenario scenario = createScenario();
+        try {
+            scenario.clearAllQueues();
+
+            // when
+            scenario.host().session().send(sendDestination(scenario, "sync"), null);
+
+            // then
+            JsonNode snapshot = awaitMessage(
+                    scenario.host().roomStateMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.LOBBY_SNAPSHOT.name()),
+                    "room state snapshot");
+            assertThat(scenario.players().get(1).roomStateMessages().poll(500, TimeUnit.MILLISECONDS))
+                    .isNull();
+
+            writeSnippet("sync-room-state", snippet(
+                    "syncRoomState", "게임방 상태 동기화", List.of("reconnect"),
+                    "재연결 후 구독을 완료한 플레이어가 현재 게임 상태를 요청할 때 보냅니다.",
+                    request("/app/rooms/{roomCode}/sync", "SyncRoomStateRequest",
+                            "재연결 후 현재 게임 상태를 요청합니다. 요청 body가 없습니다.", null),
+                    triggered("RoomStateSnapshotMessage", "LOBBY_SNAPSHOT", "/user/queue/room-state", "USER",
+                            "DIRECT", "게임방 상태 동기화 결과", "재연결한 플레이어의 화면을 현재 게임 상태로 복원합니다.",
+                            snapshot, List.of("reconnect"), roomMessage(LobbySnapshot.class))
             ));
         } finally {
             scenario.close();
@@ -749,6 +785,8 @@ class GameWebSocketE2ETest {
                 new JsonNodeStompFrameHandler(connection.guessSubmissionMessages()));
         session.subscribe("/user/queue/vote-own-option",
                 new JsonNodeStompFrameHandler(connection.ownVoteOptionMessages()));
+        session.subscribe("/user/queue/room-state",
+                new JsonNodeStompFrameHandler(connection.roomStateMessages()));
         session.subscribe("/user/queue/errors", new JsonNodeStompFrameHandler(connection.errorMessages()));
         return connection;
     }
@@ -926,11 +964,13 @@ class GameWebSocketE2ETest {
             BlockingQueue<JsonNode> imageGenerationMessages,
             BlockingQueue<JsonNode> guessSubmissionMessages,
             BlockingQueue<JsonNode> ownVoteOptionMessages,
+            BlockingQueue<JsonNode> roomStateMessages,
             BlockingQueue<JsonNode> errorMessages
     ) implements AutoCloseable {
         private PlayerConnection(String playerId, String nickname, WebSocketStompClient client, StompSession session) {
             this(playerId, nickname, client, session, new LinkedBlockingQueue<>(), new LinkedBlockingQueue<>(),
-                    new LinkedBlockingQueue<>(), new LinkedBlockingQueue<>(), new LinkedBlockingQueue<>());
+                    new LinkedBlockingQueue<>(), new LinkedBlockingQueue<>(), new LinkedBlockingQueue<>(),
+                    new LinkedBlockingQueue<>());
         }
 
         private void clearQueues() {
@@ -938,6 +978,7 @@ class GameWebSocketE2ETest {
             imageGenerationMessages.clear();
             guessSubmissionMessages.clear();
             ownVoteOptionMessages.clear();
+            roomStateMessages.clear();
             errorMessages.clear();
         }
 
