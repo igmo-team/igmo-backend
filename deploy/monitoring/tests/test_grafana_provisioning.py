@@ -267,6 +267,8 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn("container_spec_memory_limit_bytes", memory_timeseries["targets"][1]["expr"])
         self.assertIn("container_memory_working_set_bytes", memory_ratio["targets"][0]["expr"])
         self.assertIn("container_spec_memory_limit_bytes", memory_ratio["targets"][0]["expr"])
+        for panel in (memory_table, memory_timeseries, memory_ratio):
+            self.assertTrue(any(".*redis-exporter.*" in target["expr"] for target in panel["targets"]))
 
     def test_spring_dashboard_shows_health_and_active_slot_port(self):
         dashboard = json.loads(SPRING_DASHBOARD_FILE.read_text())
