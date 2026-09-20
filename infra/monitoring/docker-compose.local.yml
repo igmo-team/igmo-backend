@@ -15,6 +15,7 @@ services:
       - prometheus-data:/prometheus
     networks:
       - monitoring
+      - igmo-runtime
 
   grafana:
     image: grafana/grafana:12.1.0
@@ -66,6 +67,9 @@ services:
 
 networks:
   monitoring:
+  igmo-runtime:
+    external: true
+    name: igmo-runtime
 
 volumes:
   prometheus-data:

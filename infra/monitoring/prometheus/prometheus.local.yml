@@ -29,3 +29,11 @@ scrape_configs:
           environment: local
           slot: green
           port: "8081"
+
+  - job_name: redis
+    static_configs:
+      - targets:
+          - redis-exporter:9121
+        labels:
+          service: redis
+          environment: local

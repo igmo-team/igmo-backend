@@ -62,6 +62,21 @@ prometheus.scrape "docker_containers" {
   scrape_timeout  = "10s"
 }
 
+prometheus.scrape "redis" {
+  targets = [
+    {
+      "__address__" = "127.0.0.1:9121",
+      "service"     = "redis",
+      "environment" = "production",
+    },
+  ]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  job_name        = "redis"
+  metrics_path    = "/metrics"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+}
+
 discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
 }

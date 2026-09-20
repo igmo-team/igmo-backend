@@ -107,3 +107,20 @@ docker compose --env-file .env up --build
 ```
 
 Grafana는 `http://localhost:3000`, Prometheus는 `http://localhost:9090`, Loki는 `http://localhost:3100`으로 접근한다. Grafana에서 `환경` 변수를 `local`로 바꾸면 로컬 로그를 볼 수 있다. 종료할 때는 `docker compose -f infra/monitoring/docker-compose.local.yml down`을 사용한다.
+
+로컬 Redis 메트릭은 Redis Exporter가 `igmo-runtime` network의
+`redis-exporter:9121`에서 노출하고, Prometheus가 `job=redis`, `environment=local`로
+수집한다. Grafana의 `Igmo / Redis - Prometheus Exporter` 대시보드는 이 Prometheus datasource를
+사용한다. Redis Compose를 먼저 실행해 `igmo-runtime` network와
+`igmo-redis-exporter`를 준비한 뒤 모니터링 Compose를 실행한다.
+
+### IGMO 게임방 상태 메트릭
+
+Redis Exporter 지표만으로는 게임방 상태 저장·복구 결과를 알 수 없으므로, 앱이 다음 메트릭을 함께 노출한다.
+
+| 메트릭 | 주요 라벨 | 의미 |
+|---|---|---|
+| `igmo_redis_operation_total` | `operation`, `outcome` | 게임방 상태 저장·조회·복구·삭제 결과 수 |
+| `igmo_redis_operation_duration_seconds` | `operation`, `outcome` | Redis 작업 처리 시간 히스토그램 |
+
+`operation`은 `save`, `save_if_absent`, `find`, `restore`, `delete`이며, `outcome`은 `success`, `miss`, `conflict`, `error`다. `Redis - Prometheus Exporter` 대시보드 하단에서 작업 처리량·지연시간·복구 결과·오류·활성 게임방과 Redis 키 수를 확인할 수 있다. Redis 키 수에는 다른 키와 재시작 후 남은 상태가 포함될 수 있으므로 활성 게임방 수와 정확히 같아야 하는 값으로 해석하지 않는다.

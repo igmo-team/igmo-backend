@@ -60,3 +60,4 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+        igmo.redis.operation.duration: true

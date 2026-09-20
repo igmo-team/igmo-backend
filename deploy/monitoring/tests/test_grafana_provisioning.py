@@ -11,8 +11,10 @@ import unittest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 LOCAL_DATASOURCE_FILE = REPOSITORY_ROOT / "infra/monitoring/grafana/datasources.local.yml"
 LOCAL_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.local.yml"
+LOCAL_PROMETHEUS_FILE = REPOSITORY_ROOT / "infra/monitoring/prometheus/prometheus.local.yml"
 PRODUCTION_COMPOSE_FILE = REPOSITORY_ROOT / "infra/monitoring/docker-compose.yml"
 PRODUCTION_ALLOY_FILE = REPOSITORY_ROOT / "infra/monitoring/alloy/config.alloy"
+REDIS_DASHBOARD_FILE = REPOSITORY_ROOT / "infra/monitoring/grafana/provisioning/dashboards/redis.json"
 SPRING_DASHBOARD_FILE = REPOSITORY_ROOT / "infra/monitoring/grafana/provisioning/dashboards/spring-application.json"
 MONITORING_DEPLOY_SCRIPT = REPOSITORY_ROOT / "deploy/monitoring/apply.sh"
 MONITORING_DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/deploy-monitoring.yml"
@@ -25,6 +27,19 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn(
             "./grafana/datasources.local.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro",
             LOCAL_COMPOSE_FILE.read_text(),
+        )
+
+    def test_local_prometheus_scrapes_redis_exporter_on_runtime_network(self):
+        prometheus_config = LOCAL_PROMETHEUS_FILE.read_text()
+        local_compose = LOCAL_COMPOSE_FILE.read_text()
+
+        self.assertIn("job_name: redis", prometheus_config)
+        self.assertIn("redis-exporter:9121", prometheus_config)
+        self.assertIn("environment: local", prometheus_config)
+        self.assertIn("- igmo-runtime", local_compose)
+        self.assertIn(
+            "igmo-runtime:\n    external: true\n    name: igmo-runtime",
+            local_compose,
         )
 
     def test_local_app_compose_passes_deployment_slot_and_port(self):
@@ -178,8 +193,14 @@ class MonitoringDeploymentTest(unittest.TestCase):
             'prometheus.scrape "ec2_host"',
             alloy_configuration,
         )
+        self.assertIn(
+            'prometheus.scrape "redis"',
+            alloy_configuration,
+        )
         self.assertIn('job_name       = "igmo-app"', alloy_configuration)
         self.assertIn('job_name        = "ec2-host"', alloy_configuration)
+        self.assertIn('job_name        = "redis"', alloy_configuration)
+        self.assertIn('"__address__" = "127.0.0.1:9121"', alloy_configuration)
         self.assertIn('loki.write "grafana_cloud"', alloy_configuration)
         self.assertNotIn('loki.write "local"', alloy_configuration)
         self.assertNotIn("prometheus:\n", production_compose)
@@ -275,6 +296,79 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertTrue(panel["options"]["wideLayout"])
         self.assertEqual("horizontal", panel["options"]["orientation"])
         self.assertEqual("center", panel["options"]["justifyMode"])
+
+    def test_redis_dashboard_uses_grafana_labs_exporter_metrics(self):
+        dashboard = json.loads(REDIS_DASHBOARD_FILE.read_text())
+
+        self.assertEqual("igmo-redis", dashboard["uid"])
+        self.assertEqual("Redis - Prometheus Exporter", dashboard["title"])
+        self.assertEqual([], dashboard["annotations"]["list"])
+        self.assertEqual(15, len(dashboard["panels"]))
+        self.assertTrue(all(panel.get("description") for panel in dashboard["panels"]))
+        throughput_panel = next(
+            panel for panel in dashboard["panels"] if panel["title"] == "IGMO 게임방 상태 작업 처리량"
+        )
+        self.assertEqual({"h": 7, "w": 24, "x": 0, "y": 28}, throughput_panel["gridPos"])
+        self.assertEqual(
+            {
+                "Redis 가동 시간",
+                "연결 클라이언트 수",
+                "초당 처리 명령 수",
+                "초당 캐시 적중·미스",
+                "전체 메모리 사용량",
+                "네트워크 입출력",
+                "DB별 전체 키 수",
+                "만료 설정 키·미설정 키",
+                "키 만료·축출",
+                "명령별 처리 시간 상위 5개",
+                "IGMO 게임방 상태 작업 처리량",
+                "IGMO Redis 작업 지연시간",
+                "게임방 상태 복구 결과",
+                "IGMO Redis 작업 오류",
+                "활성 게임방·Redis 저장 키 수",
+            },
+            {panel["title"] for panel in dashboard["panels"]},
+        )
+        expiration_panel = next(panel for panel in dashboard["panels"] if panel["title"] == "키 만료·축출")
+        self.assertIn("TTL이 설정된 키", expiration_panel["description"])
+        self.assertIn("게임 종료나 직접 삭제를 의미하지 않는다", expiration_panel["description"])
+        self.assertTrue(any(
+            target.get("expr") == 'sum(redis_uptime_in_seconds{job="redis"})'
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ))
+        self.assertTrue(any(
+            "redis_memory_used_bytes" in target.get("expr", "")
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ))
+        self.assertTrue(any(
+            "igmo_redis_operation_total" in target.get("expr", "")
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ))
+        self.assertTrue(any(
+            "igmo_redis_operation_duration_seconds_bucket" in target.get("expr", "")
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ))
+        self.assertTrue(any(
+            'operation="restore"' in target.get("expr", "")
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ))
+        self.assertTrue(any(
+            "game_room_active" in target.get("expr", "")
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ))
+        target_datasources = [
+            target["datasource"]["uid"]
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+        ]
+        self.assertTrue(target_datasources)
+        self.assertTrue(all(uid == "prometheus" for uid in target_datasources))
 
     def test_local_prometheus_scrapes_both_deployment_slots(self):
         prometheus_config = (REPOSITORY_ROOT / "infra/monitoring/prometheus/prometheus.local.yml").read_text()

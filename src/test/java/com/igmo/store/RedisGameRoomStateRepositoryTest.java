@@ -9,6 +9,8 @@ import com.igmo.domain.GameRoom;
 import com.igmo.domain.GameRoomState;
 import com.igmo.domain.Player;
 import com.igmo.domain.Round;
+import com.igmo.monitoring.GameMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -57,7 +59,8 @@ class RedisGameRoomStateRepositoryTest {
         redisTemplate.afterPropertiesSet();
         repository = new RedisGameRoomStateRepository(
                 redisTemplate,
-                new ObjectMapper().findAndRegisterModules()
+                new ObjectMapper().findAndRegisterModules(),
+                new GameMetrics(new SimpleMeterRegistry(), new GameRegistry(), "blue", "8080")
         );
     }
 
