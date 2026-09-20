@@ -330,6 +330,7 @@ public class GamePhaseService {
                 .ifPresent(message -> {
                     eventPublisher.publish(code, message);
                     if (message.type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
+                        gameRoomRepository.remove(code);
                         gameDrainLifecycle.onGameEnded(code);
                     }
                 });
