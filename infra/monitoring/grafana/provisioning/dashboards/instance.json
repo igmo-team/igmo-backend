@@ -22,8 +22,8 @@
       "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"align": "auto", "cellOptions": {"type": "auto"}}}, "overrides": []},
       "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
       "targets": [
-        {"expr": "sum by (name) (container_memory_working_set_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "format": "table", "instant": true, "refId": "A"},
-        {"expr": "sum by (name) (container_spec_memory_limit_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "format": "table", "instant": true, "refId": "B"}
+        {"expr": "sum by (name) (container_memory_working_set_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*redis-exporter.*|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "format": "table", "instant": true, "refId": "A"},
+        {"expr": "sum by (name) (container_spec_memory_limit_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*redis-exporter.*|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "format": "table", "instant": true, "refId": "B"}
       ],
       "transformations": [
         {"id": "joinByField", "options": {"byField": "name", "mode": "outer"}},
@@ -40,8 +40,8 @@
       "fieldConfig": {"defaults": {"unit": "bytes", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "spanNulls": false}}, "overrides": []},
       "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"expr": "sum by (name) (container_memory_working_set_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "legendFormat": "사용량 · {{name}}", "refId": "A"},
-        {"expr": "sum by (name) (container_spec_memory_limit_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "legendFormat": "리밋 · {{name}}", "refId": "B"}
+        {"expr": "sum by (name) (container_memory_working_set_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*redis-exporter.*|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "legendFormat": "사용량 · {{name}}", "refId": "A"},
+        {"expr": "sum by (name) (container_spec_memory_limit_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*redis-exporter.*|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "legendFormat": "리밋 · {{name}}", "refId": "B"}
       ]
     },
     {
@@ -54,7 +54,7 @@
       "fieldConfig": {"defaults": {"unit": "percent", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 85}, {"color": "dark-red", "value": 95}]}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "auto", "spanNulls": false}}, "overrides": []},
       "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"expr": "100 * sum by (name) (container_memory_working_set_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"}) / on (name) sum by (name) (container_spec_memory_limit_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "legendFormat": "{{name}}", "refId": "A"}
+        {"expr": "100 * sum by (name) (container_memory_working_set_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*redis-exporter.*|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"}) / on (name) sum by (name) (container_spec_memory_limit_bytes{job=\"docker-containers\",environment=\"production\",id!=\"/\",image!=\"\",name=~\"/?(igmo-backend-(blue|green)|igmo-redis|.*redis-exporter.*|.*alloy.*|.*node-exporter.*|.*cadvisor.*)\"})", "legendFormat": "{{name}}", "refId": "A"}
       ]
     }
   ],
