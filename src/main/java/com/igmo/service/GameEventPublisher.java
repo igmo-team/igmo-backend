@@ -26,6 +26,7 @@ public class GameEventPublisher {
     private static final String IMAGE_GENERATION_QUEUE = "/queue/image-generation";
     private static final String GUESS_SUBMISSION_QUEUE = "/queue/guess-submission";
     private static final String VOTE_OWN_OPTION_QUEUE = "/queue/vote-own-option";
+    private static final String ROOM_STATE_QUEUE = "/queue/room-state";
 
     private final SimpMessagingTemplate messagingTemplate;
     private final GameMetrics gameMetrics;
@@ -107,6 +108,16 @@ public class GameEventPublisher {
                 WebSocketMessageType.OWN_VOTE_OPTION_NOTICE,
                 VOTE_OWN_OPTION_QUEUE,
                 notice);
+    }
+
+    public void sendRoomState(String playerId, String roomCode, RoomMessage<?> snapshot) {
+        sendPrivateEvent(
+                playerId,
+                roomCode,
+                phaseOf(snapshot.type()),
+                WebSocketMessageType.from(snapshot.type()),
+                ROOM_STATE_QUEUE,
+                snapshot);
     }
 
     private void sendPrivateEvent(

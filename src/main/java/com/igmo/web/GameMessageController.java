@@ -2,6 +2,7 @@ package com.igmo.web;
 
 import com.igmo.service.GameLobbyService;
 import com.igmo.service.GamePhaseService;
+import com.igmo.service.GameRoomStateSyncService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
@@ -20,6 +21,7 @@ public class GameMessageController {
 
     private final GameLobbyService gameLobbyService;
     private final GamePhaseService gamePhaseService;
+    private final GameRoomStateSyncService gameRoomStateSyncService;
     private final PlayerSessionResolver playerSessionResolver;
 
     @MessageMapping("/rooms/{code}/ready")
@@ -35,6 +37,13 @@ public class GameMessageController {
                           SimpMessageHeaderAccessor headerAccessor) {
         String playerId = requirePlayerId(headerAccessor);
         gamePhaseService.startGame(code, playerId);
+    }
+
+    @MessageMapping("/rooms/{code}/sync")
+    public void sync(@DestinationVariable String code,
+                     SimpMessageHeaderAccessor headerAccessor) {
+        String playerId = requirePlayerId(headerAccessor);
+        gameRoomStateSyncService.sync(code, playerId);
     }
 
     @MessageMapping("/rooms/{code}/prompts")

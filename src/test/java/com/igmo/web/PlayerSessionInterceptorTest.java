@@ -3,13 +3,14 @@ package com.igmo.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
 import com.igmo.domain.GameRoom;
-import com.igmo.store.GameRegistry;
+import com.igmo.store.GameRoomRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
@@ -21,12 +22,12 @@ import org.springframework.messaging.support.MessageBuilder;
 
 class PlayerSessionInterceptorTest {
 
-    private final GameRegistry gameRegistry = mock(GameRegistry.class);
-    private final PlayerSessionInterceptor interceptor = new PlayerSessionInterceptor(gameRegistry);
+    private final GameRoomRepository gameRoomRepository = mock(GameRoomRepository.class);
+    private final PlayerSessionInterceptor interceptor = new PlayerSessionInterceptor(gameRoomRepository);
     private final MessageChannel channel = mock(MessageChannel.class);
 
     @Test
-    @DisplayName("secret이 유효한 CONNECT 프레임의 roomCode와 playerId를 세션과 Principal에 저장한다.")
+    @DisplayName("복원된 방의 secret이 유효한 CONNECT 프레임을 세션과 Principal에 저장한다.")
     void preSend_CONNECT_헤더를_세션과_Principal에_저장한다() {
         // given
         Map<String, Object> sessionAttributes = new HashMap<>();
@@ -37,7 +38,7 @@ class PlayerSessionInterceptorTest {
         accessor.setNativeHeader("secret", "s3cr3t");
         GameRoom room = mock(GameRoom.class);
         given(room.isSecretValid("player-1", "s3cr3t")).willReturn(true);
-        given(gameRegistry.find("ABCD")).willReturn(Optional.of(room));
+        given(gameRoomRepository.restore("ABCD")).willReturn(Optional.of(room));
 
         // when
         Message<?> message = interceptor.preSend(toMessage(accessor), channel);
@@ -48,6 +49,7 @@ class PlayerSessionInterceptorTest {
                 .containsEntry("roomCode", "ABCD")
                 .containsEntry("playerId", "player-1");
         assertThat(resultAccessor.getUser().getName()).isEqualTo("player-1");
+        verify(gameRoomRepository).restore("ABCD");
     }
 
     @Test
@@ -62,7 +64,7 @@ class PlayerSessionInterceptorTest {
         accessor.setNativeHeader("secret", "wrong");
         GameRoom room = mock(GameRoom.class);
         given(room.isSecretValid("player-1", "wrong")).willReturn(false);
-        given(gameRegistry.find("ABCD")).willReturn(Optional.of(room));
+        given(gameRoomRepository.restore("ABCD")).willReturn(Optional.of(room));
 
         // when
         interceptor.preSend(toMessage(accessor), channel);

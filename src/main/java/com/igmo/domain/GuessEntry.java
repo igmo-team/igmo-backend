@@ -19,7 +19,18 @@ public class GuessEntry {
         this.submittedAt = submittedAt;
     }
 
+    private GuessEntry(String guessId, String playerId, String guess, Instant submittedAt) {
+        this.guessId = guessId;
+        this.playerId = playerId;
+        this.guess = guess;
+        this.submittedAt = submittedAt;
+    }
+
     public static GuessEntry of(String playerId, String guess, Instant submittedAt) {
         return new GuessEntry(playerId, guess, submittedAt);
+    }
+
+    public static GuessEntry restore(String guessId, String playerId, String guess, Instant submittedAt) {
+        return new GuessEntry(guessId, playerId, guess, submittedAt);
     }
 }

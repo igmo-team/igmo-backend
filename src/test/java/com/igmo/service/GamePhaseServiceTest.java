@@ -1413,6 +1413,7 @@ class GamePhaseServiceTest {
             softly.assertThat(snapshot.phase()).isEqualTo(GamePhase.PLAYING);
             softly.assertThat(snapshot.roundNumber()).isEqualTo(2);
             softly.assertThat(snapshot.questioner().id()).isEqualTo(playerIds.get(1));
+            softly.assertThat(gameRegistry.find("ABCD")).isPresent();
         });
         verify(gamePhaseDeadlineScheduler, times(5)).schedule(any(Runnable.class), any(Instant.class));
     }
@@ -1433,6 +1434,7 @@ class GamePhaseServiceTest {
         // then
         GameResultSnapshot snapshot = captureGameResultSnapshotBroadcast();
         assertThat(snapshot.phase()).isEqualTo(GamePhase.ENDED);
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
         verify(gameDrainLifecycle).onGameEnded("ABCD");
     }
 

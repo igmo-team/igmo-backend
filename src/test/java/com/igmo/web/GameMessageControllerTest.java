@@ -10,6 +10,7 @@ import com.igmo.domain.GuessSubmissionType;
 import com.igmo.domain.PromptSubmissionType;
 import com.igmo.service.GameLobbyService;
 import com.igmo.service.GamePhaseService;
+import com.igmo.service.GameRoomStateSyncService;
 import com.igmo.web.dto.GuessRequest;
 import com.igmo.web.dto.PromptRequest;
 import com.igmo.web.dto.ReadyRequest;
@@ -30,10 +31,12 @@ class GameMessageControllerTest {
 
     private final GameLobbyService gameLobbyService = mock(GameLobbyService.class);
     private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
+    private final GameRoomStateSyncService gameRoomStateSyncService = mock(GameRoomStateSyncService.class);
     private final GameMessageController controller =
             new GameMessageController(
                     gameLobbyService,
                     gamePhaseService,
+                    gameRoomStateSyncService,
                     new PlayerSessionResolver());
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
@@ -88,6 +91,32 @@ class GameMessageControllerTest {
 
         // then
         verify(gamePhaseService).startGame("ABCD", "player-1");
+    }
+
+    @Test
+    @DisplayName("상태 동기화 요청을 세션의 playerId와 함께 서비스에 위임한다.")
+    void sync_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.sync("ABCD", headerAccessor);
+
+        // then
+        verify(gameRoomStateSyncService).sync("ABCD", "player-1");
+    }
+
+    @Test
+    @DisplayName("상태 동기화 요청에 세션 playerId가 없으면 예외를 던진다.")
+    void sync_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when // then
+        assertThatThrownBy(() -> controller.sync("ABCD", headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
     }
 
     @Test

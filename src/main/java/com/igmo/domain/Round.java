@@ -94,6 +94,35 @@ public class Round {
         return List.copyOf(guessesByPlayerId.values());
     }
 
+    public List<String> getPerfectGuesserIds() {
+        return List.copyOf(perfectGuesserIds);
+    }
+
+    public static Round restore(
+            int roundNumber,
+            String questionerId,
+            PromptEntry answerEntry,
+            List<GuessEntry> guesses,
+            Collection<String> perfectGuesserIds,
+            List<VoteOption> voteOptions,
+            List<Vote> votes,
+            boolean voteSkipped,
+            Instant voteSkippedStartedAt,
+            Instant voteSkippedDeadline,
+            RoundResult result
+    ) {
+        Round round = new Round(roundNumber, questionerId, answerEntry);
+        guesses.forEach(guess -> round.guessesByPlayerId.put(guess.getPlayerId(), guess));
+        round.perfectGuesserIds.addAll(perfectGuesserIds);
+        round.voteOptions.addAll(voteOptions);
+        votes.forEach(vote -> round.votesByVoterId.put(vote.getVoterId(), vote));
+        round.voteSkipped = voteSkipped;
+        round.voteSkippedStartedAt = voteSkippedStartedAt;
+        round.voteSkippedDeadline = voteSkippedDeadline;
+        round.result = result;
+        return round;
+    }
+
     // 보기 순서는 한 번 셔플해 고정한다. 이미 열린 투표를 다시 열어도 순서가 바뀌지 않는다.
     public void openVoting() {
         if (!voteOptions.isEmpty()) {
