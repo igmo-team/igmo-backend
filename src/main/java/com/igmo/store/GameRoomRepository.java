@@ -28,13 +28,25 @@ public class GameRoomRepository {
 
     public boolean saveIfAbsent(GameRoom room) {
         boolean saved = gameRegistry.saveIfAbsent(room);
-        if (saved) {
-            redisStateRepository.ifPresent(repository -> {
-                room.incrementVersion();
-                repository.save(room);
-            });
+        if (!saved) {
+            return false;
         }
-        return saved;
+        if (redisStateRepository.isEmpty()) {
+            return true;
+        }
+
+        try {
+            room.incrementVersion();
+            boolean persisted = redisStateRepository.orElseThrow().saveIfAbsent(room);
+            if (persisted) {
+                return true;
+            }
+        } catch (RuntimeException exception) {
+            gameRegistry.remove(room.getCode());
+            throw exception;
+        }
+        gameRegistry.remove(room.getCode());
+        return false;
     }
 
     public void remove(String code) {

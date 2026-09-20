@@ -22,8 +22,17 @@ public class RedisGameRoomStateRepository {
 
     public void save(GameRoom room) {
         try {
-            String serializedState = objectMapper.writeValueAsString(GameRoomState.from(room));
-            redisTemplate.opsForValue().set(key(room.getCode()), serializedState);
+            redisTemplate.opsForValue().set(key(room.getCode()), serialize(room));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Redis 게임 방 상태를 저장할 수 없습니다.", exception);
+        }
+    }
+
+    public boolean saveIfAbsent(GameRoom room) {
+        try {
+            return Boolean.TRUE.equals(
+                    redisTemplate.opsForValue().setIfAbsent(key(room.getCode()), serialize(room))
+            );
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Redis 게임 방 상태를 저장할 수 없습니다.", exception);
         }
@@ -51,5 +60,9 @@ public class RedisGameRoomStateRepository {
 
     private String key(String roomCode) {
         return KEY_PREFIX + roomCode;
+    }
+
+    private String serialize(GameRoom room) throws JsonProcessingException {
+        return objectMapper.writeValueAsString(GameRoomState.from(room));
     }
 }

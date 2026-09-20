@@ -13,6 +13,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -182,6 +187,56 @@ class RedisGameRoomStateRepositoryTest {
         assertThat(duplicateSaved).isFalse();
         assertThat(repository.find("ABCD")).contains(GameRoomState.from(firstRoom));
         assertThat(repository.find("ABCD").orElseThrow().version()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("서로 다른 인스턴스가 같은 방 코드를 저장하면 한쪽만 성공하고 기존 상태를 유지한다.")
+    void saveIfAbsent_서로다른인스턴스에서동시에같은코드경쟁시한쪽만성공한다() throws Exception {
+        // given
+        GameRoom firstRoom = GameRoom.create("ABCD", new Player("첫 번째"));
+        GameRoom secondRoom = GameRoom.create("ABCD", new Player("두 번째"));
+        GameRegistry firstRegistry = new GameRegistry();
+        GameRegistry secondRegistry = new GameRegistry();
+        GameRoomRepository firstInstance = new GameRoomRepository(
+                firstRegistry,
+                Optional.of(repository)
+        );
+        GameRoomRepository secondInstance = new GameRoomRepository(
+                secondRegistry,
+                Optional.of(repository)
+        );
+
+        // when
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CyclicBarrier start = new CyclicBarrier(2);
+        Future<Boolean> firstResult = executor.submit(() -> {
+            start.await();
+            return firstInstance.saveIfAbsent(firstRoom);
+        });
+        Future<Boolean> secondResult = executor.submit(() -> {
+            start.await();
+            return secondInstance.saveIfAbsent(secondRoom);
+        });
+        boolean firstSaved;
+        boolean secondSaved;
+        try {
+            firstSaved = firstResult.get(5, TimeUnit.SECONDS);
+            secondSaved = secondResult.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // then
+        assertThat(firstSaved).isNotEqualTo(secondSaved);
+        if (firstSaved) {
+            assertThat(firstRegistry.find("ABCD")).contains(firstRoom);
+            assertThat(secondRegistry.find("ABCD")).isEmpty();
+            assertThat(repository.find("ABCD")).contains(GameRoomState.from(firstRoom));
+        } else {
+            assertThat(firstRegistry.find("ABCD")).isEmpty();
+            assertThat(secondRegistry.find("ABCD")).contains(secondRoom);
+            assertThat(repository.find("ABCD")).contains(GameRoomState.from(secondRoom));
+        }
     }
 
     @Test
