@@ -302,6 +302,7 @@ class MonitoringDeploymentTest(unittest.TestCase):
 
         self.assertEqual("igmo-redis", dashboard["uid"])
         self.assertEqual("Redis - Prometheus Exporter", dashboard["title"])
+        self.assertEqual([], dashboard["annotations"]["list"])
         self.assertEqual(15, len(dashboard["panels"]))
         self.assertTrue(all(panel.get("description") for panel in dashboard["panels"]))
         throughput_panel = next(
