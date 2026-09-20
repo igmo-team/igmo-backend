@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.igmo.domain.GameRoom;
 import com.igmo.store.GameRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class GameMetricsTest {
@@ -64,5 +65,27 @@ class GameMetricsTest {
                 .tags("slot", "green", "port", "8081")
                 .gauge()
                 .value()).isEqualTo(1.0);
+    }
+
+    @Test
+    void Redis_작업별_결과와_지연시간을_측정한다() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GameMetrics gameMetrics = new GameMetrics(meterRegistry, new GameRegistry(), "blue", "8080");
+
+        gameMetrics.recordRedisOperation("restore", "success", Duration.ofMillis(25));
+        gameMetrics.recordRedisOperation("restore", "miss", Duration.ofMillis(5));
+
+        assertThat(meterRegistry.get("igmo.redis.operation")
+                .tags("operation", "restore", "outcome", "success")
+                .counter()
+                .count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("igmo.redis.operation")
+                .tags("operation", "restore", "outcome", "miss")
+                .counter()
+                .count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("igmo.redis.operation.duration")
+                .tags("operation", "restore", "outcome", "success")
+                .timer()
+                .count()).isEqualTo(1);
     }
 }

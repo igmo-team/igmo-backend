@@ -35,6 +35,7 @@ class RedisComposeTest(unittest.TestCase):
         )
         compose = json.loads(result.stdout)
         redis = compose["services"]["redis"]
+        redis_exporter = compose["services"]["redis-exporter"]
 
         self.assertEqual("igmo-redis", compose["name"])
         self.assertEqual("igmo-redis", redis["container_name"])
@@ -61,6 +62,28 @@ class RedisComposeTest(unittest.TestCase):
         self.assertEqual(
             ["CMD", "redis-cli", "ping"],
             redis["healthcheck"]["test"],
+        )
+        self.assertEqual("oliver006/redis_exporter:v1.91.1", redis_exporter["image"])
+        self.assertEqual("igmo-redis-exporter", redis_exporter["container_name"])
+        self.assertEqual("always", redis_exporter["restart"])
+        self.assertEqual(str(64 * 1024 * 1024), redis_exporter["mem_limit"])
+        self.assertEqual({"REDIS_ADDR": "redis://redis:6379"}, redis_exporter["environment"])
+        self.assertEqual(
+            [
+                {
+                    "mode": "ingress",
+                    "host_ip": "127.0.0.1",
+                    "target": 9121,
+                    "published": "9121",
+                    "protocol": "tcp",
+                }
+            ],
+            redis_exporter["ports"],
+        )
+        self.assertIn("redis-exporter", redis_exporter["networks"]["igmo-runtime"]["aliases"])
+        self.assertEqual(
+            {"condition": "service_healthy", "required": True},
+            redis_exporter["depends_on"]["redis"],
         )
 
     def test_production_blue_green_services_share_external_redis_network(self):
@@ -124,6 +147,8 @@ class RedisComposeTest(unittest.TestCase):
         self.assertIn("docker compose -f docker-compose.redis.yml up -d", runbook)
         self.assertIn("docker inspect --format '{{.State.Health.Status}}' igmo-redis", runbook)
         self.assertIn("docker exec igmo-redis redis-cli ping", runbook)
+        self.assertIn("curl --fail --silent http://127.0.0.1:9121/metrics | grep '^redis_up 1$'", runbook)
+        self.assertIn("redis-exporter", runbook)
         self.assertIn("down -v", runbook)
 
 

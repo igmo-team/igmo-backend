@@ -11,6 +11,7 @@ import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.Player;
 import com.igmo.domain.Round;
+import com.igmo.monitoring.GameMetrics;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.store.RedisGameRoomStateRepository;
@@ -19,6 +20,7 @@ import com.igmo.web.dto.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +60,8 @@ class GamePhaseServiceRedisIntegrationTest {
         redisTemplate.afterPropertiesSet();
         redisRepository = new RedisGameRoomStateRepository(
                 redisTemplate,
-                new ObjectMapper().findAndRegisterModules()
+                new ObjectMapper().findAndRegisterModules(),
+                new GameMetrics(new SimpleMeterRegistry(), new GameRegistry(), "blue", "8080")
         );
     }
 

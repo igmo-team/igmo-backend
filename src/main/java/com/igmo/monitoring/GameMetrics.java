@@ -56,6 +56,19 @@ public class GameMetrics {
         imageUploadFailure.increment();
     }
 
+    public void recordRedisOperation(String operation, String outcome, Duration duration) {
+        meterRegistry.timer(
+                "igmo.redis.operation.duration",
+                "operation", operation,
+                "outcome", outcome
+        ).record(duration);
+        meterRegistry.counter(
+                "igmo.redis.operation",
+                "operation", operation,
+                "outcome", outcome
+        ).increment();
+    }
+
     public void recordWebSocketMessageSend(
             WebSocketMessageType messageType,
             WebSocketChannelType channelType,
