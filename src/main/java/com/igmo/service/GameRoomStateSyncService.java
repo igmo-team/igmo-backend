@@ -1,11 +1,13 @@
 package com.igmo.service;
 
+import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.GameResultSnapshot;
 import com.igmo.web.dto.LobbySnapshot;
+import com.igmo.web.dto.OwnVoteOptionNotice;
 import com.igmo.web.dto.PromptSubmissionSnapshot;
 import com.igmo.web.dto.RoomMessage;
 import com.igmo.web.dto.RoundResultSnapshot;
@@ -30,6 +32,9 @@ public class GameRoomStateSyncService {
         }
 
         gameEventPublisher.sendRoomState(playerId, roomCode, snapshotOf(room));
+        if (room.getPhase() == GamePhase.VOTING) {
+            sendOwnVoteOption(roomCode, playerId, room);
+        }
     }
 
     private RoomMessage<?> snapshotOf(GameRoom room) {
@@ -42,5 +47,16 @@ public class GameRoomStateSyncService {
             case RESULTS -> RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room));
             case ENDED -> RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room));
         };
+    }
+
+    private void sendOwnVoteOption(String roomCode, String playerId, GameRoom room) {
+        gameEventPublisher.sendOwnVoteOption(
+                playerId,
+                OwnVoteOptionNotice.of(
+                        roomCode,
+                        room.getCurrentRound().getRoundNumber(),
+                        room.getCurrentRoundOwnVoteOptions().get(playerId)
+                )
+        );
     }
 }

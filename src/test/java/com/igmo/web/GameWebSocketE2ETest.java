@@ -250,6 +250,52 @@ class GameWebSocketE2ETest {
     }
 
     @Test
+    @DisplayName("투표 상태 동기화 요청 시 요청 플레이어의 개인 투표 상태도 다시 전송한다.")
+    void syncRoomState_투표상태와_개인투표상태를_함께_전송한다() throws Exception {
+        // given
+        VotingScenario voting = prepareVotingScenario();
+        GameScenario scenario = voting.scenario();
+        try {
+            PlayerConnection voter = voting.voters().getFirst();
+            scenario.clearAllQueues();
+
+            // when
+            voter.session().send(sendDestination(scenario, "sync"), null);
+
+            // then
+            JsonNode snapshot = awaitMessage(
+                    voter.roomStateMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.VOTE_SNAPSHOT.name()),
+                    "voting room state snapshot");
+            JsonNode ownVoteOption = awaitMessage(
+                    voter.ownVoteOptionMessages(),
+                    ignored -> true,
+                    "own vote option after sync");
+            assertThat(snapshot.path("payload").path("phase").asText()).isEqualTo("VOTING");
+            assertThat(ownVoteOption.path("optionId").asText())
+                    .isEqualTo(voting.notices().get(voter.playerId()).path("optionId").asText());
+            assertThat(ownVoteOption.path("ownImage").asBoolean()).isFalse();
+            assertThat(ownVoteOption.path("voteAllowed").asBoolean()).isTrue();
+            assertThat(ownVoteOption.path("voteDisabledReason").isNull()).isTrue();
+
+            writeSnippet("sync-room-state-voting", snippet(
+                    "syncRoomState", "게임방 상태 동기화", List.of("reconnect", "vote"),
+                    "투표 단계에서 재연결한 플레이어가 현재 공개 상태와 본인 투표 제한을 함께 요청합니다.",
+                    request("/app/rooms/{roomCode}/sync", "SyncRoomStateRequest",
+                            "재연결 후 현재 게임 상태를 요청합니다. 요청 body가 없습니다.", null),
+                    triggered("VoteRoomStateSnapshotMessage", "VOTE_SNAPSHOT", "/user/queue/room-state", "USER",
+                            "DIRECT", "투표 상태 동기화 결과", "재연결한 플레이어의 투표 화면을 복원합니다.",
+                            snapshot, List.of("reconnect", "vote"), roomMessage(VoteSnapshot.class)),
+                    triggered("OwnVoteOptionNoticeMessage", "OWN_VOTE_OPTION", "/user/queue/vote-own-option", "USER",
+                            "FOLLOW_UP", "본인 투표 상태 동기화 결과", "본인 보기와 투표 가능 여부를 복원합니다.",
+                            ownVoteOption, List.of("reconnect", "vote"), payload(OwnVoteOptionNotice.class))
+            ));
+        } finally {
+            scenario.close();
+        }
+    }
+
+    @Test
     @DisplayName("게임 시작 요청을 전송하면 PROMPT_SUBMISSION_SNAPSHOT을 문서화한다.")
     void startGame_프롬프트제출스냅샷을문서화한다() throws Exception {
         // given
