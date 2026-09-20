@@ -37,7 +37,7 @@ jobs:
       SERVER_PORT: ${{ vars.SERVER_PORT }}
       IGMO_TRACING_ENABLED: ${{ vars.IGMO_TRACING_ENABLED || 'true' }}
       IGMO_TRACING_SAMPLING_PROBABILITY: ${{ vars.IGMO_TRACING_SAMPLING_PROBABILITY || '0.1' }}
-      IGMO_TRACING_OTLP_ENDPOINT: ${{ vars.IGMO_TRACING_OTLP_ENDPOINT || 'https://otlp-gateway-prod-ap-northeast-0.grafana.net/otlp' }}
+      IGMO_TRACING_OTLP_ENDPOINT: ${{ vars.IGMO_TRACING_OTLP_ENDPOINT || 'https://otlp-gateway-prod-ap-northeast-0.grafana.net/otlp/v1/traces' }}
       GRAFANA_CLOUD_INGEST_TOKEN: ${{ secrets.GRAFANA_CLOUD_INGEST_TOKEN }}
       GRAFANA_CLOUD_TRACES_USERNAME: ${{ vars.GRAFANA_CLOUD_TRACES_USERNAME || '1703597' }}
       OTEL_SERVICE_NAME: ${{ vars.OTEL_SERVICE_NAME || 'igmo' }}
