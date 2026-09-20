@@ -60,8 +60,7 @@ public class GameRoomRepository {
     }
 
     public <T> T update(String code, Function<GameRoom, T> operation) {
-        GameRoom room = gameRegistry.find(code)
-                .orElseThrow(RoomNotFoundException::new);
+        GameRoom room = findForUpdate(code);
         synchronized (room) {
             if (isDetached(code, room)) {
                 throw new RoomNotFoundException();
@@ -70,6 +69,11 @@ public class GameRoomRepository {
             persist(code, room);
             return result;
         }
+    }
+
+    private GameRoom findForUpdate(String code) {
+        return gameRegistry.find(code)
+                .orElseGet(() -> restore(code).orElseThrow(RoomNotFoundException::new));
     }
 
     public <T> Optional<T> updateIfPresent(String code, Function<GameRoom, T> operation) {

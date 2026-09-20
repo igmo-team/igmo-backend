@@ -203,6 +203,36 @@ class RedisGameRoomStateRepositoryTest {
     }
 
     @Test
+    @DisplayName("로컬에 방이 없으면 Redis 상태를 복원한 뒤 업데이트한다.")
+    void update_로컬에방이없으면Redis상태를복원한뒤업데이트한다() {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoomRepository writer = new GameRoomRepository(new GameRegistry(), Optional.of(repository));
+        writer.saveIfAbsent(original);
+        GameRegistry readerRegistry = new GameRegistry();
+        GameRoomRepository reader = new GameRoomRepository(readerRegistry, Optional.of(repository));
+
+        // when
+        String playerId = reader.update("ABCD", room -> {
+            Player player = new Player("참가자");
+            room.addPlayer(player);
+            return player.getId();
+        });
+
+        // then
+        assertThat(playerId).isNotBlank();
+        assertThat(readerRegistry.find("ABCD")).isPresent();
+        assertThat(readerRegistry.find("ABCD").orElseThrow().getPlayers())
+                .hasSize(2)
+                .extracting(player -> player.getNickname().value())
+                .containsExactly("호스트", "참가자");
+        assertThat(repository.find("ABCD").orElseThrow().players())
+                .hasSize(2)
+                .extracting(GameRoomState.PlayerState::nickname)
+                .containsExactly("호스트", "참가자");
+    }
+
+    @Test
     @DisplayName("방 제거 시 로컬 방과 Redis 상태를 함께 삭제한다.")
     void remove_방을제거하면로컬과Redis상태를함께삭제한다() {
         // given
