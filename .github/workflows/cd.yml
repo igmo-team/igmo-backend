@@ -35,6 +35,12 @@ jobs:
       OPENAPI_SERVER_URL: ${{ vars.OPENAPI_SERVER_URL }}
       WEBSOCKET_DOCS_SERVER_URL: ${{ vars.WEBSOCKET_DOCS_SERVER_URL }}
       SERVER_PORT: ${{ vars.SERVER_PORT }}
+      IGMO_TRACING_ENABLED: ${{ vars.IGMO_TRACING_ENABLED || 'true' }}
+      IGMO_TRACING_SAMPLING_PROBABILITY: ${{ vars.IGMO_TRACING_SAMPLING_PROBABILITY || '0.1' }}
+      IGMO_TRACING_OTLP_ENDPOINT: ${{ vars.IGMO_TRACING_OTLP_ENDPOINT || 'https://otlp-gateway-prod-ap-northeast-0.grafana.net/otlp/v1/traces' }}
+      GRAFANA_CLOUD_INGEST_TOKEN: ${{ secrets.GRAFANA_CLOUD_INGEST_TOKEN }}
+      GRAFANA_CLOUD_TRACES_USERNAME: ${{ vars.GRAFANA_CLOUD_TRACES_USERNAME || '1703597' }}
+      OTEL_SERVICE_NAME: ${{ vars.OTEL_SERVICE_NAME || 'igmo' }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       IGMO_AI_GEMINI_MODEL: ${{ vars.IGMO_AI_GEMINI_MODEL }}
       IGMO_AI_GEMINI_IMAGE_SIZE: ${{ vars.IGMO_AI_GEMINI_IMAGE_SIZE }}
@@ -74,6 +80,9 @@ jobs:
           : "${AWS_ROLE_ARN:?Set AWS_ROLE_ARN in the production environment}"
           : "${ECR_REPOSITORY:?Set ECR_REPOSITORY in the production environment}"
           : "${EC2_INSTANCE_ID:?Set EC2_INSTANCE_ID in the production environment}"
+          if [[ "${IGMO_TRACING_ENABLED:-false}" == "true" ]]; then
+            : "${GRAFANA_CLOUD_INGEST_TOKEN:?Set GRAFANA_CLOUD_INGEST_TOKEN secret in the production environment when tracing is enabled}"
+          fi
           : "${OPENAPI_SERVER_URL:?Set OPENAPI_SERVER_URL in the production environment}"
           : "${WEBSOCKET_DOCS_SERVER_URL:?Set WEBSOCKET_DOCS_SERVER_URL in the production environment}"
           : "${GEMINI_API_KEY:?Set GEMINI_API_KEY in the production environment}"

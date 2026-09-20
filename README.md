@@ -15,6 +15,12 @@ Dockerfile은 `build/libs/app.jar`를 실행 이미지에 복사하므로 `bootJ
 
 CI 검증과 운영 배포 흐름은 [CI/CD 배포 문서](docs/ci-cd.md)를 참고합니다.
 
+## 트레이싱
+
+Spring Boot Micrometer Tracing이 OTLP HTTP로 Grafana Cloud Traces에 전송합니다. 운영 CD는 기본 활성화되며, 기본 샘플링 비율은 `0.1`입니다.
+
+Grafana Cloud Access Policy token에 `traces:write` 권한을 추가해야 합니다. 기존 `GRAFANA_CLOUD_INGEST_TOKEN`을 사용하며, Grafana Cloud Traces OTLP 사용자 ID는 `GRAFANA_CLOUD_TRACES_USERNAME`으로 설정합니다. 환경별 변경이 필요하면 GitHub Actions production 변수에서 `IGMO_TRACING_ENABLED`, `IGMO_TRACING_SAMPLING_PROBABILITY`, `IGMO_TRACING_OTLP_ENDPOINT`를 덮어쓸 수 있습니다.
+
 ## 🛠️ 1. 구체적인 서비스 아이디어 & 게임 룰
 
 이 게임은 "AI가 그린 그림을 보고 프롬프트를 추측하여 원본 프롬프트를 맞추는 게임"입니다. 디스코드나 보이스 채널을 켜고 친구들끼리 플레이할 때 최고의 재미를 보장합니다.
