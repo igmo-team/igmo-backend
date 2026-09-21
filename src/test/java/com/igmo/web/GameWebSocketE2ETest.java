@@ -88,6 +88,34 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class GameWebSocketE2ETest {
 
+    private static final List<String> EXPECTED_ERROR_MESSAGES = List.of(
+            "세션에서 플레이어 정보를 찾을 수 없습니다.",
+            "방을 찾을 수 없습니다.",
+            "방에 없는 플레이어입니다.",
+            "이미 시작된 게임입니다.",
+            "프롬프트를 제출할 수 있는 단계가 아닙니다.",
+            "프롬프트 제출 시간이 만료되었습니다.",
+            "이미 프롬프트를 제출했습니다.",
+            "방장만 게임을 시작할 수 있습니다.",
+            "모든 참가자가 준비되지 않았습니다.",
+            "라운드를 시작할 수 없는 상태입니다.",
+            "추측을 제출할 수 있는 단계가 아닙니다.",
+            "추측 제출 시간이 만료되었습니다.",
+            "출제자는 추측을 제출할 수 없습니다.",
+            "투표할 수 있는 단계가 아닙니다.",
+            "투표 시간이 만료되었습니다.",
+            "이미 투표했습니다.",
+            "출제자는 투표할 수 없습니다.",
+            "완벽 정답자는 투표할 수 없습니다.",
+            "자신이 제출한 추측에는 투표할 수 없습니다.",
+            "존재하지 않는 투표 보기입니다.",
+            "프롬프트를 입력해주세요.",
+            "프롬프트 제출 유형을 입력해주세요.",
+            "추측을 입력해주세요.",
+            "추측 제출 유형을 입력해주세요.",
+            "투표할 보기를 선택해주세요."
+    );
+
     private static final long TIMEOUT_SECONDS = 5;
     private static final Path SNIPPET_DIRECTORY = Path.of("build", "generated-snippets", "websocket");
 
@@ -149,6 +177,13 @@ class GameWebSocketE2ETest {
         assertThat(document.path("components").path("messages").has("GameResultSnapshotMessage")).isTrue();
         assertThat(document.path("components").path("messages").has("ErrorMessage")).isTrue();
         assertThat(document.path("components").path("messages").has("RoundResultSnapshotMessage")).isTrue();
+        assertThat(document.path("components").path("messages").path("ErrorMessage").path("examples"))
+                .anySatisfy(example -> assertThat(example.path("payload").path("message").asText())
+                        .isEqualTo("세션에서 플레이어 정보를 찾을 수 없습니다."));
+        String errorDescription = document.path("operations").path("receiveUserUserQueueErrors")
+                .path("description").asText();
+        EXPECTED_ERROR_MESSAGES.forEach(message -> assertThat(errorDescription).contains(message));
+        assertThat(errorDescription).contains("게임을 시작하려면 최소 {minimumPlayers}명이 필요합니다.");
         assertThat(document.path("components").path("messages").has("VoteSkippedRoundResultSnapshotMessage")).isFalse();
         assertThat(document.path("components").path("messages").path("RoundResultSnapshotMessage")
                 .path("examples").size()).isEqualTo(2);
@@ -641,10 +676,49 @@ class GameWebSocketE2ETest {
                     "방장만 보냅니다. 최소 인원이 충족되고 다른 플레이어가 준비 완료한 뒤 보냅니다.",
                     request("/app/rooms/{roomCode}/start", "StartRequest", "게임을 시작합니다. 요청 body가 없습니다.", null),
                     triggered("ErrorMessage", "ERROR", "/user/queue/errors", "USER",
-                            "DIRECT", "게임 시작 오류", "message를 표시하고 현재 상태에서 가능한 행동을 유지합니다.", error, List.of("error"),
+                            "DIRECT", "게임 메시지 처리 오류", "message를 사용자에게 표시하고 현재 상태에서 가능한 행동을 유지합니다.",
+                            error, List.of("error"),
                             payload(ErrorResponse.class))
             ));
         } finally {
+            scenario.close();
+        }
+    }
+
+    @Test
+    @DisplayName("유효하지 않은 재연결 세션의 오류 메시지를 개인 오류 큐에서 문서화한다.")
+    void syncRoomState_재연결세션오류응답을문서화한다() throws Exception {
+        // given
+        GameScenario scenario = createScenario();
+        PlayerConnection invalidSession = null;
+        try {
+            invalidSession = connect(
+                    scenario.roomCode(),
+                    scenario.host().playerId(),
+                    "invalid-secret",
+                    "invalid-reconnect");
+
+            // when
+            invalidSession.session().send(sendDestination(scenario, "sync"), null);
+
+            // then
+            JsonNode error = awaitMessage(invalidSession.errorMessages(), ignored -> true, "reconnect error");
+            assertThat(error.path("message").asText())
+                    .isEqualTo("세션에서 플레이어 정보를 찾을 수 없습니다.");
+
+            writeSnippet("sync-room-state-error", snippet(
+                    "syncRoomState", "게임방 상태 동기화", List.of("reconnect", "error"),
+                    "강퇴 또는 인증 만료 후 재연결한 플레이어가 현재 게임 상태를 요청할 때 보냅니다.",
+                    request("/app/rooms/{roomCode}/sync", "SyncRoomStateRequest",
+                            "재연결 후 현재 게임 상태를 요청합니다. 요청 body가 없습니다.", null),
+                    triggered("ErrorMessage", "ERROR", "/user/queue/errors", "USER",
+                            "DIRECT", "게임 메시지 처리 오류", "message를 사용자에게 표시하고 재연결 자격 증명을 확인합니다.",
+                            error, List.of("reconnect", "error"), payload(ErrorResponse.class))
+            ));
+        } finally {
+            if (invalidSession != null) {
+                invalidSession.close();
+            }
             scenario.close();
         }
     }
