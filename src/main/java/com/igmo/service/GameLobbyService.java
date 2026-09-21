@@ -9,9 +9,14 @@ import com.igmo.store.GameRoomRepository;
 import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
+import java.time.Duration;
+import java.time.Instant;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class GameLobbyService {
 
     private static final int MAX_ROOM_CODE_ATTEMPTS = 10;
@@ -20,18 +25,10 @@ public class GameLobbyService {
     private final RoomCodeGenerator roomCodeGenerator;
     private final GameEventPublisher eventPublisher;
     private final GameStartPolicy gameStartPolicy;
+    private final GamePhaseScheduler gamePhaseScheduler;
 
-    public GameLobbyService(
-            GameRoomRepository gameRoomRepository,
-            RoomCodeGenerator roomCodeGenerator,
-            GameEventPublisher eventPublisher,
-            GameStartPolicy gameStartPolicy
-    ) {
-        this.gameRoomRepository = gameRoomRepository;
-        this.roomCodeGenerator = roomCodeGenerator;
-        this.eventPublisher = eventPublisher;
-        this.gameStartPolicy = gameStartPolicy;
-    }
+    @Value("${igmo.game.lobby-duration}")
+    private Duration lobbyDuration;
 
     public CreateGameResponse createGame(String nickname) {
         Player host = new Player(nickname);
@@ -62,8 +59,13 @@ public class GameLobbyService {
 
     private GameRoom createRoomWithUniqueCode(Player host) {
         for (int attempt = 0; attempt < MAX_ROOM_CODE_ATTEMPTS; attempt++) {
-            GameRoom room = GameRoom.create(roomCodeGenerator.generate(), host, gameStartPolicy);
+            GameRoom room = GameRoom.create(roomCodeGenerator.generate(), host, gameStartPolicy, lobbyDuration);
             if (gameRoomRepository.saveIfAbsent(room)) {
+                gamePhaseScheduler.scheduleLobbyExpiration(
+                        room.getCode(),
+                        room.getLobbyDeadline(),
+                        () -> gameRoomRepository.removeLobbyIfExpired(room, Instant.now())
+                );
                 return room;
             }
         }

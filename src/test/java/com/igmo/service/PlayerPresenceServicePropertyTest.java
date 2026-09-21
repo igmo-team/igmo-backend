@@ -20,7 +20,10 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-@TestPropertySource(properties = "igmo.game.disconnect-grace=17s")
+@TestPropertySource(properties = {
+        "igmo.game.disconnect-grace=17s",
+        "igmo.game.lobby-duration=23s"
+})
 class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
 
     @Autowired
@@ -53,6 +56,8 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
     @DisplayName("연결 끊김 유예 시간은 igmo.game.disconnect-grace 프로퍼티 값을 사용한다.")
     void handleDisconnect_프로퍼티의_유예_시간을_사용한다() {
         // given
+        given(gamePhaseDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
+                .willReturn(mock(ScheduledFuture.class));
         ScheduledFuture<?> scheduledRemoval = mock(ScheduledFuture.class);
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);
@@ -69,5 +74,24 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
         verify(disconnectGraceScheduler).schedule(any(Runnable.class), scheduledAt.capture());
         assertThat(scheduledAt.getValue())
                 .isBetween(before.plusSeconds(17), after.plusSeconds(17));
+    }
+
+    @Test
+    @DisplayName("로비 대기 시간은 igmo.game.lobby-duration 프로퍼티 값을 사용한다.")
+    void createGame_프로퍼티의_로비_대기_시간을_사용한다() {
+        // given
+        given(gamePhaseDeadlineScheduler.schedule(any(Runnable.class), any(Instant.class)))
+                .willReturn(mock(ScheduledFuture.class));
+        Instant before = Instant.now();
+
+        // when
+        gameLobbyService.createGame("호스트");
+
+        // then
+        Instant after = Instant.now();
+        ArgumentCaptor<Instant> scheduledAt = ArgumentCaptor.forClass(Instant.class);
+        verify(gamePhaseDeadlineScheduler).schedule(any(Runnable.class), scheduledAt.capture());
+        assertThat(scheduledAt.getValue())
+                .isBetween(before.plusSeconds(23), after.plusSeconds(23));
     }
 }

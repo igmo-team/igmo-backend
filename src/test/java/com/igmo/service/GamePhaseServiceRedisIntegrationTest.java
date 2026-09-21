@@ -222,7 +222,7 @@ class GamePhaseServiceRedisIntegrationTest {
 
     private GameRoom createVotingRoom() {
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);

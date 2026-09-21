@@ -46,8 +46,14 @@ class PlayerPresenceServiceConcurrencyTest {
     private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
+    private final GamePhaseScheduler gameLobbyPhaseScheduler = mock(GamePhaseScheduler.class);
     private final GameLobbyService gameLobbyService =
-            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher, GameStartPolicy.standard());
+            new GameLobbyService(
+                    gameRoomRepository,
+                    roomCodeGenerator,
+                    eventPublisher,
+                    GameStartPolicy.standard(),
+                    gameLobbyPhaseScheduler);
     private final PlayerPresenceService playerPresenceService =
             new PlayerPresenceService(
                     gameRoomRepository,
@@ -59,6 +65,7 @@ class PlayerPresenceServiceConcurrencyTest {
 
     @BeforeEach
     void 스케줄러가_예약_future를_반환하도록_설정한다() {
+        ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", Duration.ofMinutes(10));
         ReflectionTestUtils.setField(playerPresenceService, "disconnectGrace", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);

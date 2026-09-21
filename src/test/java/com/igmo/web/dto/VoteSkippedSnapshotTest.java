@@ -51,7 +51,7 @@ class VoteSkippedSnapshotTest {
         Player host = new Player("호스트");
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         room.addPlayer(guest1);
         room.addPlayer(guest2);
         room.changePlayerReady(guest1.getId(), true);

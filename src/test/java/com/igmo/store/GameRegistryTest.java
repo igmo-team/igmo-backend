@@ -1,5 +1,7 @@
 package com.igmo.store;
 
+import java.time.Duration;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.igmo.domain.GameRoom;
@@ -15,7 +17,7 @@ class GameRegistryTest {
     void saveIfAbsent_새_코드면_저장하고_참을_반환한다() {
         // given
         GameRegistry registry = new GameRegistry();
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
 
         // when
         boolean saved = registry.saveIfAbsent(room);
@@ -32,9 +34,9 @@ class GameRegistryTest {
     void saveIfAbsent_이미_있는_코드면_저장하지_않고_거짓을_반환한다() {
         // given
         GameRegistry registry = new GameRegistry();
-        GameRoom existing = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom existing = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         registry.saveIfAbsent(existing);
-        GameRoom duplicate = GameRoom.create("ABCD", new Player("다른호스트"));
+        GameRoom duplicate = GameRoom.create("ABCD", new Player("다른호스트"), Duration.ofMinutes(10));
 
         // when
         boolean saved = registry.saveIfAbsent(duplicate);
@@ -61,7 +63,7 @@ class GameRegistryTest {
     void remove_방을_삭제하면_조회되지_않는다() {
         // given
         GameRegistry registry = new GameRegistry();
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         registry.saveIfAbsent(room);
 
         // when

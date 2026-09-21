@@ -41,6 +41,8 @@ public class GameRoom {
     @Getter
     private GamePhase phase;
     @Getter
+    private Instant lobbyDeadline;
+    @Getter
     private Instant promptStartedAt;
     @Getter
     private Instant promptDeadline;
@@ -67,20 +69,26 @@ public class GameRoom {
     private int currentRoundIndex;
     private long version;
 
-    private GameRoom(String code, Player host, GameStartPolicy gameStartPolicy) {
+    private GameRoom(String code, Player host, GameStartPolicy gameStartPolicy, Instant lobbyDeadline) {
         this.code = code;
         this.hostId = host.getId();
         this.gameStartPolicy = gameStartPolicy;
         this.phase = GamePhase.LOBBY;
+        this.lobbyDeadline = lobbyDeadline;
         this.players.put(host.getId(), host);
     }
 
-    public static GameRoom create(String code, Player host) {
-        return create(code, host, GameStartPolicy.standard());
+    public static GameRoom create(String code, Player host, Duration lobbyDuration) {
+        return create(code, host, GameStartPolicy.standard(), lobbyDuration);
     }
 
-    public static GameRoom create(String code, Player host, GameStartPolicy gameStartPolicy) {
-        return new GameRoom(code, host, gameStartPolicy);
+    public static GameRoom create(
+            String code,
+            Player host,
+            GameStartPolicy gameStartPolicy,
+            Duration lobbyDuration
+    ) {
+        return new GameRoom(code, host, gameStartPolicy, Instant.now().plus(lobbyDuration));
     }
 
     public static GameRoom restore(GameRoomState state) {
@@ -96,7 +104,7 @@ public class GameRoom {
     }
 
     private static void validateSchemaVersion(GameRoomState state) {
-        if (state.schemaVersion() != GameRoomState.CURRENT_SCHEMA_VERSION) {
+        if (state.schemaVersion() != 1 && state.schemaVersion() != GameRoomState.CURRENT_SCHEMA_VERSION) {
             throw new IllegalStateException(
                     "지원하지 않는 게임방 상태 스키마 버전입니다: " + state.schemaVersion()
             );
@@ -142,13 +150,17 @@ public class GameRoom {
         GameRoom room = new GameRoom(
                 state.roomCode(),
                 host,
-                GameStartPolicy.restore(state.gameStartPolicy().minimumPlayers())
+                GameStartPolicy.restore(state.gameStartPolicy().minimumPlayers()),
+                state.lobbyDeadline()
         );
         room.players.clear();
         room.players.putAll(restoredPlayers);
         room.hostId = state.hostId();
         room.version = state.version();
         room.phase = state.phase();
+        if (room.lobbyDeadline == null && room.phase == GamePhase.LOBBY) {
+            room.lobbyDeadline = Instant.MIN;
+        }
         room.promptStartedAt = state.promptStartedAt();
         room.promptDeadline = state.promptDeadline();
         room.finalPromptSubmissionDeadline = state.finalPromptSubmissionDeadline();
@@ -285,6 +297,10 @@ public class GameRoom {
 
     public synchronized boolean isEmpty() {
         return players.isEmpty();
+    }
+
+    public synchronized boolean isLobbyExpired(Instant now) {
+        return isInLobby() && (lobbyDeadline == null || !now.isBefore(lobbyDeadline));
     }
 
     public synchronized boolean hasPlayer(String playerId) {

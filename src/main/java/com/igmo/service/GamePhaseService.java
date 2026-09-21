@@ -78,6 +78,7 @@ public class GamePhaseService {
             GamePhase fromPhase = room.getPhase();
             room.changePlayerReady(playerId, true);
             room.start(playerId, Instant.now(), promptDuration);
+            gamePhaseScheduler.cancelLobby(code);
             logPhaseTransition(code, fromPhase, room.getPhase());
             schedulePromptExpiration(room.getCode(), room.getFinalPromptSubmissionDeadline());
             return PromptSubmissionSnapshot.from(room);

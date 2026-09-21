@@ -2,6 +2,8 @@ package com.igmo.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -24,21 +26,31 @@ import com.igmo.web.dto.RoomMessage;
 import java.time.Duration;
 import java.time.Instant;
 import org.assertj.core.api.SoftAssertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class GameLobbyServiceTest {
 
+    private static final Duration LOBBY_DURATION = Duration.ofMinutes(10);
     private final GameMetrics gameMetrics = mock(GameMetrics.class);
     private final GameRegistry gameRegistry = new GameRegistry();
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
+    private final GamePhaseScheduler gamePhaseScheduler = mock(GamePhaseScheduler.class);
     private final GameLobbyService gameLobbyService = new GameLobbyService(
             new GameRoomRepository(gameRegistry),
             roomCodeGenerator,
             new GameEventPublisher(messagingTemplate, gameMetrics),
-            GameStartPolicy.local());
+            GameStartPolicy.local(),
+            gamePhaseScheduler);
+
+    @BeforeEach
+    void 로비_대기_시간을_설정한다() {
+        ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", LOBBY_DURATION);
+    }
 
     @Test
     @DisplayName("게임을 생성하면 방 코드와 호스트 playerId를 반환하고 레지스트리에 저장한다.")
@@ -57,8 +69,32 @@ class GameLobbyServiceTest {
             softly.assertThat(response.snapshot().hostId()).isEqualTo(response.playerId());
             softly.assertThat(response.snapshot().players()).hasSize(1);
             softly.assertThat(response.snapshot().players().get(0).nickname()).isEqualTo("호스트");
+            softly.assertThat(response.snapshot().lobbyDeadline())
+                    .isEqualTo(gameRegistry.find("ABCD").orElseThrow().getLobbyDeadline());
             softly.assertThat(gameRegistry.find("ABCD")).isPresent();
         });
+    }
+
+    @Test
+    @DisplayName("게임방을 생성하면 로비 만료 작업을 deadline에 예약한다.")
+    void createGame_로비만료작업을예약한다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        Instant before = Instant.now();
+
+        // when
+        CreateGameResponse response = gameLobbyService.createGame("호스트");
+        GameRoom room = gameRegistry.find(response.roomCode()).orElseThrow();
+        Instant after = Instant.now();
+
+        // then
+        verify(gamePhaseScheduler).scheduleLobbyExpiration(
+                eq(response.roomCode()),
+                eq(room.getLobbyDeadline()),
+                any(Runnable.class)
+        );
+        assertThat(room.getLobbyDeadline())
+                .isBetween(before.plus(LOBBY_DURATION), after.plus(LOBBY_DURATION));
     }
 
     @Test

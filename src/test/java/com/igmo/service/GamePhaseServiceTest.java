@@ -109,8 +109,14 @@ class GamePhaseServiceTest {
     private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
+    private final GamePhaseScheduler gameLobbyPhaseScheduler = mock(GamePhaseScheduler.class);
     private final GameLobbyService gameLobbyService =
-            new GameLobbyService(gameRoomRepository, roomCodeGenerator, eventPublisher, GameStartPolicy.standard());
+            new GameLobbyService(
+                    gameRoomRepository,
+                    roomCodeGenerator,
+                    eventPublisher,
+                    GameStartPolicy.standard(),
+                    gameLobbyPhaseScheduler);
     private final ImageGenerationService imageGenerationService =
             new ImageGenerationService(
                     imageGenerator, imageStorageClient, gameMetrics, imageGenerationExecutor, "gemini-3.1-flash-image",
@@ -135,6 +141,7 @@ class GamePhaseServiceTest {
         gamePhaseLogAppender.start();
         gamePhaseLogger.addAppender(gamePhaseLogAppender);
         imageGenerationTask = null;
+        ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", Duration.ofMinutes(10));
         ReflectionTestUtils.setField(gamePhaseService, "promptDuration", Duration.ofSeconds(30));
         ReflectionTestUtils.setField(gamePhaseService, "guessDuration", Duration.ofSeconds(60));
         ReflectionTestUtils.setField(gamePhaseService, "voteDuration", Duration.ofSeconds(30));

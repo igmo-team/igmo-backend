@@ -90,7 +90,7 @@ class RedisGameRoomStateRepositoryTest {
 
         // then
         assertThat(redisTemplate.opsForValue().get("igmo:game-room:ABCD"))
-                .contains("\"schemaVersion\":1")
+                .contains("\"schemaVersion\":2")
                 .contains("\"rounds\"");
         assertThat(found).contains(expected);
         assertThat(restored).isPresent();
@@ -160,7 +160,7 @@ class RedisGameRoomStateRepositoryTest {
     @DisplayName("방 삭제 시 Redis 키를 삭제한다.")
     void delete_방삭제시Redis키를삭제한다() {
         // given
-        repository.saveIfAbsent(GameRoom.create("ABCD", new Player("호스트")));
+        repository.saveIfAbsent(GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10)));
 
         // when
         repository.delete("ABCD");
@@ -173,7 +173,7 @@ class RedisGameRoomStateRepositoryTest {
     @DisplayName("방 생성 시 Redis 키에 1시간 TTL을 설정한다.")
     void saveIfAbsent_방생성시한시간TTL을설정한다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
 
         // when
         boolean saved = repository.saveIfAbsent(room);
@@ -189,7 +189,7 @@ class RedisGameRoomStateRepositoryTest {
     @DisplayName("상태 변경 시 기존 Redis TTL을 갱신하지 않고 유지한다.")
     void save_상태변경시기존TTL을유지한다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         repository.saveIfAbsent(room);
         redisTemplate.expire("igmo:game-room:ABCD", 30, TimeUnit.SECONDS);
         long ttlBeforeSave = redisTemplate.getExpire("igmo:game-room:ABCD", TimeUnit.SECONDS);
@@ -208,7 +208,7 @@ class RedisGameRoomStateRepositoryTest {
     @DisplayName("존재하지 않는 Redis 키는 상태 변경으로 다시 생성하지 않는다.")
     void save_존재하지않는키를상태변경으로다시생성하지않는다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
 
         // when // then
         assertThatThrownBy(() -> repository.save(room))
@@ -222,8 +222,8 @@ class RedisGameRoomStateRepositoryTest {
     void saveIfAbsent_중복방은기존Redis상태를유지한다() {
         // given
         GameRegistry gameRegistry = new GameRegistry();
-        GameRoom firstRoom = GameRoom.create("ABCD", new Player("첫 번째"));
-        GameRoom duplicateRoom = GameRoom.create("ABCD", new Player("두 번째"));
+        GameRoom firstRoom = GameRoom.create("ABCD", new Player("첫 번째"), Duration.ofMinutes(10));
+        GameRoom duplicateRoom = GameRoom.create("ABCD", new Player("두 번째"), Duration.ofMinutes(10));
         GameRoomRepository gameRoomRepository = new GameRoomRepository(
                 gameRegistry,
                 Optional.of(repository)
@@ -244,8 +244,8 @@ class RedisGameRoomStateRepositoryTest {
     @DisplayName("서로 다른 인스턴스가 같은 방 코드를 저장하면 한쪽만 성공하고 기존 상태를 유지한다.")
     void saveIfAbsent_서로다른인스턴스에서동시에같은코드경쟁시한쪽만성공한다() throws Exception {
         // given
-        GameRoom firstRoom = GameRoom.create("ABCD", new Player("첫 번째"));
-        GameRoom secondRoom = GameRoom.create("ABCD", new Player("두 번째"));
+        GameRoom firstRoom = GameRoom.create("ABCD", new Player("첫 번째"), Duration.ofMinutes(10));
+        GameRoom secondRoom = GameRoom.create("ABCD", new Player("두 번째"), Duration.ofMinutes(10));
         GameRegistry firstRegistry = new GameRegistry();
         GameRegistry secondRegistry = new GameRegistry();
         GameRoomRepository firstInstance = new GameRoomRepository(
@@ -312,7 +312,7 @@ class RedisGameRoomStateRepositoryTest {
     @DisplayName("로컬에 방이 없으면 Redis 상태를 복원한 뒤 업데이트한다.")
     void update_로컬에방이없으면Redis상태를복원한뒤업데이트한다() {
         // given
-        GameRoom original = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         GameRoomRepository writer = new GameRoomRepository(new GameRegistry(), Optional.of(repository));
         writer.saveIfAbsent(original);
         GameRegistry readerRegistry = new GameRegistry();
@@ -343,7 +343,7 @@ class RedisGameRoomStateRepositoryTest {
     void remove_방을제거하면로컬과Redis상태를함께삭제한다() {
         // given
         GameRegistry gameRegistry = new GameRegistry();
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         GameRoomRepository gameRoomRepository = new GameRoomRepository(
                 gameRegistry,
                 Optional.of(repository)
@@ -363,7 +363,7 @@ class RedisGameRoomStateRepositoryTest {
     void update_상태변경중방이제거되면Redis상태를삭제한다() {
         // given
         GameRegistry gameRegistry = new GameRegistry();
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         GameRoomRepository gameRoomRepository = new GameRoomRepository(
                 gameRegistry,
                 Optional.of(repository)
@@ -385,7 +385,7 @@ class RedisGameRoomStateRepositoryTest {
     void updateIfPresent_업데이트후Redis에최신상태를저장한다() {
         // given
         GameRegistry gameRegistry = new GameRegistry();
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         GameRoomRepository gameRoomRepository = new GameRoomRepository(
                 gameRegistry,
                 Optional.of(repository)
@@ -434,7 +434,7 @@ class RedisGameRoomStateRepositoryTest {
         Player host = new Player("호스트");
         Player second = new Player("두 번째");
         Player third = new Player("세 번째");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         room.addPlayer(second);
         room.addPlayer(third);
         return room;

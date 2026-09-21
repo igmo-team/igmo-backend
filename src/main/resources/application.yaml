@@ -16,6 +16,7 @@ igmo:
     port: ${IGMO_DEPLOYMENT_PORT:${SERVER_PORT:8080}}
   game:
     disconnect-grace: ${IGMO_GAME_DISCONNECT_GRACE}
+    lobby-duration: ${IGMO_GAME_LOBBY_DURATION}
     prompt-duration: ${IGMO_GAME_PROMPT_DURATION}
     guess-duration: ${IGMO_GAME_GUESS_DURATION}
     vote-duration: ${IGMO_GAME_VOTE_DURATION}

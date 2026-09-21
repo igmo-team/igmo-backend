@@ -30,6 +30,7 @@ import com.igmo.web.dto.CreateGameResponse;
 import com.igmo.web.dto.JoinGameResponse;
 import com.igmo.web.dto.LobbySnapshot;
 import com.igmo.web.dto.PlayerView;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,7 @@ class GameControllerTest {
     void createGame_성공하면_201을_반환한다() throws Exception {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
+                Instant.parse("2026-09-22T04:00:00Z"),
                 List.of(new PlayerView("host-id", "host", 0, false)));
         given(gameLobbyService.createGame("host"))
                 .willReturn(new CreateGameResponse("ABCD", "host-id", "host-secret", snapshot));
@@ -108,6 +110,7 @@ class GameControllerTest {
     void joinGame_성공하면_200을_반환한다() throws Exception {
         // given
         LobbySnapshot snapshot = new LobbySnapshot("ABCD", GamePhase.LOBBY, "host-id",
+                Instant.parse("2026-09-22T04:00:00Z"),
                 List.of(new PlayerView("host-id", "host", 0, false),
                         new PlayerView("guest-id", "guest", 0, false)));
         given(gameLobbyService.joinGame("ABCD", "guest"))
@@ -335,6 +338,7 @@ class GameControllerTest {
                 fieldWithPath("snapshot.roomCode").type(STRING).description("방 코드"),
                 fieldWithPath("snapshot.phase").type(STRING).description("게임 진행 단계"),
                 fieldWithPath("snapshot.hostId").type(STRING).description("현재 호스트 플레이어 ID"),
+                fieldWithPath("snapshot.lobbyDeadline").type(STRING).description("로비 대기 종료 시각 (ISO-8601)"),
                 fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
                 fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
                 fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
@@ -351,6 +355,7 @@ class GameControllerTest {
                 fieldWithPath("snapshot.roomCode").type(STRING).description("방 코드"),
                 fieldWithPath("snapshot.phase").type(STRING).description("게임 진행 단계"),
                 fieldWithPath("snapshot.hostId").type(STRING).description("현재 호스트 플레이어 ID"),
+                fieldWithPath("snapshot.lobbyDeadline").type(STRING).description("로비 대기 종료 시각 (ISO-8601)"),
                 fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
                 fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
                 fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
