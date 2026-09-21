@@ -70,6 +70,7 @@ class MonitoringDeploymentTest(unittest.TestCase):
         self.assertIn('export IMAGE_URI STOP_GRACE_PERIOD', deploy_script)
         self.assertNotIn('cat /run/igmo/prod.env', deploy_script)
         self.assertIn('dotenv_quote()', deploy_script)
+        self.assertIn('dotenv_line IGMO_GAME_LOBBY_DURATION', deploy_script)
         self.assertIn('dotenv_line IGMO_ADMIN_IMAGE_GENERATION_PASSWORD', deploy_script)
         self.assertIn('printf \'%s\' \'${PRODUCTION_COMPOSE_FILE_B64}\' | base64 -d', deploy_script)
         self.assertIn('docker compose --project-name "\\$COMPOSE_PROJECT_NAME" --file "\\$COMPOSE_FILE" config -q', deploy_script)
@@ -96,6 +97,7 @@ class MonitoringDeploymentTest(unittest.TestCase):
                 "IGMO_AI_GEMINI_MODEL": "gemini-2.5-flash",
                 "IGMO_AI_GEMINI_IMAGE_SIZE": "1K",
                 "IGMO_GAME_DISCONNECT_GRACE": "30s",
+                "IGMO_GAME_LOBBY_DURATION": "10m",
                 "IGMO_GAME_PROMPT_DURATION": "60s",
                 "IGMO_GAME_GUESS_DURATION": "60s",
                 "IGMO_GAME_VOTE_DURATION": "60s",
