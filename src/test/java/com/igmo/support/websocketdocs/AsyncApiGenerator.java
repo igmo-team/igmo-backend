@@ -30,6 +30,34 @@ public class AsyncApiGenerator {
     private static final Path OVERVIEW_PATH = Path.of("src", "test", "resources", "websocket-docs", "overview.md");
     private static final Path OUTPUT_PATH = Path.of("build", "generated", "websocket-docs", "asyncapi.json");
     private static final String SERVER_URL_PROPERTY = "websocket.docs.server-url";
+    private static final String ERROR_DESTINATION = "/user/queue/errors";
+    private static final List<String> FIXED_ERROR_MESSAGES = List.of(
+            "세션에서 플레이어 정보를 찾을 수 없습니다.",
+            "방을 찾을 수 없습니다.",
+            "방에 없는 플레이어입니다.",
+            "이미 시작된 게임입니다.",
+            "프롬프트를 제출할 수 있는 단계가 아닙니다.",
+            "프롬프트 제출 시간이 만료되었습니다.",
+            "이미 프롬프트를 제출했습니다.",
+            "방장만 게임을 시작할 수 있습니다.",
+            "모든 참가자가 준비되지 않았습니다.",
+            "라운드를 시작할 수 없는 상태입니다.",
+            "추측을 제출할 수 있는 단계가 아닙니다.",
+            "추측 제출 시간이 만료되었습니다.",
+            "출제자는 추측을 제출할 수 없습니다.",
+            "투표할 수 있는 단계가 아닙니다.",
+            "투표 시간이 만료되었습니다.",
+            "이미 투표했습니다.",
+            "출제자는 투표할 수 없습니다.",
+            "완벽 정답자는 투표할 수 없습니다.",
+            "자신이 제출한 추측에는 투표할 수 없습니다.",
+            "존재하지 않는 투표 보기입니다.",
+            "프롬프트를 입력해주세요.",
+            "프롬프트 제출 유형을 입력해주세요.",
+            "추측을 입력해주세요.",
+            "추측 제출 유형을 입력해주세요.",
+            "투표할 보기를 선택해주세요."
+    );
 
     private final ObjectMapper objectMapper;
     private final URI serverUri;
@@ -320,6 +348,9 @@ public class AsyncApiGenerator {
                 .append("**수신 범위:** ").append(scopeDescription(destination.scope())).append("\n\n")
                 .append("**수신 가능한 메시지:**\n");
         destination.messages().forEach(message -> text.append("- `").append(message.title).append("`\n"));
+        if (destination.destination().equals(ERROR_DESTINATION)) {
+            appendErrorMessageContract(text);
+        }
         return text.toString();
     }
 
@@ -332,7 +363,18 @@ public class AsyncApiGenerator {
             text.append("- `").append(message.title).append("`: ").append(message.description)
                     .append(". ").append(message.clientAction).append("\n");
         }
+        if (destination.destination().equals(ERROR_DESTINATION)) {
+            appendErrorMessageContract(text);
+        }
         return text.toString();
+    }
+
+    private void appendErrorMessageContract(StringBuilder text) {
+        text.append("\n### 가능한 오류 `message` 값\n\n");
+        FIXED_ERROR_MESSAGES.forEach(message -> text.append("- `").append(message).append("`\n"));
+        text.append("- `게임을 시작하려면 최소 {minimumPlayers}명이 필요합니다.`\n\n")
+                .append("`{minimumPlayers}`는 해당 게임방의 게임 시작 최소 인원 설정값으로 치환됩니다. ")
+                .append("따라서 이 오류는 설정된 최소 인원에 따라 실제 숫자가 달라질 수 있습니다.\n");
     }
 
     private String requestMessageDescription(OperationContract operation) throws IOException {
@@ -343,9 +385,27 @@ public class AsyncApiGenerator {
     }
 
     private String receivedMessageDescription(MessageContract message) throws IOException {
-        return "### 메시지 의미\n\n" + message.description
-                + "\n\n### 클라이언트 처리\n\n" + message.clientAction
-                + "\n\n### 대표 JSON Example\n\n```json\n" + prettyJson(message.example()) + "\n```";
+        StringBuilder text = new StringBuilder("### 메시지 의미\n\n")
+                .append(message.description)
+                .append("\n\n### 클라이언트 처리\n\n")
+                .append(message.clientAction)
+                .append("\n\n");
+        if (message.messageId.equals("ErrorMessage")) {
+            appendErrorMessageContract(text);
+        }
+        if (!message.messageId.equals("ErrorMessage") || message.examples.size() == 1) {
+            return text.append("### 대표 JSON Example\n\n```json\n")
+                    .append(prettyJson(message.example()))
+                    .append("\n```")
+                    .toString();
+        }
+        text.append("### 관찰된 JSON Examples\n\n");
+        for (int index = 0; index < message.examples.size(); index++) {
+            text.append("#### Example ").append(index + 1).append("\n\n```json\n")
+                    .append(prettyJson(message.examples.get(index)))
+                    .append("\n```\n\n");
+        }
+        return text.toString().stripTrailing();
     }
 
     private Set<String> subscriptionsOf(OperationContract operation) {
