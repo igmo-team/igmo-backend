@@ -75,6 +75,7 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.secret").value("host-secret"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
                 .andExpect(jsonPath("$.snapshot.hostId").value("host-id"))
+                .andExpect(jsonPath("$.snapshot.lobbyDeadline").value("2026-09-22T04:00:00Z"))
                 .andExpect(jsonPath("$.snapshot.players.length()").value(1))
                 .andDo(document("create-game",
                         resource(ResourceSnippetParameters.builder()
@@ -124,6 +125,7 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.playerId").value("guest-id"))
                 .andExpect(jsonPath("$.secret").value("guest-secret"))
                 .andExpect(jsonPath("$.snapshot.roomCode").value("ABCD"))
+                .andExpect(jsonPath("$.snapshot.lobbyDeadline").value("2026-09-22T04:00:00Z"))
                 .andExpect(jsonPath("$.snapshot.players.length()").value(2))
                 .andDo(document("join-game",
                         resource(ResourceSnippetParameters.builder()
@@ -338,7 +340,8 @@ class GameControllerTest {
                 fieldWithPath("snapshot.roomCode").type(STRING).description("방 코드"),
                 fieldWithPath("snapshot.phase").type(STRING).description("게임 진행 단계"),
                 fieldWithPath("snapshot.hostId").type(STRING).description("현재 호스트 플레이어 ID"),
-                fieldWithPath("snapshot.lobbyDeadline").type(STRING).description("로비 대기 종료 시각 (ISO-8601)"),
+                fieldWithPath("snapshot.lobbyDeadline").type(STRING)
+                        .description("대기방 만료 시각. ISO-8601 UTC 절대 시각"),
                 fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
                 fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
                 fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
@@ -355,7 +358,8 @@ class GameControllerTest {
                 fieldWithPath("snapshot.roomCode").type(STRING).description("방 코드"),
                 fieldWithPath("snapshot.phase").type(STRING).description("게임 진행 단계"),
                 fieldWithPath("snapshot.hostId").type(STRING).description("현재 호스트 플레이어 ID"),
-                fieldWithPath("snapshot.lobbyDeadline").type(STRING).description("로비 대기 종료 시각 (ISO-8601)"),
+                fieldWithPath("snapshot.lobbyDeadline").type(STRING)
+                        .description("대기방 만료 시각. ISO-8601 UTC 절대 시각"),
                 fieldWithPath("snapshot.players").type(ARRAY).description("방에 참여 중인 플레이어 목록"),
                 fieldWithPath("snapshot.players[].id").type(STRING).description("플레이어 ID"),
                 fieldWithPath("snapshot.players[].nickname").type(STRING).description("닉네임"),
