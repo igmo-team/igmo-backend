@@ -46,21 +46,6 @@ igmo:
       public-base-url: ${IGMO_IMAGE_STORAGE_S3_PUBLIC_BASE_URL}
 
 management:
-  tracing:
-    enabled: ${IGMO_TRACING_ENABLED:false}
-    sampling:
-      probability: ${IGMO_TRACING_SAMPLING_PROBABILITY:0.1}
-  opentelemetry:
-    resource-attributes:
-      service.name: ${OTEL_SERVICE_NAME:${spring.application.name}}
-  otlp:
-    tracing:
-      endpoint: ${IGMO_TRACING_OTLP_ENDPOINT:}
-      export:
-        enabled: ${IGMO_TRACING_ENABLED:false}
-      headers:
-        Authorization: ${IGMO_TRACING_OTLP_AUTHORIZATION:}
-      transport: http
   endpoints:
     web:
       exposure:
