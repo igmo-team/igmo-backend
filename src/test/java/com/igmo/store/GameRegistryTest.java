@@ -59,17 +59,35 @@ class GameRegistryTest {
     }
 
     @Test
-    @DisplayName("방을 삭제하면 더 이상 조회되지 않는다.")
-    void remove_방을_삭제하면_조회되지_않는다() {
+    @DisplayName("같은 방 객체를 삭제하면 더 이상 조회되지 않는다.")
+    void removeIfSame_같은방객체면_삭제한다() {
         // given
         GameRegistry registry = new GameRegistry();
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         registry.saveIfAbsent(room);
 
         // when
-        registry.remove("ABCD");
+        boolean removed = registry.removeIfSame(room);
 
         // then
+        assertThat(removed).isTrue();
         assertThat(registry.find("ABCD")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("같은 코드의 다른 방 객체로는 기존 방을 삭제하지 않는다.")
+    void removeIfSame_다른방객체면_삭제하지_않는다() {
+        // given
+        GameRegistry registry = new GameRegistry();
+        GameRoom existing = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        GameRoom stale = GameRoom.create("ABCD", new Player("오래된 호스트"), Duration.ofMinutes(10));
+        registry.saveIfAbsent(existing);
+
+        // when
+        boolean removed = registry.removeIfSame(stale);
+
+        // then
+        assertThat(removed).isFalse();
+        assertThat(registry.find("ABCD")).contains(existing);
     }
 }

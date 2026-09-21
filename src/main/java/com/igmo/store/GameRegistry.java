@@ -28,11 +28,7 @@ public class GameRegistry {
         return rooms.size();
     }
 
-    public void remove(String code) {
-        rooms.remove(code);
-    }
-
-    public boolean removeIfSame(String code, GameRoom room) {
-        return rooms.remove(code, room);
+    public boolean removeIfSame(GameRoom room) {
+        return rooms.remove(room.getCode(), room);
     }
 }

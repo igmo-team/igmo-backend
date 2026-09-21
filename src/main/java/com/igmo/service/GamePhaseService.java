@@ -328,24 +328,27 @@ public class GamePhaseService {
                     }
                     return advanceRoundAndPrepare(code, lockedRoom);
                 })
-                .ifPresent(message -> {
-                    eventPublisher.publish(code, message);
-                    if (message.type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
-                        gameRoomRepository.remove(code);
+                .ifPresent(result -> {
+                    eventPublisher.publish(code, result.message());
+                    if (result.message().type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
+                        gameRoomRepository.remove(result.room());
                         gameDrainLifecycle.onGameEnded(code);
                     }
                 });
     }
 
-    private RoomMessage<?> advanceRoundAndPrepare(String code, GameRoom room) {
+    private RoundAdvanceResult advanceRoundAndPrepare(String code, GameRoom room) {
         GamePhase fromPhase = room.getPhase();
         room.advanceRound(Instant.now(), guessDuration);
         logPhaseTransition(code, fromPhase, room.getPhase());
         if (room.getPhase() == GamePhase.ENDED) {
-            return RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room));
+            return new RoundAdvanceResult(room, RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room)));
         }
         scheduleGuessExpiration(code, room.getFinalGuessSubmissionDeadline());
-        return RoomMessage.roundSnapshot(RoundSnapshot.from(room));
+        return new RoundAdvanceResult(room, RoomMessage.roundSnapshot(RoundSnapshot.from(room)));
+    }
+
+    private record RoundAdvanceResult(GameRoom room, RoomMessage<?> message) {
     }
 
     private void startImageGeneration(String code, String playerId, String prompt) {

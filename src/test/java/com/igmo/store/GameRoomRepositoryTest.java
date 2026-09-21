@@ -2,10 +2,12 @@ package com.igmo.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
@@ -45,6 +47,56 @@ class GameRoomRepositoryTest {
 
         // then
         assertThat(removed).isTrue();
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verify(redisRepository).delete("ABCD");
+    }
+
+    @Test
+    @DisplayName("오래된 방 객체로 삭제를 요청하면 같은 코드의 새 방을 유지한다.")
+    void remove_오래된방객체면_새방을삭제하지않는다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository)
+        );
+        GameRoom staleRoom = GameRoom.create("ABCD", new Player("오래된 호스트"), Duration.ofMinutes(10));
+        GameRoom currentRoom = GameRoom.create("ABCD", new Player("현재 호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(staleRoom);
+        gameRegistry.removeIfSame(staleRoom);
+        gameRegistry.saveIfAbsent(currentRoom);
+
+        // when
+        boolean removed = repository.remove(staleRoom);
+
+        // then
+        assertThat(removed).isFalse();
+        assertThat(gameRegistry.find("ABCD")).contains(currentRoom);
+        verify(redisRepository, never()).delete("ABCD");
+    }
+
+    @Test
+    @DisplayName("업데이트 중 방을 제거하면 Redis 삭제를 중복 실행하지 않는다.")
+    void update_방을제거하면_Redis삭제를중복하지않는다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        when(redisRepository.saveIfAbsent(any(GameRoom.class))).thenReturn(true);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository)
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(room);
+
+        // when
+        repository.update("ABCD", currentRoom -> {
+            repository.remove(currentRoom);
+            return null;
+        });
+
+        // then
         assertThat(gameRegistry.find("ABCD")).isEmpty();
         verify(redisRepository).delete("ABCD");
     }

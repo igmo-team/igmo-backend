@@ -128,7 +128,7 @@ public class PlayerPresenceService {
         playerSessionRegistry.clear(new PlayerKey(code, playerId));
         if (room.isEmpty()) {
             gamePhaseScheduler.cancelAll(code);
-            gameRoomRepository.remove(code);
+            gameRoomRepository.remove(room);
             return;
         }
         if (room.getPhase() == GamePhase.LOBBY) {

@@ -43,16 +43,21 @@ public class GameRoomRepository {
                 return true;
             }
         } catch (RuntimeException exception) {
-            gameRegistry.remove(room.getCode());
+            gameRegistry.removeIfSame(room);
             throw exception;
         }
-        gameRegistry.remove(room.getCode());
+        gameRegistry.removeIfSame(room);
         return false;
     }
 
-    public void remove(String code) {
-        gameRegistry.remove(code);
-        redisStateRepository.ifPresent(repository -> repository.delete(code));
+    public boolean remove(GameRoom room) {
+        synchronized (room) {
+            if (isDetached(room)) {
+                return false;
+            }
+            removeAttached(room);
+            return true;
+        }
     }
 
     public Optional<GameRoom> restore(String code) {
@@ -136,7 +141,6 @@ public class GameRoomRepository {
     private void persist(String code, GameRoom room) {
         redisStateRepository.ifPresent(repository -> {
             if (isDetached(code, room)) {
-                repository.delete(code);
                 return;
             }
             room.incrementVersion();
@@ -156,7 +160,7 @@ public class GameRoomRepository {
         try {
             redisStateRepository.ifPresent(repository -> repository.delete(room.getCode()));
         } finally {
-            gameRegistry.removeIfSame(room.getCode(), room);
+            gameRegistry.removeIfSame(room);
         }
     }
 }

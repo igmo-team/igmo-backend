@@ -351,7 +351,7 @@ class RedisGameRoomStateRepositoryTest {
         gameRoomRepository.saveIfAbsent(room);
 
         // when
-        gameRoomRepository.remove("ABCD");
+        gameRoomRepository.remove(room);
 
         // then
         assertThat(gameRegistry.find("ABCD")).isEmpty();
@@ -372,7 +372,7 @@ class RedisGameRoomStateRepositoryTest {
 
         // when
         gameRoomRepository.update("ABCD", currentRoom -> {
-            gameRegistry.remove(currentRoom.getCode());
+            gameRoomRepository.remove(currentRoom);
             return null;
         });
 

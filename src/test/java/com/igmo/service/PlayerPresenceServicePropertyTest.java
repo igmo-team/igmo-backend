@@ -49,7 +49,7 @@ class PlayerPresenceServicePropertyTest extends AbstractNonWebSpringBootTest {
 
     @AfterEach
     void 테스트_게임방을_정리한다() {
-        gameRegistry.snapshot().forEach(room -> gameRegistry.remove(room.getCode()));
+        gameRegistry.snapshot().forEach(gameRegistry::removeIfSame);
     }
 
     @Test
