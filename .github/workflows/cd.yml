@@ -39,6 +39,7 @@ jobs:
       IGMO_AI_GEMINI_MODEL: ${{ vars.IGMO_AI_GEMINI_MODEL }}
       IGMO_AI_GEMINI_IMAGE_SIZE: ${{ vars.IGMO_AI_GEMINI_IMAGE_SIZE }}
       IGMO_GAME_DISCONNECT_GRACE: ${{ vars.IGMO_GAME_DISCONNECT_GRACE }}
+      IGMO_GAME_LOBBY_DURATION: ${{ vars.IGMO_GAME_LOBBY_DURATION }}
       IGMO_GAME_PROMPT_DURATION: ${{ vars.IGMO_GAME_PROMPT_DURATION }}
       IGMO_GAME_GUESS_DURATION: ${{ vars.IGMO_GAME_GUESS_DURATION }}
       IGMO_GAME_VOTE_DURATION: ${{ vars.IGMO_GAME_VOTE_DURATION }}
@@ -80,6 +81,7 @@ jobs:
           : "${IGMO_AI_GEMINI_MODEL:?Set IGMO_AI_GEMINI_MODEL in the production environment}"
           : "${IGMO_AI_GEMINI_IMAGE_SIZE:?Set IGMO_AI_GEMINI_IMAGE_SIZE in the production environment}"
           : "${IGMO_GAME_DISCONNECT_GRACE:?Set IGMO_GAME_DISCONNECT_GRACE in the production environment}"
+          : "${IGMO_GAME_LOBBY_DURATION:?Set IGMO_GAME_LOBBY_DURATION in the production environment}"
           : "${IGMO_GAME_PROMPT_DURATION:?Set IGMO_GAME_PROMPT_DURATION in the production environment}"
           : "${IGMO_GAME_GUESS_DURATION:?Set IGMO_GAME_GUESS_DURATION in the production environment}"
           : "${IGMO_GAME_VOTE_DURATION:?Set IGMO_GAME_VOTE_DURATION in the production environment}"

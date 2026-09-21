@@ -11,6 +11,7 @@ public record GameRoomState(
         String roomCode,
         String hostId,
         GamePhase phase,
+        Instant lobbyDeadline,
         Instant promptStartedAt,
         Instant promptDeadline,
         Instant finalPromptSubmissionDeadline,
@@ -28,10 +29,11 @@ public record GameRoomState(
         List<RoundState> rounds
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
+    private static final int LEGACY_SCHEMA_VERSION = 1;
 
     public GameRoomState {
-        if (schemaVersion != CURRENT_SCHEMA_VERSION) {
+        if (schemaVersion != LEGACY_SCHEMA_VERSION && schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "지원하지 않는 게임방 상태 스키마 버전입니다: " + schemaVersion
             );
@@ -77,6 +79,7 @@ public record GameRoomState(
                     room.getCode(),
                     room.getHostId(),
                     room.getPhase(),
+                    room.getLobbyDeadline(),
                     room.getPromptStartedAt(),
                     room.getPromptDeadline(),
                     room.getFinalPromptSubmissionDeadline(),

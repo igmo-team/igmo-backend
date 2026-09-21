@@ -72,7 +72,7 @@ class RoundSnapshotTest {
 
     private GameRoom createRoomInGuessing() throws Exception {
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);

@@ -2,6 +2,7 @@ package com.igmo.store;
 
 import com.igmo.domain.GameRoom;
 import com.igmo.service.exception.RoomNotFoundException;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,21 +43,33 @@ public class GameRoomRepository {
                 return true;
             }
         } catch (RuntimeException exception) {
-            gameRegistry.remove(room.getCode());
+            gameRegistry.removeIfSame(room);
             throw exception;
         }
-        gameRegistry.remove(room.getCode());
+        gameRegistry.removeIfSame(room);
         return false;
     }
 
-    public void remove(String code) {
-        gameRegistry.remove(code);
-        redisStateRepository.ifPresent(repository -> repository.delete(code));
+    public boolean remove(GameRoom room) {
+        synchronized (room) {
+            if (isDetached(room)) {
+                return false;
+            }
+            removeAttached(room);
+            return true;
+        }
     }
 
     public Optional<GameRoom> restore(String code) {
         Optional<GameRoom> existing = gameRegistry.find(code);
         if (existing.isPresent()) {
+            GameRoom room = existing.get();
+            synchronized (room) {
+                if (room.isLobbyExpired(Instant.now())) {
+                    removeAttached(room);
+                    return Optional.empty();
+                }
+            }
             return existing;
         }
         Optional<GameRoom> restored = redisStateRepository.flatMap(
@@ -65,16 +78,34 @@ public class GameRoomRepository {
         if (restored.isEmpty()) {
             return Optional.empty();
         }
-        if (gameRegistry.saveIfAbsent(restored.get())) {
-            return restored;
+        GameRoom room = restored.get();
+        if (room.isLobbyExpired(Instant.now())) {
+            redisStateRepository.ifPresent(repository -> repository.delete(code));
+            return Optional.empty();
+        }
+        if (gameRegistry.saveIfAbsent(room)) {
+            return Optional.of(room);
         }
         return gameRegistry.find(code);
+    }
+
+    public boolean removeLobbyIfExpired(GameRoom room, Instant now) {
+        synchronized (room) {
+            if (isDetached(room) || !room.isLobbyExpired(now)) {
+                return false;
+            }
+            removeAttached(room);
+            return true;
+        }
     }
 
     public <T> T update(String code, Function<GameRoom, T> operation) {
         GameRoom room = findForUpdate(code);
         synchronized (room) {
             if (isDetached(code, room)) {
+                throw new RoomNotFoundException();
+            }
+            if (removeLobbyIfExpired(room, Instant.now())) {
                 throw new RoomNotFoundException();
             }
             T result = operation.apply(room);
@@ -98,6 +129,9 @@ public class GameRoomRepository {
             if (isDetached(code, room)) {
                 return Optional.empty();
             }
+            if (removeLobbyIfExpired(room, Instant.now())) {
+                return Optional.empty();
+            }
             T result = operation.apply(room);
             persist(code, room);
             return Optional.ofNullable(result);
@@ -107,7 +141,6 @@ public class GameRoomRepository {
     private void persist(String code, GameRoom room) {
         redisStateRepository.ifPresent(repository -> {
             if (isDetached(code, room)) {
-                repository.delete(code);
                 return;
             }
             room.incrementVersion();
@@ -117,5 +150,17 @@ public class GameRoomRepository {
 
     private boolean isDetached(String code, GameRoom room) {
         return gameRegistry.find(code).orElse(null) != room;
+    }
+
+    private boolean isDetached(GameRoom room) {
+        return isDetached(room.getCode(), room);
+    }
+
+    private void removeAttached(GameRoom room) {
+        try {
+            redisStateRepository.ifPresent(repository -> repository.delete(room.getCode()));
+        } finally {
+            gameRegistry.removeIfSame(room);
+        }
     }
 }

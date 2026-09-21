@@ -14,6 +14,7 @@ public class GamePhaseScheduler {
     private final TaskScheduler phaseDeadlineScheduler;
     private final TaskScheduler imageGenerationCompletionScheduler;
     private final Map<String, ScheduledFuture<?>> pendingPromptExpirations = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> pendingLobbyExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingGuessExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingVoteExpirations = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingVoteSkippedExpirations = new ConcurrentHashMap<>();
@@ -30,6 +31,14 @@ public class GamePhaseScheduler {
 
     public void schedulePrompt(String code, Instant deadline, Runnable task) {
         scheduleReplacing(code, deadline, task, pendingPromptExpirations, phaseDeadlineScheduler);
+    }
+
+    public void scheduleLobbyExpiration(String code, Instant deadline, Runnable task) {
+        scheduleReplacing(code, deadline, task, pendingLobbyExpirations, phaseDeadlineScheduler);
+    }
+
+    public void cancelLobby(String code) {
+        cancel(code, pendingLobbyExpirations);
     }
 
     public void cancelPrompt(String code) {
@@ -83,6 +92,7 @@ public class GamePhaseScheduler {
     }
 
     public void cancelAll(String code) {
+        cancelLobby(code);
         cancelPrompt(code);
         cancelGuess(code);
         cancelVote(code);

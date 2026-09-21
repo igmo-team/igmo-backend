@@ -56,11 +56,13 @@ class PlayerPresenceServiceTest {
     private final GamePhaseScheduler gamePhaseScheduler = spy(new GamePhaseScheduler(
             gamePhaseDeadlineScheduler,
             imageGenerationCompletionScheduler));
+    private final GamePhaseScheduler gameLobbyPhaseScheduler = mock(GamePhaseScheduler.class);
     private final GameLobbyService gameLobbyService = new GameLobbyService(
             new GameRoomRepository(gameRegistry),
             roomCodeGenerator,
             new GameEventPublisher(messagingTemplate, gameMetrics),
-            GameStartPolicy.standard());
+            GameStartPolicy.standard(),
+            gameLobbyPhaseScheduler);
     private final PlayerPresenceService playerPresenceService = new PlayerPresenceService(
             new GameRoomRepository(gameRegistry),
             gamePhaseScheduler,
@@ -71,6 +73,7 @@ class PlayerPresenceServiceTest {
 
     @BeforeEach
     void 연결_해제_삭제_예약을_설정한다() {
+        ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", Duration.ofMinutes(10));
         ReflectionTestUtils.setField(playerPresenceService, "disconnectGrace", Duration.ofSeconds(3));
         given(disconnectGraceScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .willAnswer(invocation -> scheduledRemoval);

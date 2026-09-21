@@ -164,7 +164,7 @@ class GameDrainLifecycleTest {
             verify(webSocketSessionRegistry, never()).close(any());
             verify(webSocketSessionRegistry, never()).closeAll();
             verifyNoInteractions(callback);
-            gameRegistry.remove("LOBBY");
+            removeRoom("LOBBY");
             runCheck();
             verify(callback).run();
         }
@@ -184,7 +184,7 @@ class GameDrainLifecycleTest {
             verify(webSocketSessionRegistry, never()).close(any());
             verify(webSocketSessionRegistry, never()).closeAll();
             verifyNoInteractions(callback);
-            gameRegistry.remove("LOBBY");
+            removeRoom("LOBBY");
             runCheck();
             verify(callback).run();
         }
@@ -231,7 +231,7 @@ class GameDrainLifecycleTest {
             verifyNoInteractions(callback);
             verify(webSocketSessionRegistry, never()).close(any());
             verify(webSocketSessionRegistry, never()).closeAll();
-            gameRegistry.remove("LOBBY");
+            removeRoom("LOBBY");
             runCheck();
             verify(callback).run();
         }
@@ -279,7 +279,7 @@ class GameDrainLifecycleTest {
             lifecycle.stop(callback);
 
             // when
-            gameRegistry.remove("ABCD");
+            removeRoom("ABCD");
             runCheck();
 
             // then
@@ -392,6 +392,10 @@ class GameDrainLifecycleTest {
         return room;
     }
 
+    private void removeRoom(String code) {
+        gameRegistry.find(code).ifPresent(gameRegistry::removeIfSame);
+    }
+
     @AfterEach
     void drain_monitor를_종료한다() throws Exception {
         lifecycle.destroy();
@@ -418,7 +422,7 @@ class GameDrainLifecycleTest {
         assertThat(completed.getCount()).isOne();
         verify(webSocketSessionRegistry, never()).close(any());
         verify(webSocketSessionRegistry, never()).closeAll();
-        gameRegistry.remove("LOBBY");
+        removeRoom("LOBBY");
         assertThat(completed.await(2, TimeUnit.SECONDS)).isTrue();
         verify(webSocketSessionRegistry).closeAll();
     }

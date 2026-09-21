@@ -9,7 +9,10 @@ import java.time.Duration;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -18,6 +21,7 @@ import org.springframework.stereotype.Component;
 public class RedisGameRoomStateRepository {
 
     private static final String KEY_PREFIX = "igmo:game-room:";
+    private static final Duration ROOM_TTL = Duration.ofHours(1);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -26,7 +30,7 @@ public class RedisGameRoomStateRepository {
     public void save(GameRoom room) {
         long startedAt = System.nanoTime();
         try {
-            redisTemplate.opsForValue().set(key(room.getCode()), serialize(room));
+            saveKeepingTtl(room);
             recordOperation("save", "success", startedAt);
         } catch (JsonProcessingException exception) {
             recordOperation("save", "error", startedAt);
@@ -41,7 +45,11 @@ public class RedisGameRoomStateRepository {
         long startedAt = System.nanoTime();
         try {
             boolean saved = Boolean.TRUE.equals(
-                    redisTemplate.opsForValue().setIfAbsent(key(room.getCode()), serialize(room))
+                    redisTemplate.opsForValue().setIfAbsent(
+                            key(room.getCode()),
+                            serialize(room),
+                            ROOM_TTL
+                    )
             );
             recordOperation("save_if_absent", saved ? "success" : "conflict", startedAt);
             return saved;
@@ -102,6 +110,22 @@ public class RedisGameRoomStateRepository {
 
     private String key(String roomCode) {
         return KEY_PREFIX + roomCode;
+    }
+
+    private void saveKeepingTtl(GameRoom room) throws JsonProcessingException {
+        String redisKey = key(room.getCode());
+        String serializedState = serialize(room);
+        Boolean updated = redisTemplate.execute(
+                (RedisCallback<Boolean>) connection -> connection.set(
+                        redisTemplate.getStringSerializer().serialize(redisKey),
+                        redisTemplate.getStringSerializer().serialize(serializedState),
+                        Expiration.keepTtl(),
+                        RedisStringCommands.SetOption.ifPresent()
+                )
+        );
+        if (!Boolean.TRUE.equals(updated)) {
+            throw new IllegalStateException("Redis 게임 방 상태를 갱신할 수 없습니다.");
+        }
     }
 
     private Optional<GameRoomState> readState(String roomCode) throws JsonProcessingException {

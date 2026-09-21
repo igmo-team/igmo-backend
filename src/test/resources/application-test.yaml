@@ -5,6 +5,7 @@ spring:
 igmo:
   game:
     disconnect-grace: 1s
+    lobby-duration: 10m
     prompt-duration: 1s
     guess-duration: 1s
     vote-duration: 1s

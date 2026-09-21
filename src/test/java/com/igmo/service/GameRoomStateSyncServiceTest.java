@@ -34,7 +34,7 @@ class GameRoomStateSyncServiceTest {
     @DisplayName("방 상태 동기화 요청 시 복원한 로비 스냅샷을 요청 플레이어 개인큐로 전달한다.")
     void sync_복원한_로비_스냅샷을_요청자에게_전달한다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         gameRegistry.saveIfAbsent(room);
         String playerId = room.getPlayers().getFirst().getId();
 
@@ -87,7 +87,7 @@ class GameRoomStateSyncServiceTest {
     @DisplayName("방에 없는 플레이어가 동기화를 요청하면 PlayerNotFoundException을 던진다.")
     void sync_방에_없는_플레이어면_예외를_던진다() {
         // given
-        gameRegistry.saveIfAbsent(GameRoom.create("ABCD", new Player("호스트")));
+        gameRegistry.saveIfAbsent(GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10)));
 
         // when // then
         assertThatThrownBy(() -> service.sync("ABCD", "unknown-player"))
@@ -97,7 +97,7 @@ class GameRoomStateSyncServiceTest {
 
     private GameRoom createVotingRoom() {
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);

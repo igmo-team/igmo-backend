@@ -61,7 +61,7 @@ class GameRoomTest {
         Player host = new Player("호스트");
 
         // when
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
 
         // then
         SoftAssertions.assertSoftly(softly -> {
@@ -76,7 +76,7 @@ class GameRoomTest {
     @DisplayName("참가자를 추가하면 목록에 포함되고 참가자 id를 반환한다.")
     void addPlayer_참가자를_추가하면_목록에_포함되고_id를_반환한다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         Player guest = new Player("참가자");
 
         // when
@@ -94,7 +94,7 @@ class GameRoomTest {
     @DisplayName("정원(8명)이 가득 찬 방에 참가자를 추가하면 RoomFullException을 던진다.")
     void addPlayer_정원이_가득_차면_예외를_던진다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         for (int i = 1; i <= 7; i++) {
             room.addPlayer(new Player("참가자" + i));
         }
@@ -109,7 +109,7 @@ class GameRoomTest {
     @DisplayName("이미 사용 중인 닉네임으로 참가자를 추가하면 DuplicateNicknameException을 던진다.")
     void addPlayer_닉네임이_중복되면_예외를_던진다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         room.addPlayer(new Player("참가자"));
 
         // when & then
@@ -122,7 +122,7 @@ class GameRoomTest {
     @DisplayName("앞뒤 공백만 다른 닉네임으로 참가하면 DuplicateNicknameException을 던진다.")
     void addPlayer_공백만_다른_닉네임은_중복으로_처리한다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         room.addPlayer(new Player("참가자"));
 
         // when & then
@@ -135,7 +135,7 @@ class GameRoomTest {
     @DisplayName("로비 단계가 아닌 방에 참가자를 추가하면 GameAlreadyStartedException을 던진다.")
     void addPlayer_이미_시작된_게임이면_예외를_던진다() throws Exception {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         setPhase(room, GamePhase.GENERATING);
 
         // when & then
@@ -149,7 +149,7 @@ class GameRoomTest {
     void removePlayer_참가자가_나가면_목록에서_제거되고_방장은_유지된다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest = new Player("참가자");
         room.addPlayer(guest);
 
@@ -169,7 +169,7 @@ class GameRoomTest {
     void removePlayer_방장이_나가면_남은_참가자_중에서_새_방장이_선정된다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -191,7 +191,7 @@ class GameRoomTest {
     void removePlayer_마지막_참가자가_나가면_방이_빈_상태가_된다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
 
         // when
         boolean removed = room.removePlayer(host.getId());
@@ -208,7 +208,7 @@ class GameRoomTest {
     void removePlayer_방에_없는_플레이어면_false를_반환하고_목록은_그대로다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
 
         // when
         boolean removed = room.removePlayer("unknown-player-id");
@@ -225,7 +225,7 @@ class GameRoomTest {
     @DisplayName("참가자의 준비 상태를 변경하면 해당 참가자에게 반영된다.")
     void changePlayerReady_준비_상태를_변경하면_반영된다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         Player guest = new Player("참가자");
         room.addPlayer(guest);
 
@@ -245,7 +245,7 @@ class GameRoomTest {
     void changePlayerReady_이미_시작된_게임이면_예외를_던진다() throws Exception {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         setPhase(room, GamePhase.GENERATING);
 
         // when & then
@@ -259,7 +259,7 @@ class GameRoomTest {
     void changePlayerReady_방에_없는_플레이어면_무시한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
 
         // when & then
         assertThatCode(() -> room.changePlayerReady("unknown-player-id", true))
@@ -272,7 +272,7 @@ class GameRoomTest {
     void start_방장이_조건을_충족하면_다음_단계로_진행한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -292,7 +292,7 @@ class GameRoomTest {
     void start_조건을_충족하면_프롬프트_마감_시각을_저장한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -317,7 +317,7 @@ class GameRoomTest {
     void start_조건을_충족하면_플레이어별_프롬프트_입력_상태를_초기화한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -344,7 +344,7 @@ class GameRoomTest {
     void submitPrompt_GENERATING_단계이면_프롬프트를_저장한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -541,7 +541,7 @@ class GameRoomTest {
     void hasAllImagesGenerated_모든_이미지가_READY이면_true를_반환한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -568,7 +568,7 @@ class GameRoomTest {
     void hasAllImagesGenerated_이미지_생성이_실패하면_false를_반환한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -803,7 +803,7 @@ class GameRoomTest {
     void isImageGenerationInProgress_생성_중이면_true를_반환한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -846,7 +846,7 @@ class GameRoomTest {
     void isPromptExpirationStale_마감_시각이_다르면_true를_반환한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -864,7 +864,7 @@ class GameRoomTest {
     void isPromptExpirationStale_마감_시각이_같으면_false를_반환한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -883,7 +883,7 @@ class GameRoomTest {
     void advanceToPlaying_모든_이미지가_생성됐으면_PLAYING으로_전환한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -910,7 +910,7 @@ class GameRoomTest {
     void advanceToPlaying_이미지가_생성되지_않았으면_예외를_던진다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -931,7 +931,7 @@ class GameRoomTest {
     void submitPrompt_입력_마감_이후_NORMAL이면_거부한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -953,7 +953,7 @@ class GameRoomTest {
     void submitPrompt_Grace_Period_내_DEADLINE이면_허용한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local(), Duration.ofMinutes(10));
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
         // when
@@ -976,7 +976,7 @@ class GameRoomTest {
     void submitPrompt_최종_마감_경계의_DEADLINE이면_허용한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local(), Duration.ofMinutes(10));
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
         // when
@@ -995,7 +995,7 @@ class GameRoomTest {
     void submitPrompt_최종_마감_이후_DEADLINE이면_거부한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local(), Duration.ofMinutes(10));
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
 
         // when & then
@@ -1013,7 +1013,7 @@ class GameRoomTest {
     @DisplayName("GENERATING 단계가 아니면 프롬프트 제출 시 PromptSubmissionNotAllowedException을 던진다.")
     void submitPrompt_GENERATING_단계가_아니면_예외를_던진다() {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
 
         // when & then
         assertThatThrownBy(() -> room.submitPrompt("player-id", "프롬프트", Instant.now()))
@@ -1026,7 +1026,7 @@ class GameRoomTest {
     void submitPrompt_이미_제출한_플레이어이면_예외를_던진다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -1066,7 +1066,7 @@ class GameRoomTest {
     void start_방장이_아니면_예외를_던진다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -1085,7 +1085,7 @@ class GameRoomTest {
     void start_1명_시작_정책이면_호스트만으로_시작한다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local());
+        GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local(), Duration.ofMinutes(10));
 
         // when
         room.start(host.getId(), PROMPT_STARTED_AT, PROMPT_DURATION);
@@ -1099,7 +1099,7 @@ class GameRoomTest {
     void start_참가자가_3명_미만이면_예외를_던진다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest = new Player("참가자");
         room.addPlayer(guest);
         room.changePlayerReady(guest.getId(), true);
@@ -1115,7 +1115,7 @@ class GameRoomTest {
     void start_준비하지_않은_참가자가_있으면_예외를_던진다() {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -1133,7 +1133,7 @@ class GameRoomTest {
     void start_이미_시작된_게임이면_예외를_던진다() throws Exception {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         room.addPlayer(new Player("참가자1"));
         room.addPlayer(new Player("참가자2"));
         setPhase(room, GamePhase.GENERATING);
@@ -1196,7 +1196,7 @@ class GameRoomTest {
     void startRounds_READY_이미지가_없으면_예외를_던진다() throws Exception {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -1217,7 +1217,7 @@ class GameRoomTest {
     void startRounds_READY_이미지가_일부만_있으면_부분_라운드를_시작하지_않는다() throws Exception {
         // given
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -1848,6 +1848,7 @@ class GameRoomTest {
                 "ABCD",
                 hostId,
                 GamePhase.RESULTS,
+                null,
                 PROMPT_STARTED_AT,
                 PROMPT_STARTED_AT.plusSeconds(30),
                 PROMPT_STARTED_AT.plusSeconds(32),
@@ -1949,7 +1950,7 @@ class GameRoomTest {
 
     private GameRoom createRoomWithGeneratedImages() {
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);
@@ -1969,7 +1970,7 @@ class GameRoomTest {
     // host: READY, 참가자1: WAITING(무제출), 참가자2: FAILED 로 GENERATING 단계를 만든다.
     private GameRoom createGeneratingRoomWithMissingImages() {
         Player host = new Player("호스트");
-        GameRoom room = GameRoom.create("ABCD", host);
+        GameRoom room = GameRoom.create("ABCD", host, Duration.ofMinutes(10));
         Player guest1 = new Player("참가자1");
         Player guest2 = new Player("참가자2");
         room.addPlayer(guest1);

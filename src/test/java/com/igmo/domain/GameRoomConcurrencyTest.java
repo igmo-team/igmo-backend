@@ -1,5 +1,7 @@
 package com.igmo.domain;
 
+import java.time.Duration;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,7 +19,7 @@ class GameRoomConcurrencyTest {
     @DisplayName("여러 명이 동시에 입장해도 정원(8명)을 초과하지 않는다.")
     void addPlayer_동시_입장에도_정원을_초과하지_않는다() throws InterruptedException {
         // given
-        GameRoom room = GameRoom.create("ABCD", new Player("호스트"));
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         int threadCount = 50;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         CountDownLatch start = new CountDownLatch(1);

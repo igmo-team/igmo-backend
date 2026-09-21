@@ -197,6 +197,10 @@ class GameWebSocketE2ETest {
                 .containsExactly("ROUND_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("LOBBY_SNAPSHOT");
+        assertThat(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/payload/properties/lobbyDeadline/type")
+                .asText()).isEqualTo("string");
+        assertThat(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/payload/properties/lobbyDeadline/format")
+                .asText()).isEqualTo("date-time");
         assertThat(enumValues(
                 document.at("/components/schemas/PromptSubmissionSnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("PROMPT_SUBMISSION_SNAPSHOT");
@@ -235,6 +239,7 @@ class GameWebSocketE2ETest {
 
             // then
             JsonNode lobby = awaitTopic(scenario, RoomMessageType.LOBBY_SNAPSHOT.name());
+            assertThat(lobby.path("payload").path("lobbyDeadline").asText()).isNotBlank();
             assertThat(lobby.path("payload").path("players"))
                     .anySatisfy(player -> assertThat(player.path("id").asText()).isEqualTo(guest.playerId()));
 
@@ -269,6 +274,7 @@ class GameWebSocketE2ETest {
                     "room state snapshot");
             assertThat(scenario.players().get(1).roomStateMessages().poll(500, TimeUnit.MILLISECONDS))
                     .isNull();
+            assertThat(snapshot.path("payload").path("lobbyDeadline").asText()).isNotBlank();
 
             writeSnippet("sync-room-state", snippet(
                     "syncRoomState", "게임방 상태 동기화", List.of("reconnect"),
