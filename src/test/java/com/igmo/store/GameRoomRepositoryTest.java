@@ -13,6 +13,7 @@ import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.Player;
+import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
 import java.time.Duration;
 import java.time.Instant;
@@ -24,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class GameRoomRepositoryTest {
@@ -176,6 +178,29 @@ class GameRoomRepositoryTest {
         assertThat(restored).isEmpty();
         assertThat(gameRegistry.find("ABCD")).isEmpty();
         verify(redisRepository).delete("ABCD");
+    }
+
+    @Test
+    @DisplayName("Redis에서 새 JVM으로 방을 복원하면 복원 이벤트를 발행한다.")
+    void restore_새JVM으로복원하면_복원_이벤트를발행한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository),
+                eventPublisher
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        when(redisRepository.restore("ABCD")).thenReturn(Optional.of(room));
+
+        // when
+        Optional<GameRoom> restored = repository.restore("ABCD");
+
+        // then
+        assertThat(restored).containsSame(room);
+        verify(eventPublisher).publishEvent(new GameRoomRestoredEvent(room));
     }
 
     @Test

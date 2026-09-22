@@ -73,6 +73,26 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("게임방의 로비 여부는 현재 게임 단계에 따라 반환한다.")
+    void isInLobby_게임단계에따라_로비여부를반환한다() {
+        // given
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        Player guest1 = new Player("참가자1");
+        Player guest2 = new Player("참가자2");
+        room.addPlayer(guest1);
+        room.addPlayer(guest2);
+        room.changePlayerReady(guest1.getId(), true);
+        room.changePlayerReady(guest2.getId(), true);
+
+        // when // then
+        assertThat(room.isInLobby()).isTrue();
+
+        room.start(room.getHostId(), Instant.now(), Duration.ofSeconds(30));
+
+        assertThat(room.isInLobby()).isFalse();
+    }
+
+    @Test
     @DisplayName("참가자를 추가하면 목록에 포함되고 참가자 id를 반환한다.")
     void addPlayer_참가자를_추가하면_목록에_포함되고_id를_반환한다() {
         // given
