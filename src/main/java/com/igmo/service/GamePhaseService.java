@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -200,6 +201,22 @@ public class GamePhaseService {
     ) {
         private boolean hasRoomMessage() {
             return roomMessage != null;
+        }
+    }
+
+    @EventListener
+    public void restorePhaseExpiration(GameRoomRestoredEvent event) {
+        GameRoom room = event.room();
+        switch (room.getPhase()) {
+            case GENERATING -> schedulePromptExpiration(room.getCode(), room.getFinalPromptSubmissionDeadline());
+            case PLAYING -> scheduleGuessExpiration(room.getCode(), room.getFinalGuessSubmissionDeadline());
+            case VOTING -> scheduleVoteExpiration(room.getCode(), room.getVoteDeadline());
+            case VOTE_SKIPPED -> scheduleVoteSkippedExpiration(
+                    room.getCode(),
+                    room.getCurrentRound().getVoteSkippedDeadline());
+            case RESULTS -> scheduleResultExpiration(room.getCode(), room.getResultDeadline());
+            case LOBBY, ENDED -> {
+            }
         }
     }
 

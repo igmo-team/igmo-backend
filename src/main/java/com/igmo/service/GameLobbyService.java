@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -55,6 +56,19 @@ public class GameLobbyService {
             eventPublisher.publishLobby(code, LobbySnapshot.from(room));
             return null;
         });
+    }
+
+    @EventListener
+    public void restoreLobbyExpiration(GameRoomRestoredEvent event) {
+        GameRoom room = event.room();
+        if (!room.isInLobby()) {
+            return;
+        }
+        gamePhaseScheduler.scheduleLobbyExpiration(
+                room.getCode(),
+                room.getLobbyDeadline(),
+                () -> gameRoomRepository.removeLobbyIfExpired(room, Instant.now())
+        );
     }
 
     private GameRoom createRoomWithUniqueCode(Player host) {

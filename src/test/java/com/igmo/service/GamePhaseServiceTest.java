@@ -157,6 +157,21 @@ class GamePhaseServiceTest {
                 .willAnswer(invocation -> scheduledPlayingTransition);
     }
 
+    @Test
+    @DisplayName("Redis에서 복원한 투표 방의 투표 마감 작업을 현재 인스턴스에 등록한다.")
+    void restorePhaseExpiration_투표방의_마감작업을등록한다() {
+        // given
+        setUpRoomInVoting();
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        clearInvocations(gamePhaseDeadlineScheduler);
+
+        // when
+        gamePhaseService.restorePhaseExpiration(new GameRoomRestoredEvent(room));
+
+        // then
+        verify(gamePhaseDeadlineScheduler).schedule(any(Runnable.class), eq(room.getVoteDeadline()));
+    }
+
     @AfterEach
     void 게임_단계_전환_로그_appender를_제거한다() {
         gamePhaseLogger.detachAppender(gamePhaseLogAppender);

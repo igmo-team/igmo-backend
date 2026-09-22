@@ -1,11 +1,13 @@
 package com.igmo.store;
 
 import com.igmo.domain.GameRoom;
+import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -13,18 +15,30 @@ public class GameRoomRepository {
 
     private final GameRegistry gameRegistry;
     private final Optional<RedisGameRoomStateRepository> redisStateRepository;
-
-    public GameRoomRepository(GameRegistry gameRegistry) {
-        this(gameRegistry, Optional.empty());
-    }
+    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
     public GameRoomRepository(
             GameRegistry gameRegistry,
-            Optional<RedisGameRoomStateRepository> redisStateRepository
+            Optional<RedisGameRoomStateRepository> redisStateRepository,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.gameRegistry = gameRegistry;
         this.redisStateRepository = redisStateRepository;
+        this.eventPublisher = eventPublisher;
+    }
+
+    public GameRoomRepository(GameRegistry gameRegistry) {
+        this(gameRegistry, Optional.empty(), event -> {
+        });
+    }
+
+    public GameRoomRepository(
+            GameRegistry gameRegistry,
+            Optional<RedisGameRoomStateRepository> redisStateRepository
+    ) {
+        this(gameRegistry, redisStateRepository, event -> {
+        });
     }
 
     public boolean saveIfAbsent(GameRoom room) {
@@ -61,32 +75,52 @@ public class GameRoomRepository {
     }
 
     public Optional<GameRoom> restore(String code) {
-        Optional<GameRoom> existing = gameRegistry.find(code);
-        if (existing.isPresent()) {
-            GameRoom room = existing.get();
-            synchronized (room) {
-                if (room.isLobbyExpired(Instant.now())) {
-                    removeAttached(room);
-                    return Optional.empty();
-                }
-            }
-            return existing;
+        Optional<GameRoom> localRoom = restoreRoomByLocal(code);
+        if (localRoom.isPresent()) {
+            return localRoom;
         }
+        return restoreRoomByRedis(code);
+    }
+
+    private Optional<GameRoom> restoreRoomByLocal(String code) {
+        Optional<GameRoom> existing = gameRegistry.find(code);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+
+        GameRoom room = existing.get();
+        synchronized (room) {
+            if (room.isLobbyExpired(Instant.now())) {
+                removeAttached(room);
+                return Optional.empty();
+            }
+        }
+        return Optional.of(room);
+    }
+
+    private Optional<GameRoom> restoreRoomByRedis(String code) {
         Optional<GameRoom> restored = redisStateRepository.flatMap(
                 repository -> repository.restore(code)
         );
         if (restored.isEmpty()) {
             return Optional.empty();
         }
+
         GameRoom room = restored.get();
         if (room.isLobbyExpired(Instant.now())) {
             redisStateRepository.ifPresent(repository -> repository.delete(code));
             return Optional.empty();
         }
-        if (gameRegistry.saveIfAbsent(room)) {
-            return Optional.of(room);
+        return registerRestoredRoom(room);
+    }
+
+    private Optional<GameRoom> registerRestoredRoom(GameRoom room) {
+        if (!gameRegistry.saveIfAbsent(room)) {
+            return gameRegistry.find(room.getCode());
         }
-        return gameRegistry.find(code);
+
+        eventPublisher.publishEvent(new GameRoomRestoredEvent(room)); //복원 이벤트 발행
+        return Optional.of(room);
     }
 
     public boolean removeLobbyIfExpired(GameRoom room, Instant now) {
