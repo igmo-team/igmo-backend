@@ -1,6 +1,5 @@
 package com.igmo.service;
 
-import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -131,7 +130,7 @@ public class PlayerPresenceService {
             gameRoomRepository.remove(room);
             return;
         }
-        if (room.getPhase() == GamePhase.LOBBY) {
+        if (room.isInLobby()) {
             eventPublisher.publishLobby(code, LobbySnapshot.from(room));
             return;
         }

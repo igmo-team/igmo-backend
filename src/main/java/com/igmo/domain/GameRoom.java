@@ -641,7 +641,7 @@ public class GameRoom {
         return shuffledPrefixes.get(0).value() + " " + nickname;
     }
 
-    private boolean isInLobby() {
+    public synchronized boolean isInLobby() {
         return phase == GamePhase.LOBBY;
     }
 
