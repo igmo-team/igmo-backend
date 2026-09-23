@@ -47,7 +47,8 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         RoundSnapshot snapshot = captureRoundSnapshotBroadcast();
@@ -71,7 +72,8 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
@@ -90,11 +92,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_다른_플레이어의_추측과_중복되면_개인큐로_거절_메시지를_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(2));
@@ -110,11 +114,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_같은_플레이어가_재제출하면_개인큐로_거절_메시지를_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
@@ -133,7 +139,8 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
 
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
@@ -158,11 +165,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_PERFECT를_재제출하면_개인큐로_거절_사유를_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
 
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
@@ -185,11 +194,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_PERFECT_후_가짜_프롬프트를_제출한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         GuessSubmissionSnapshot snapshot = captureGuessSubmission(playerIds.get(1));
@@ -203,12 +214,15 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_PERFECT_플레이어가_있으면_집계_진행도와_투표_불가를_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
@@ -229,13 +243,17 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_전원이_PERFECT면_투표생략_스냅샷후_결과를_공개한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "호스트프롬프트");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "호스트프롬프트", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         VoteSkippedSnapshot skippedSnapshot = captureVoteSkippedSnapshotBroadcast();
@@ -274,11 +292,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_전원이_제출하면_VOTING_스냅샷을_브로드캐스트하고_마감_작업을_취소한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         VoteSnapshot voteSnapshot = captureVoteSnapshotBroadcast();
@@ -297,11 +317,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_전원이_제출하면_추측자에게_본인_보기를_개인큐로_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         OwnVoteOptionNotice guest1Option = captureOwnVoteOption(playerIds.get(1));
@@ -322,11 +344,13 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitGuess_전원이_제출하면_출제자에게_본인_이미지임을_전송한다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
 
         // then
         OwnVoteOptionNotice hostOption = captureOwnVoteOption(playerIds.get(0));
@@ -342,7 +366,8 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
         setUpRoomInPlaying();
 
         // when & then
-        assertThatThrownBy(() -> gamePhaseService.submitGuess("ABCD", "unknown-player", "추측"))
+        assertThatThrownBy(() -> gamePhaseService.submitGuess(
+                        "ABCD", "unknown-player", "추측", GuessSubmissionType.NORMAL))
                 .isInstanceOf(PlayerNotFoundException.class)
                 .hasMessage("방에 없는 플레이어입니다.");
     }
@@ -456,8 +481,10 @@ class GuessPhaseServiceTest extends GamePhaseServiceTestSupport {
         // given
         List<String> playerIds = setUpRoomInPlaying();
         Runnable guessExpiration = captureLastScheduledDeadline(2);
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
         clearInvocations(messagingTemplate);
 
         // when

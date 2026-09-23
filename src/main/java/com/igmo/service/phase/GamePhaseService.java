@@ -31,10 +31,6 @@ public class GamePhaseService {
         promptPhaseService.onPlayerRemoved(code);
     }
 
-    public void submitGuess(String code, String playerId, String guess) {
-        submitGuess(code, playerId, guess, GuessSubmissionType.NORMAL);
-    }
-
     public void submitGuess(String code, String playerId, String guess, GuessSubmissionType submissionType) {
         guessPhaseService.submitGuess(
                 code, playerId, guess, submissionType, voteResultPhaseService::completeGuessSubmission);

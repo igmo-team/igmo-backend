@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
+import com.igmo.domain.GuessSubmissionType;
 import com.igmo.domain.exception.PerfectGuesserVoteNotAllowedException;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.web.websocket.snapshot.GameResultSnapshot;
@@ -33,9 +34,12 @@ class VoteResultPhaseServiceTest extends GamePhaseServiceTestSupport {
     void submitVote_PERFECT_플레이어면_예외를_던진다() {
         // given
         List<String> playerIds = setUpRoomInPlaying();
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "호스트프롬프트");
-        gamePhaseService.submitGuess("ABCD", playerIds.get(1), "강아지가 기타를 치는 장면");
-        gamePhaseService.submitGuess("ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면");
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "호스트프롬프트", GuessSubmissionType.NORMAL);
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(1), "강아지가 기타를 치는 장면", GuessSubmissionType.NORMAL);
+        gamePhaseService.submitGuess(
+                "ABCD", playerIds.get(2), "고양이가 드럼을 치는 장면", GuessSubmissionType.NORMAL);
         String answerOptionId = findAnswerOptionId("ABCD");
 
         // when & then
