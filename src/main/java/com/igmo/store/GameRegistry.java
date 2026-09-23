@@ -16,6 +16,10 @@ public class GameRegistry {
         return rooms.putIfAbsent(room.getCode(), room) == null;
     }
 
+    public void replace(GameRoom room) {
+        rooms.put(room.getCode(), room);
+    }
+
     public Optional<GameRoom> find(String code) {
         return Optional.ofNullable(rooms.get(code));
     }
@@ -30,5 +34,9 @@ public class GameRegistry {
 
     public boolean removeIfSame(GameRoom room) {
         return rooms.remove(room.getCode(), room);
+    }
+
+    public boolean remove(String code) {
+        return rooms.remove(code) != null;
     }
 }

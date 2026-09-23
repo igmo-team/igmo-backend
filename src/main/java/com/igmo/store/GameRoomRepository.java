@@ -15,21 +15,24 @@ public class GameRoomRepository {
 
     private final GameRegistry gameRegistry;
     private final Optional<RedisGameRoomStateRepository> redisStateRepository;
+    private final Optional<GameRoomStateChangePublisher> stateChangePublisher;
     private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
     public GameRoomRepository(
             GameRegistry gameRegistry,
             Optional<RedisGameRoomStateRepository> redisStateRepository,
+            Optional<GameRoomStateChangePublisher> stateChangePublisher,
             ApplicationEventPublisher eventPublisher
     ) {
         this.gameRegistry = gameRegistry;
         this.redisStateRepository = redisStateRepository;
+        this.stateChangePublisher = stateChangePublisher;
         this.eventPublisher = eventPublisher;
     }
 
     public GameRoomRepository(GameRegistry gameRegistry) {
-        this(gameRegistry, Optional.empty(), event -> {
+        this(gameRegistry, Optional.empty(), Optional.empty(), event -> {
         });
     }
 
@@ -37,8 +40,16 @@ public class GameRoomRepository {
             GameRegistry gameRegistry,
             Optional<RedisGameRoomStateRepository> redisStateRepository
     ) {
-        this(gameRegistry, redisStateRepository, event -> {
+        this(gameRegistry, redisStateRepository, Optional.empty(), event -> {
         });
+    }
+
+    public GameRoomRepository(
+            GameRegistry gameRegistry,
+            Optional<RedisGameRoomStateRepository> redisStateRepository,
+            ApplicationEventPublisher eventPublisher
+    ) {
+        this(gameRegistry, redisStateRepository, Optional.empty(), eventPublisher);
     }
 
     public boolean saveIfAbsent(GameRoom room) {
@@ -50,15 +61,17 @@ public class GameRoomRepository {
             return true;
         }
 
+        boolean persisted;
         try {
             room.incrementVersion();
-            boolean persisted = redisStateRepository.orElseThrow().saveIfAbsent(room);
-            if (persisted) {
-                return true;
-            }
+            persisted = redisStateRepository.orElseThrow().saveIfAbsent(room);
         } catch (RuntimeException exception) {
             gameRegistry.removeIfSame(room);
             throw exception;
+        }
+        if (persisted) {
+            publishStateChanged(room.getCode());
+            return true;
         }
         gameRegistry.removeIfSame(room);
         return false;
@@ -80,6 +93,29 @@ public class GameRoomRepository {
             return localRoom;
         }
         return restoreRoomByRedis(code);
+    }
+
+    public void synchronizeFromRedis(String code) {
+        if (redisStateRepository.isEmpty()) {
+            return;
+        }
+
+        Optional<GameRoom> restored = redisStateRepository.orElseThrow().restore(code);
+        if (restored.isEmpty()) {
+            gameRegistry.remove(code);
+            return;
+        }
+
+        GameRoom room = restored.get();
+        if (room.isLobbyExpired(Instant.now())) {
+            gameRegistry.remove(code);
+            return;
+        }
+        boolean wasAbsent = gameRegistry.find(code).isEmpty();
+        gameRegistry.replace(room);
+        if (wasAbsent) {
+            eventPublisher.publishEvent(new GameRoomRestoredEvent(room));
+        }
     }
 
     private Optional<GameRoom> restoreRoomByLocal(String code) {
@@ -108,7 +144,7 @@ public class GameRoomRepository {
 
         GameRoom room = restored.get();
         if (room.isLobbyExpired(Instant.now())) {
-            redisStateRepository.ifPresent(repository -> repository.delete(code));
+            deleteFromRedisAndPublish(code);
             return Optional.empty();
         }
         return registerRestoredRoom(room);
@@ -179,6 +215,7 @@ public class GameRoomRepository {
             }
             room.incrementVersion();
             repository.save(room);
+            publishStateChanged(code);
         });
     }
 
@@ -192,9 +229,20 @@ public class GameRoomRepository {
 
     private void removeAttached(GameRoom room) {
         try {
-            redisStateRepository.ifPresent(repository -> repository.delete(room.getCode()));
+            deleteFromRedisAndPublish(room.getCode());
         } finally {
             gameRegistry.removeIfSame(room);
         }
+    }
+
+    private void deleteFromRedisAndPublish(String code) {
+        redisStateRepository.ifPresent(repository -> {
+            repository.delete(code);
+            publishStateChanged(code);
+        });
+    }
+
+    private void publishStateChanged(String code) {
+        stateChangePublisher.ifPresent(publisher -> publisher.publish(code));
     }
 }
