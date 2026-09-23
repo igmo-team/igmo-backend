@@ -34,52 +34,77 @@ public class GuessPhaseService {
             GuessSubmissionType submissionType,
             BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
     ) {
-        GuessSubmissionPublication result = gameRoomRepository.update(code, room -> {
-            if (!room.hasPlayer(playerId)) {
-                throw new PlayerNotFoundException();
+        GuessSubmissionPublication result = gameRoomRepository.update(
+                code,
+                room -> createGuessSubmissionPublication(
+                        code,
+                        room,
+                        playerId,
+                        guess,
+                        submissionType,
+                        completeGuessSubmission));
+        publishGuessSubmission(code, playerId, result);
+    }
+
+    private GuessSubmissionPublication createGuessSubmissionPublication(
+            String code,
+            GameRoom room,
+            String playerId,
+            String guess,
+            GuessSubmissionType submissionType,
+            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+    ) {
+        if (!room.hasPlayer(playerId)) {
+            throw new PlayerNotFoundException();
+        }
+        Instant submittedAt = Instant.now();
+        GuessSubmissionResult guessSubmissionResult;
+        GuessSubmissionSnapshot snapshot;
+        try {
+            guessSubmissionResult = room.submitGuess(playerId, guess, submittedAt, submissionType);
+            if (guessSubmissionResult == GuessSubmissionResult.NOT_SUBMITTED) {
+                return null;
             }
-            Instant submittedAt = Instant.now();
-            GuessSubmissionSnapshot snapshot;
-            try {
-                GuessSubmissionResult guessSubmissionResult = room.submitGuess(
-                        playerId, guess, submittedAt, submissionType);
-                if (guessSubmissionResult == GuessSubmissionResult.NOT_SUBMITTED) {
-                    return null;
-                }
-                if (guessSubmissionResult == GuessSubmissionResult.PERFECT_RETRY_REQUIRED) {
-                    return new GuessSubmissionPublication(
-                            GuessSubmissionSnapshot.perfect(room, guess),
-                            null,
-                            room.getPhase()
-                    );
-                }
-                snapshot = GuessSubmissionSnapshot.submitted(room, guess);
-            } catch (DuplicateGuessSubmissionException
-                     | GuessMatchesOthersException
-                     | PerfectGuessAlreadyConfirmedException exception) {
+            if (guessSubmissionResult == GuessSubmissionResult.PERFECT_RETRY_REQUIRED) {
                 return new GuessSubmissionPublication(
-                        GuessSubmissionSnapshot.rejected(
-                                room,
-                                guess,
-                                exception.getMessage()
-                        ),
+                        GuessSubmissionSnapshot.perfect(room, guess),
                         null,
-                        room.getPhase()
-                );
+                        room.getPhase());
             }
-            if (room.hasAllCurrentRoundGuesses()) {
-                gamePhaseScheduler.cancelGuess(code);
-                return new GuessSubmissionPublication(
-                        snapshot,
-                        completeGuessSubmission.apply(room, submittedAt),
-                        room.getPhase()
-                );
-            }
+            snapshot = GuessSubmissionSnapshot.submitted(room, guess);
+        } catch (DuplicateGuessSubmissionException
+                 | GuessMatchesOthersException
+                 | PerfectGuessAlreadyConfirmedException exception) {
+            return new GuessSubmissionPublication(
+                    GuessSubmissionSnapshot.rejected(room, guess, exception.getMessage()),
+                    null,
+                    room.getPhase());
+        }
+        return createPublicationAfterSuccessfulGuess(
+                code, room, snapshot, submittedAt, completeGuessSubmission);
+    }
+
+    private GuessSubmissionPublication createPublicationAfterSuccessfulGuess(
+            String code,
+            GameRoom room,
+            GuessSubmissionSnapshot snapshot,
+            Instant submittedAt,
+            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+    ) {
+        if (room.hasAllCurrentRoundGuesses()) {
+            gamePhaseScheduler.cancelGuess(code);
             return new GuessSubmissionPublication(
                     snapshot,
-                    RoomMessage.roundSnapshot(RoundSnapshot.from(room)),
+                    completeGuessSubmission.apply(room, submittedAt),
                     room.getPhase());
-        });
+        }
+        return new GuessSubmissionPublication(
+                snapshot,
+                RoomMessage.roundSnapshot(RoundSnapshot.from(room)),
+                room.getPhase());
+    }
+
+    private void publishGuessSubmission(String code, String playerId, GuessSubmissionPublication result) {
         if (result == null) {
             return;
         }
