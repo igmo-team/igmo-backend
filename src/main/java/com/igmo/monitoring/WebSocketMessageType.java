@@ -1,6 +1,6 @@
 package com.igmo.monitoring;
 
-import com.igmo.web.dto.RoomMessageType;
+import com.igmo.web.websocket.message.RoomMessageType;
 
 public enum WebSocketMessageType {
     LOBBY_SNAPSHOT,

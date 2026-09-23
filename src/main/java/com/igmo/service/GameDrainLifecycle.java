@@ -3,7 +3,7 @@ package com.igmo.service;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.store.GameRegistry;
-import com.igmo.web.WebSocketSessionRegistry;
+import com.igmo.web.websocket.WebSocketSessionRegistry;
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
 import java.util.HashSet;

@@ -15,6 +15,8 @@ import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.Player;
 import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.store.redis.GameRoomStateChangePublisher;
+import com.igmo.store.redis.RedisGameRoomStateRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;

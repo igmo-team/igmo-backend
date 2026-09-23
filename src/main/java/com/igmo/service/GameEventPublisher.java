@@ -1,22 +1,23 @@
 package com.igmo.service;
 
+import com.igmo.domain.GamePhase;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.monitoring.WebSocketChannelType;
 import com.igmo.monitoring.WebSocketMessageOutcome;
 import com.igmo.monitoring.WebSocketMessageType;
-import com.igmo.domain.GamePhase;
-import com.igmo.web.dto.GuessSubmissionSnapshot;
-import com.igmo.web.dto.ImageGenerationEvent;
-import com.igmo.web.dto.LobbySnapshot;
-import com.igmo.web.dto.OwnVoteOptionNotice;
-import com.igmo.web.dto.PromptSubmissionSnapshot;
-import com.igmo.web.dto.RoomMessage;
-import com.igmo.web.dto.RoundResultSnapshot;
-import com.igmo.web.dto.RoundSnapshot;
+import com.igmo.web.LobbySnapshot;
+import com.igmo.web.websocket.message.ImageGenerationEvent;
+import com.igmo.web.websocket.message.OwnVoteOptionNotice;
+import com.igmo.web.websocket.message.RoomMessage;
+import com.igmo.web.websocket.message.RoomMessageType;
+import com.igmo.web.websocket.snapshot.GuessSubmissionSnapshot;
+import com.igmo.web.websocket.snapshot.PromptSubmissionSnapshot;
+import com.igmo.web.websocket.snapshot.RoundResultSnapshot;
+import com.igmo.web.websocket.snapshot.RoundSnapshot;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
-import lombok.extern.slf4j.Slf4j;
 
 @Component
 @Slf4j
@@ -153,7 +154,7 @@ public class GameEventPublisher {
         }
     }
 
-    private GamePhase phaseOf(com.igmo.web.dto.RoomMessageType messageType) {
+    private GamePhase phaseOf(com.igmo.web.websocket.message.RoomMessageType messageType) {
         return switch (messageType) {
             case LOBBY_SNAPSHOT -> GamePhase.LOBBY;
             case PROMPT_SUBMISSION_SNAPSHOT -> GamePhase.GENERATING;

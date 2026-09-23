@@ -3,7 +3,7 @@ package com.igmo.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.igmo.support.AbstractSpringBootTest;
-import com.igmo.web.PlayerSessionInterceptor;
+import com.igmo.web.websocket.PlayerSessionInterceptor;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

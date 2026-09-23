@@ -1,7 +1,7 @@
 package com.igmo.config;
 
-import com.igmo.store.GameRoomStateChangePublisher;
-import com.igmo.store.GameRoomStateChangeSubscriber;
+import com.igmo.store.redis.GameRoomStateChangePublisher;
+import com.igmo.store.redis.GameRoomStateChangeSubscriber;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;

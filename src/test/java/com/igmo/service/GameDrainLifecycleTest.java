@@ -14,7 +14,7 @@ import static org.mockito.Mockito.when;
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.store.GameRegistry;
-import com.igmo.web.WebSocketSessionRegistry;
+import com.igmo.web.websocket.WebSocketSessionRegistry;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;

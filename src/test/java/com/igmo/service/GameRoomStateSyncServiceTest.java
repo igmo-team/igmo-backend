@@ -12,10 +12,10 @@ import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
-import com.igmo.web.dto.LobbySnapshot;
-import com.igmo.web.dto.OwnVoteOptionNotice;
-import com.igmo.web.dto.RoomMessage;
-import com.igmo.web.dto.RoomMessageType;
+import com.igmo.web.LobbySnapshot;
+import com.igmo.web.websocket.message.OwnVoteOptionNotice;
+import com.igmo.web.websocket.message.RoomMessage;
+import com.igmo.web.websocket.message.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
@@ -45,7 +45,7 @@ class GameRoomStateSyncServiceTest {
         ArgumentCaptor<RoomMessage<?>> snapshotCaptor = ArgumentCaptor.forClass(RoomMessage.class);
         verify(gameEventPublisher).sendRoomState(eq(playerId), eq("ABCD"), snapshotCaptor.capture());
         RoomMessage<?> snapshot = snapshotCaptor.getValue();
-        assertThat(snapshot.type()).isEqualTo(com.igmo.web.dto.RoomMessageType.LOBBY_SNAPSHOT);
+        assertThat(snapshot.type()).isEqualTo(com.igmo.web.websocket.message.RoomMessageType.LOBBY_SNAPSHOT);
         assertThat(snapshot.payload()).isInstanceOf(LobbySnapshot.class);
     }
 
