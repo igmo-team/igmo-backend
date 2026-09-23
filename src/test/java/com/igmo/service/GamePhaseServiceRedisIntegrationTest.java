@@ -88,7 +88,7 @@ class GamePhaseServiceRedisIntegrationTest {
 
         // when
         ReflectionTestUtils.invokeMethod(
-                context.service(),
+                context.voteResultPhaseService(),
                 "runResultExpiration",
                 room.getCode(),
                 resultDeadline
@@ -114,7 +114,7 @@ class GamePhaseServiceRedisIntegrationTest {
 
         // when
         ReflectionTestUtils.invokeMethod(
-                context.service(),
+                context.voteResultPhaseService(),
                 "runResultExpiration",
                 room.getCode(),
                 resultDeadline
@@ -141,7 +141,7 @@ class GamePhaseServiceRedisIntegrationTest {
 
         // when
         ReflectionTestUtils.invokeMethod(
-                context.service(),
+                context.voteResultPhaseService(),
                 "runResultExpiration",
                 room.getCode(),
                 staleDeadline
@@ -160,17 +160,23 @@ class GamePhaseServiceRedisIntegrationTest {
         GameRoomRepository repository = new GameRoomRepository(registry, Optional.of(redisRepository));
         GameEventPublisher eventPublisher = mock(GameEventPublisher.class);
         GameDrainLifecycle gameDrainLifecycle = mock(GameDrainLifecycle.class);
-        GamePhaseService service = new GamePhaseService(
+        GamePhaseScheduler gamePhaseScheduler = mock(GamePhaseScheduler.class);
+        GuessPhaseService guessPhaseService = new GuessPhaseService(
                 repository,
-                mock(GamePhaseScheduler.class),
+                gamePhaseScheduler,
+                eventPublisher);
+        VoteResultPhaseService voteResultPhaseService = new VoteResultPhaseService(
+                repository,
+                gamePhaseScheduler,
                 eventPublisher,
-                mock(ImageGenerationService.class),
-                mock(SamplePromptProvider.class),
-                gameDrainLifecycle
-        );
-        ReflectionTestUtils.setField(service, "guessDuration", Duration.ofSeconds(30));
-        ReflectionTestUtils.setField(service, "resultDuration", Duration.ofSeconds(30));
-        return new TestContext(registry, repository, eventPublisher, gameDrainLifecycle, service);
+                gameDrainLifecycle,
+                guessPhaseService);
+        ReflectionTestUtils.setField(voteResultPhaseService, "voteDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(voteResultPhaseService, "voteSkippedDuration", Duration.ofSeconds(5));
+        ReflectionTestUtils.setField(voteResultPhaseService, "resultDuration", Duration.ofSeconds(30));
+        ReflectionTestUtils.setField(
+                voteResultPhaseService, "guessDuration", Duration.ofSeconds(30));
+        return new TestContext(registry, repository, eventPublisher, gameDrainLifecycle, voteResultPhaseService);
     }
 
     private GameRoom createResultsAtLastRound() {
@@ -251,7 +257,7 @@ class GamePhaseServiceRedisIntegrationTest {
             GameRoomRepository repository,
             GameEventPublisher eventPublisher,
             GameDrainLifecycle gameDrainLifecycle,
-            GamePhaseService service
+            VoteResultPhaseService voteResultPhaseService
     ) {
     }
 }
