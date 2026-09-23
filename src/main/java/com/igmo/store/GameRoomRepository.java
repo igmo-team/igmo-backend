@@ -3,6 +3,8 @@ package com.igmo.store;
 import com.igmo.domain.GameRoom;
 import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
+import com.igmo.store.redis.GameRoomStateChangePublisher;
+import com.igmo.store.redis.RedisGameRoomStateRepository;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Function;

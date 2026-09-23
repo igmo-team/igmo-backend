@@ -1,0 +1,51 @@
+package com.igmo.web.http;
+
+import com.igmo.service.lobby.GameLobbyService;
+import com.igmo.service.presence.PlayerPresenceService;
+import com.igmo.web.http.request.CreateGameRequest;
+import com.igmo.web.http.request.JoinGameRequest;
+import com.igmo.web.http.response.CreateGameResponse;
+import com.igmo.web.http.response.JoinGameResponse;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/games")
+@RequiredArgsConstructor
+public class GameController {
+
+    private final GameLobbyService gameLobbyService;
+    private final PlayerPresenceService playerPresenceService;
+
+    @PostMapping
+    public ResponseEntity<CreateGameResponse> createGame(@Valid @RequestBody CreateGameRequest request) {
+        CreateGameResponse response = gameLobbyService.createGame(request.nickname());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/{code}/players")
+    public ResponseEntity<JoinGameResponse> joinGame(
+            @PathVariable String code,
+            @Valid @RequestBody JoinGameRequest request) {
+        JoinGameResponse response = gameLobbyService.joinGame(code, request.nickname());
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{code}/players/{playerId}")
+    public ResponseEntity<Void> leaveGame(
+            @PathVariable String code,
+            @PathVariable String playerId,
+            @RequestHeader("X-Player-Secret") String secret) {
+        playerPresenceService.leaveGame(code, playerId, secret);
+        return ResponseEntity.noContent().build();
+    }
+}

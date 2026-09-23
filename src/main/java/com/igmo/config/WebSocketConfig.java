@@ -1,7 +1,7 @@
 package com.igmo.config;
 
-import com.igmo.web.PlayerSessionInterceptor;
-import com.igmo.web.WebSocketSessionDecoratorFactory;
+import com.igmo.web.websocket.PlayerSessionInterceptor;
+import com.igmo.web.websocket.WebSocketSessionDecoratorFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

@@ -1,0 +1,319 @@
+package com.igmo.web.websocket;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+import com.igmo.domain.GuessSubmissionType;
+import com.igmo.domain.PromptSubmissionType;
+import com.igmo.service.GameRoomStateSyncService;
+import com.igmo.service.lobby.GameLobbyService;
+import com.igmo.service.phase.GamePhaseService;
+import com.igmo.web.websocket.exception.PlayerSessionNotFoundException;
+import com.igmo.web.websocket.request.GuessRequest;
+import com.igmo.web.websocket.request.PromptRequest;
+import com.igmo.web.websocket.request.ReadyRequest;
+import com.igmo.web.websocket.request.VoteRequest;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import java.util.HashMap;
+import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+
+class GameMessageControllerTest {
+
+    private final GameLobbyService gameLobbyService = mock(GameLobbyService.class);
+    private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
+    private final GameRoomStateSyncService gameRoomStateSyncService = mock(GameRoomStateSyncService.class);
+    private final GameMessageController controller =
+            new GameMessageController(
+                    gameLobbyService,
+                    gamePhaseService,
+                    gameRoomStateSyncService,
+                    new PlayerSessionResolver());
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+
+    @Test
+    @DisplayName("세션의 playerId로 준비 상태 변경을 서비스에 위임한다.")
+    void changeReady_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor);
+
+        // then
+        verify(gameLobbyService).changeReady("ABCD", "player-1", true);
+    }
+
+    @Test
+    @DisplayName("준비 상태 변경 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void changeReady_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameLobbyService, gamePhaseService);
+    }
+
+    @Test
+    @DisplayName("준비 상태 변경 시 세션 attributes 자체가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void changeReady_세션_attributes가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+
+        // when & then
+        assertThatThrownBy(() -> controller.changeReady("ABCD", new ReadyRequest(true), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameLobbyService, gamePhaseService);
+    }
+
+    @Test
+    @DisplayName("세션의 playerId로 게임 시작을 서비스에 위임한다.")
+    void startGame_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.startGame("ABCD", headerAccessor);
+
+        // then
+        verify(gamePhaseService).startGame("ABCD", "player-1");
+    }
+
+    @Test
+    @DisplayName("상태 동기화 요청을 세션의 playerId와 함께 서비스에 위임한다.")
+    void sync_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.sync("ABCD", headerAccessor);
+
+        // then
+        verify(gameRoomStateSyncService).sync("ABCD", "player-1");
+    }
+
+    @Test
+    @DisplayName("상태 동기화 요청에 세션 playerId가 없으면 예외를 던진다.")
+    void sync_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when // then
+        assertThatThrownBy(() -> controller.sync("ABCD", headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("세션의 playerId로 프롬프트 제출을 서비스에 위임한다.")
+    void submitPrompt_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.submitPrompt(
+                "ABCD",
+                new PromptRequest("프롬프트", PromptSubmissionType.NORMAL),
+                headerAccessor);
+
+        // then
+        verify(gamePhaseService).submitPrompt("ABCD", "player-1", "프롬프트", PromptSubmissionType.NORMAL);
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void submitPrompt_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.submitPrompt(
+                "ABCD",
+                new PromptRequest("프롬프트", PromptSubmissionType.NORMAL),
+                headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameLobbyService, gamePhaseService);
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 요청의 prompt가 null이면 검증에 실패한다.")
+    void submitPrompt_prompt가_null이면_검증에_실패한다() {
+        // when & then
+        assertPromptInvalid(new PromptRequest(null, PromptSubmissionType.NORMAL));
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 요청의 prompt가 공백이면 검증에 실패한다.")
+    void submitPrompt_prompt가_공백이면_검증에_실패한다() {
+        // when & then
+        assertPromptInvalid(new PromptRequest("   ", PromptSubmissionType.NORMAL));
+    }
+
+    @Test
+    @DisplayName("프롬프트 제출 요청의 submissionType이 null이면 검증에 실패한다.")
+    void submitPrompt_submissionType이_null이면_검증에_실패한다() {
+        assertThat(validator.validate(new PromptRequest("프롬프트", null)))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("프롬프트 제출 유형을 입력해주세요.");
+    }
+
+    @Test
+    @DisplayName("게임 시작 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void startGame_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.startGame("ABCD", headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameLobbyService, gamePhaseService);
+    }
+
+    @Test
+    @DisplayName("세션의 playerId로 추측 제출을 서비스에 위임한다.")
+    void submitGuess_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.submitGuess(
+                "ABCD",
+                new GuessRequest("추측 프롬프트", GuessSubmissionType.NORMAL),
+                headerAccessor);
+
+        // then
+        verify(gamePhaseService).submitGuess(
+                "ABCD", "player-1", "추측 프롬프트", GuessSubmissionType.NORMAL);
+    }
+
+    @Test
+    @DisplayName("추측 제출 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void submitGuess_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.submitGuess("ABCD", new GuessRequest("추측 프롬프트"), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameLobbyService, gamePhaseService);
+    }
+
+    @Test
+    @DisplayName("추측 제출 요청의 guess가 null이면 검증에 실패한다.")
+    void submitGuess_guess가_null이면_검증에_실패한다() {
+        // when & then
+        assertGuessInvalid(new GuessRequest(null));
+    }
+
+    @Test
+    @DisplayName("추측 제출 요청의 guess가 공백이면 검증에 실패한다.")
+    void submitGuess_guess가_공백이면_검증에_실패한다() {
+        // when & then
+        assertGuessInvalid(new GuessRequest("   "));
+    }
+
+    @Test
+    @DisplayName("추측 제출 요청의 submissionType이 null이면 검증에 실패한다.")
+    void submitGuess_submissionType이_null이면_검증에_실패한다() {
+        assertThat(validator.validate(new GuessRequest("추측 프롬프트", null)))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("추측 제출 유형을 입력해주세요.");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = "   ")
+    @DisplayName("DEADLINE 빈 추측은 검증을 통과한다.")
+    void submitGuess_DEADLINE_빈_추측이면_검증을_통과한다(String guess) {
+        assertThat(validator.validate(new GuessRequest(guess, GuessSubmissionType.DEADLINE)))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("세션의 playerId로 투표 제출을 서비스에 위임한다.")
+    void submitVote_세션_playerId로_서비스에_위임한다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = headerAccessorWithPlayerId("player-1");
+
+        // when
+        controller.submitVote("ABCD", new VoteRequest("option-1"), headerAccessor);
+
+        // then
+        verify(gamePhaseService).submitVote("ABCD", "player-1", "option-1");
+    }
+
+    @Test
+    @DisplayName("투표 제출 시 세션에 playerId가 없으면 PlayerSessionNotFoundException을 던진다.")
+    void submitVote_세션에_playerId가_없으면_예외를_던진다() {
+        // given
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(new HashMap<>());
+
+        // when & then
+        assertThatThrownBy(() -> controller.submitVote("ABCD", new VoteRequest("option-1"), headerAccessor))
+                .isInstanceOf(PlayerSessionNotFoundException.class)
+                .hasMessage("세션에서 플레이어 정보를 찾을 수 없습니다.");
+        verifyNoInteractions(gameLobbyService, gamePhaseService);
+    }
+
+    @Test
+    @DisplayName("투표 제출 요청의 optionId가 null이면 검증에 실패한다.")
+    void submitVote_optionId가_null이면_검증에_실패한다() {
+        // when & then
+        assertVoteInvalid(new VoteRequest(null));
+    }
+
+    @Test
+    @DisplayName("투표 제출 요청의 optionId가 공백이면 검증에 실패한다.")
+    void submitVote_optionId가_공백이면_검증에_실패한다() {
+        // when & then
+        assertVoteInvalid(new VoteRequest("   "));
+    }
+
+    private SimpMessageHeaderAccessor headerAccessorWithPlayerId(String playerId) {
+        Map<String, Object> sessionAttributes = new HashMap<>();
+        sessionAttributes.put(PlayerSessionInterceptor.PLAYER_ID_ATTRIBUTE, playerId);
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create();
+        headerAccessor.setSessionAttributes(sessionAttributes);
+        return headerAccessor;
+    }
+
+    private void assertPromptInvalid(PromptRequest request) {
+        org.assertj.core.api.Assertions.assertThat(validator.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("프롬프트를 입력해주세요.");
+    }
+
+    private void assertGuessInvalid(GuessRequest request) {
+        org.assertj.core.api.Assertions.assertThat(validator.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("추측을 입력해주세요.");
+    }
+
+    private void assertVoteInvalid(VoteRequest request) {
+        org.assertj.core.api.Assertions.assertThat(validator.validate(request))
+                .extracting(violation -> violation.getMessage())
+                .containsExactly("투표할 보기를 선택해주세요.");
+    }
+}

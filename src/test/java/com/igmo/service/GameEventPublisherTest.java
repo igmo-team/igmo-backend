@@ -1,10 +1,10 @@
 package com.igmo.service;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -15,12 +15,12 @@ import com.igmo.monitoring.GameMetrics;
 import com.igmo.monitoring.WebSocketChannelType;
 import com.igmo.monitoring.WebSocketMessageOutcome;
 import com.igmo.monitoring.WebSocketMessageType;
-import com.igmo.web.dto.GuessSubmissionSnapshot;
-import com.igmo.web.dto.GuessSubmissionStatus;
-import com.igmo.web.dto.ImageGenerationEvent;
-import com.igmo.web.dto.LobbySnapshot;
-import com.igmo.web.dto.OwnVoteOptionNotice;
-import com.igmo.web.dto.RoomMessage;
+import com.igmo.web.LobbySnapshot;
+import com.igmo.web.websocket.message.ImageGenerationEvent;
+import com.igmo.web.websocket.message.OwnVoteOptionNotice;
+import com.igmo.web.websocket.message.RoomMessage;
+import com.igmo.web.websocket.snapshot.GuessSubmissionSnapshot;
+import com.igmo.web.websocket.snapshot.GuessSubmissionStatus;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
