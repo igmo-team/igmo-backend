@@ -204,6 +204,84 @@ class GameRoomRepositoryTest {
     }
 
     @Test
+    @DisplayName("Redis 상태 변경 이벤트를 받으면 로컬 방을 Redis 상태로 교체한다.")
+    void synchronizeFromRedis_로컬방을Redis상태로교체한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+        GameRoomStateChangePublisher stateChangePublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository),
+                Optional.of(stateChangePublisher),
+                eventPublisher
+        );
+        GameRoom localRoom = GameRoom.create("ABCD", new Player("로컬 호스트"), Duration.ofMinutes(10));
+        GameRoom remoteRoom = GameRoom.create("ABCD", new Player("원격 호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(localRoom);
+        when(redisRepository.restore("ABCD")).thenReturn(Optional.of(remoteRoom));
+
+        // when
+        repository.synchronizeFromRedis("ABCD");
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).containsSame(remoteRoom);
+        verify(redisRepository, never()).save(any(GameRoom.class));
+        verify(stateChangePublisher, never()).publish("ABCD");
+        verify(eventPublisher, never()).publishEvent(any(GameRoomRestoredEvent.class));
+    }
+
+    @Test
+    @DisplayName("Redis 상태 변경 이벤트를 받았을 때 방이 없으면 로컬 방을 제거한다.")
+    void synchronizeFromRedis_Redis에방이없으면_로컬방을제거한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository)
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(room);
+        when(redisRepository.restore("ABCD")).thenReturn(Optional.empty());
+
+        // when
+        repository.synchronizeFromRedis("ABCD");
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Redis 동기화 중 만료된 로비를 발견해도 Redis 저장과 이벤트 발행을 하지 않는다.")
+    void synchronizeFromRedis_만료된로비는_로컬만제거한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        GameRoomStateChangePublisher stateChangePublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository),
+                Optional.of(stateChangePublisher),
+                event -> {
+                }
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(room);
+        ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
+        when(redisRepository.restore("ABCD")).thenReturn(Optional.of(room));
+
+        // when
+        repository.synchronizeFromRedis("ABCD");
+
+        // then
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verify(redisRepository, never()).delete("ABCD");
+        verify(stateChangePublisher, never()).publish("ABCD");
+    }
+
+    @Test
     @DisplayName("Redis 삭제가 실패해도 만료된 로비는 JVM에서 제거한다.")
     void removeLobbyIfExpired_Redis삭제실패에도JVM에서제거한다() {
         // given
