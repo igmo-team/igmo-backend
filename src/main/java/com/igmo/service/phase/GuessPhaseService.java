@@ -11,6 +11,7 @@ import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
 import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.snapshot.GuessSubmissionSnapshot;
 import com.igmo.web.websocket.snapshot.RoundSnapshot;
@@ -142,7 +143,7 @@ public class GuessPhaseService {
     ) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isGuessExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     Instant expiredAt = Instant.now();
                     if (!lockedRoom.isFinalGuessSubmissionExpired(expiredAt)) {
@@ -150,10 +151,14 @@ public class GuessPhaseService {
                                 code,
                                 lockedRoom.getFinalGuessSubmissionDeadline(),
                                 completeGuessSubmission);
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     lockedRoom.autoSubmitGuesses(expiredAt);
-                    return completeGuessSubmission.apply(lockedRoom, expiredAt);
+                    GamePhase fromPhase = lockedRoom.getPhase();
+                    RoomMessage<?> message = completeGuessSubmission.apply(lockedRoom, expiredAt);
+                    return lockedRoom.getPhase() == fromPhase
+                            ? RoomUpdate.unchanged(message)
+                            : RoomUpdate.changed(message);
                 })
                 .ifPresent(message -> eventPublisher.publish(code, message));
     }

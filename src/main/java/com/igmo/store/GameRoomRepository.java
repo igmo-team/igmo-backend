@@ -200,7 +200,7 @@ public class GameRoomRepository {
                 .orElseGet(() -> restore(code).orElseThrow(RoomNotFoundException::new));
     }
 
-    public <T> Optional<T> updateIfPresent(String code, Function<GameRoom, T> operation) {
+    public <T> Optional<T> updateIfPresent(String code, Function<GameRoom, RoomUpdate<T>> operation) {
         Optional<GameRoom> found = gameRegistry.find(code);
         if (found.isEmpty()) {
             return Optional.empty();
@@ -213,9 +213,11 @@ public class GameRoomRepository {
             if (removeLobbyIfExpired(room, Instant.now())) {
                 return Optional.empty();
             }
-            T result = operation.apply(room);
-            persist(code, room);
-            return Optional.ofNullable(result);
+            RoomUpdate<T> result = operation.apply(room);
+            if (result.changed()) {
+                persist(code, room);
+            }
+            return Optional.ofNullable(result.value());
         }
     }
 

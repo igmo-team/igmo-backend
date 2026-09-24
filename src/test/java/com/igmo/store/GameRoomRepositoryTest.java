@@ -111,6 +111,64 @@ class GameRoomRepositoryTest {
     }
 
     @Test
+    @DisplayName("상태 변경이 없는 조건부 업데이트는 Redis 저장과 Pub/Sub 발행을 생략한다.")
+    void updateIfPresent_상태변경이없으면_저장과발행을생략한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        GameRoomStateChangePublisher stateChangePublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository),
+                Optional.of(stateChangePublisher),
+                mock(ApplicationEventPublisher.class)
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(room);
+        long originalVersion = room.getVersion();
+
+        // when
+        Optional<String> result = repository.updateIfPresent("ABCD", currentRoom ->
+                RoomUpdate.unchanged("검사 결과"));
+
+        // then
+        assertThat(result).contains("검사 결과");
+        assertThat(room.getVersion()).isEqualTo(originalVersion);
+        verify(redisRepository, never()).save(any(GameRoom.class));
+        verify(stateChangePublisher, never()).publish("ABCD");
+    }
+
+    @Test
+    @DisplayName("상태를 변경하고 반환값이 없어도 Redis에 저장하고 Pub/Sub을 발행한다.")
+    void updateIfPresent_반환값이없어도_상태를바꾸면저장하고발행한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        GameRoomStateChangePublisher stateChangePublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository),
+                Optional.of(stateChangePublisher),
+                mock(ApplicationEventPublisher.class)
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(room);
+        String playerId = room.getPlayers().getFirst().getId();
+
+        // when
+        Optional<String> result = repository.updateIfPresent("ABCD", currentRoom -> {
+            currentRoom.changePlayerReady(playerId, true);
+            return RoomUpdate.changed(null);
+        });
+
+        // then
+        assertThat(result).isEmpty();
+        assertThat(room.getPlayers().getFirst().isReady()).isTrue();
+        verify(redisRepository).save(room);
+        verify(stateChangePublisher).publish("ABCD");
+    }
+
+    @Test
     @DisplayName("로비 만료와 게임 시작이 경쟁하면 먼저 시작된 게임을 만료 작업이 제거하지 않는다.")
     void removeLobbyIfExpired_게임시작과경쟁해도시작된방을제거하지않는다()
             throws Exception {

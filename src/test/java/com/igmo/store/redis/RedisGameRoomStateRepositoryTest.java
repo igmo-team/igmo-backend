@@ -12,6 +12,7 @@ import com.igmo.domain.Round;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.store.GameRegistry;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
@@ -401,7 +402,7 @@ class RedisGameRoomStateRepositoryTest {
         Optional<String> result = gameRoomRepository.updateIfPresent("ABCD", currentRoom -> {
             operationInvoked.set(true);
             currentRoom.changePlayerReady(currentRoom.getPlayers().getFirst().getId(), true);
-            return "updated";
+            return RoomUpdate.changed("updated");
         });
 
         // then

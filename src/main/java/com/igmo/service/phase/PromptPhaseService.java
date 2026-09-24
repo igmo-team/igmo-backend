@@ -12,6 +12,7 @@ import com.igmo.service.GamePhaseScheduler;
 import com.igmo.service.ImageGenerationService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
 import com.igmo.web.websocket.message.ImageGenerationEvent;
 import com.igmo.web.websocket.snapshot.PromptSubmissionSnapshot;
 import com.igmo.web.websocket.snapshot.RoundSnapshot;
@@ -75,7 +76,10 @@ public class PromptPhaseService {
 
     public void onPlayerRemoved(String code) {
         boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, room ->
-                        room.getPhase() == GamePhase.GENERATING && room.hasAllImagesGenerated())
+                {
+                    return RoomUpdate.unchanged(
+                            room.getPhase() == GamePhase.GENERATING && room.hasAllImagesGenerated());
+                })
                 .orElse(false);
         if (shouldSchedulePlayingTransition) {
             gamePhaseScheduler.cancelPrompt(code);
@@ -90,14 +94,17 @@ public class PromptPhaseService {
     private void runPromptExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     Map<String, SamplePrompt> assignments =
                             lockedRoom.fillMissingImagesWithSamples(samplePromptProvider.getAll(), Instant.now());
-                    return new PromptExpirationResult(
+                    PromptExpirationResult result = new PromptExpirationResult(
                             assignments,
                             PromptSubmissionSnapshot.from(lockedRoom),
                             lockedRoom.hasAllImagesGenerated());
+                    return assignments.isEmpty()
+                            ? RoomUpdate.unchanged(result)
+                            : RoomUpdate.changed(result);
                 })
                 .ifPresent(result -> {
                     publishSampleImageResults(code, result.assignments());
@@ -142,14 +149,14 @@ public class PromptPhaseService {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
             if (lockedRoom.getPhase() != GamePhase.GENERATING
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
-                return null;
+                return RoomUpdate.unchanged(null);
             }
             boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
             operation.accept(lockedRoom);
-            return new ImageGenerationPublication(
+            return RoomUpdate.changed(new ImageGenerationPublication(
                     new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage),
                     PromptSubmissionSnapshot.from(lockedRoom),
-                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated());
+                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated()));
         }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
     }
 
@@ -157,7 +164,7 @@ public class PromptPhaseService {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
             if (lockedRoom.getPhase() != GamePhase.GENERATING
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
-                return null;
+                return RoomUpdate.unchanged(null);
             }
             boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
             Instant failedAt = Instant.now();
@@ -172,10 +179,10 @@ public class PromptPhaseService {
                 event = new ImageGenerationEvent(
                         code, PromptEntryStatus.FAILED, prompt, null, failureMessage(exception));
             }
-            return new ImageGenerationPublication(
+            return RoomUpdate.changed(new ImageGenerationPublication(
                     event,
                     PromptSubmissionSnapshot.from(lockedRoom),
-                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated());
+                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated()));
         }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
     }
 
@@ -208,7 +215,7 @@ public class PromptPhaseService {
                         GamePhase fromPhase = lockedRoom.getPhase();
                         lockedRoom.advanceToPlaying();
                         GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
-                        return initializeRounds(code, lockedRoom, Instant.now());
+                        return RoomUpdate.changed(initializeRounds(code, lockedRoom, Instant.now()));
                     })
                     .ifPresent(snapshot -> eventPublisher.publishRound(code, snapshot));
         } catch (ImagesNotReadyException | RoundStartNotAllowedException ignored) {

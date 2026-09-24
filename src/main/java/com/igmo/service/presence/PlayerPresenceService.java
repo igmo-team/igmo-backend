@@ -7,6 +7,7 @@ import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.service.phase.GamePhaseService;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
 import com.igmo.web.LobbySnapshot;
 import java.time.Duration;
 import java.time.Instant;
@@ -117,27 +118,28 @@ public class PlayerPresenceService {
                 return;
             }
             gameRoomRepository.updateIfPresent(playerKey.roomCode(), room -> {
-                removePlayer(playerKey.roomCode(), room, playerKey.playerId());
-                return null;
+                boolean removed = removePlayer(playerKey.roomCode(), room, playerKey.playerId());
+                return removed ? RoomUpdate.changed(null) : RoomUpdate.unchanged(null);
             });
         });
     }
 
-    private void removePlayer(String code, GameRoom room, String playerId) {
+    private boolean removePlayer(String code, GameRoom room, String playerId) {
         if (!room.removePlayer(playerId)) {
-            return;
+            return false;
         }
         playerSessionRegistry.clear(new PlayerKey(code, playerId));
         if (room.isEmpty()) {
             gamePhaseScheduler.cancelAll(code);
             gameRoomRepository.remove(room);
-            return;
+            return true;
         }
         if (room.isInLobby()) {
             eventPublisher.publishLobby(code, LobbySnapshot.from(room));
-            return;
+            return true;
         }
         gamePhaseService.onPlayerRemoved(code);
         // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
+        return true;
     }
 }

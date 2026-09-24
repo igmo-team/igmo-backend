@@ -7,6 +7,7 @@ import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
 import com.igmo.web.websocket.message.OwnVoteOptionNotice;
 import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.message.RoomMessageType;
@@ -97,13 +98,16 @@ public class VoteResultPhaseService {
     private void runVoteExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isVoteExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     GamePhase fromPhase = lockedRoom.getPhase();
                     lockedRoom.completeVoting(Instant.now(), resultDuration);
                     GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
                     scheduleResultExpiration(code, lockedRoom.getResultDeadline());
-                    return RoundResultSnapshot.from(lockedRoom);
+                    RoundResultSnapshot snapshot = RoundResultSnapshot.from(lockedRoom);
+                    return lockedRoom.getPhase() == fromPhase
+                            ? RoomUpdate.unchanged(snapshot)
+                            : RoomUpdate.changed(snapshot);
                 })
                 .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
     }
@@ -115,7 +119,7 @@ public class VoteResultPhaseService {
     private void runVoteSkippedExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isVoteSkippedExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
 
                     Instant expiredAt = Instant.now();
@@ -124,7 +128,7 @@ public class VoteResultPhaseService {
                     GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
                     scheduleResultExpiration(code, lockedRoom.getResultDeadline());
 
-                    return RoundResultSnapshot.from(lockedRoom);
+                    return RoomUpdate.changed(RoundResultSnapshot.from(lockedRoom));
                 })
                 .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
     }
@@ -136,9 +140,9 @@ public class VoteResultPhaseService {
     void runResultExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isResultExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
-                    return advanceRoundAndPrepare(code, lockedRoom);
+                    return RoomUpdate.changed(advanceRoundAndPrepare(code, lockedRoom));
                 })
                 .ifPresent(result -> {
                     eventPublisher.publish(code, result.message());
