@@ -88,20 +88,24 @@ public class PromptPhaseService {
     }
 
     private void runPromptExpiration(String code, Instant deadline) {
-        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
-                        return false;
+                        return null;
                     }
                     Map<String, SamplePrompt> assignments =
                             lockedRoom.fillMissingImagesWithSamples(samplePromptProvider.getAll(), Instant.now());
-                    publishSampleImageResults(code, assignments);
-                    eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
-                    return lockedRoom.hasAllImagesGenerated();
+                    return new PromptExpirationResult(
+                            assignments,
+                            PromptSubmissionSnapshot.from(lockedRoom),
+                            lockedRoom.hasAllImagesGenerated());
                 })
-                .orElse(false);
-        if (shouldSchedulePlayingTransition) {
-            schedulePlayingTransition(code);
-        }
+                .ifPresent(result -> {
+                    publishSampleImageResults(code, result.assignments());
+                    eventPublisher.publishPromptSubmission(code, result.snapshot());
+                    if (result.shouldSchedulePlayingTransition()) {
+                        schedulePlayingTransition(code);
+                    }
+                });
     }
 
     private void publishSampleImageResults(String code, Map<String, SamplePrompt> assignments) {
@@ -135,50 +139,50 @@ public class PromptPhaseService {
             String imageUrl,
             String errorMessage
     ) {
-        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
             if (lockedRoom.getPhase() != GamePhase.GENERATING
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
-                return false;
+                return null;
             }
             boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
             operation.accept(lockedRoom);
-            eventPublisher.sendImageGenerationEvent(
-                    playerId,
-                    new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage));
-            eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
-            return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
-        }).orElse(false);
-        if (shouldSchedulePlayingTransition) {
-            gamePhaseScheduler.cancelPrompt(code);
-            schedulePlayingTransition(code);
-        }
+            return new ImageGenerationPublication(
+                    new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage),
+                    PromptSubmissionSnapshot.from(lockedRoom),
+                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated());
+        }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
     }
 
     private void handleImageGenerationFailure(String code, String playerId, String prompt, Exception exception) {
-        boolean shouldSchedulePlayingTransition = gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
             if (lockedRoom.getPhase() != GamePhase.GENERATING
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
-                return false;
+                return null;
             }
             boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
             Instant failedAt = Instant.now();
             lockedRoom.failImageGeneration(playerId);
+            ImageGenerationEvent event;
             if (lockedRoom.isPromptExpired(failedAt)) {
                 SamplePrompt sample = lockedRoom.fillFailedImageWithSample(
                         playerId, samplePromptProvider.getAll(), failedAt);
-                eventPublisher.sendImageGenerationEvent(
-                        playerId,
-                        new ImageGenerationEvent(code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl()));
+                event = new ImageGenerationEvent(
+                        code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl());
             } else {
-                eventPublisher.sendImageGenerationEvent(
-                        playerId,
-                        new ImageGenerationEvent(
-                                code, PromptEntryStatus.FAILED, prompt, null, failureMessage(exception)));
+                event = new ImageGenerationEvent(
+                        code, PromptEntryStatus.FAILED, prompt, null, failureMessage(exception));
             }
-            eventPublisher.publishPromptSubmission(code, PromptSubmissionSnapshot.from(lockedRoom));
-            return !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated();
-        }).orElse(false);
-        if (shouldSchedulePlayingTransition) {
+            return new ImageGenerationPublication(
+                    event,
+                    PromptSubmissionSnapshot.from(lockedRoom),
+                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated());
+        }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
+    }
+
+    private void publishImageGenerationResult(String code, String playerId, ImageGenerationPublication result) {
+        eventPublisher.sendImageGenerationEvent(playerId, result.event());
+        eventPublisher.publishPromptSubmission(code, result.snapshot());
+        if (result.shouldSchedulePlayingTransition()) {
             gamePhaseScheduler.cancelPrompt(code);
             schedulePlayingTransition(code);
         }
@@ -219,6 +223,20 @@ public class PromptPhaseService {
                 room.getFinalGuessSubmissionDeadline(),
                 voteResultPhaseService::completeGuessSubmission);
         return RoundSnapshot.from(room);
+    }
+
+    private record PromptExpirationResult(
+            Map<String, SamplePrompt> assignments,
+            PromptSubmissionSnapshot snapshot,
+            boolean shouldSchedulePlayingTransition
+    ) {
+    }
+
+    private record ImageGenerationPublication(
+            ImageGenerationEvent event,
+            PromptSubmissionSnapshot snapshot,
+            boolean shouldSchedulePlayingTransition
+    ) {
     }
 
 }

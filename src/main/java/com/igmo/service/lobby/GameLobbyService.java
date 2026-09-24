@@ -42,24 +42,25 @@ public class GameLobbyService {
     }
 
     public JoinGameResponse joinGame(String code, String nickname) {
-        return gameRoomRepository.update(code, room -> {
+        JoinGameResponse response = gameRoomRepository.update(code, room -> {
             Player player = new Player(nickname);
             room.addPlayer(player);
             LobbySnapshot snapshot = LobbySnapshot.from(room);
-            eventPublisher.publishLobby(code, snapshot);
             return new JoinGameResponse(player.getId(), player.getSecret(), snapshot);
         });
+        eventPublisher.publishLobby(code, response.snapshot());
+        return response;
     }
 
     public void changeReady(String code, String playerId, boolean ready) {
-        gameRoomRepository.update(code, room -> {
+        LobbySnapshot snapshot = gameRoomRepository.update(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             room.changePlayerReady(playerId, ready);
-            eventPublisher.publishLobby(code, LobbySnapshot.from(room));
-            return null;
+            return LobbySnapshot.from(room);
         });
+        eventPublisher.publishLobby(code, snapshot);
     }
 
     @EventListener
