@@ -133,7 +133,8 @@ public class PromptPhaseService {
                         PromptEntryStatus.READY,
                         prompt,
                         imageUrl,
-                        null),
+                        null
+                ),
                 exception -> handleImageGenerationFailure(code, playerId, prompt, exception));
     }
 
@@ -147,17 +148,21 @@ public class PromptPhaseService {
             String errorMessage
     ) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
-            if (lockedRoom.getPhase() != GamePhase.GENERATING
-                    || !lockedRoom.isImageGenerationInProgress(playerId)) {
-                return RoomUpdate.unchanged(null);
-            }
-            boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
-            operation.accept(lockedRoom);
-            return RoomUpdate.changed(new ImageGenerationPublication(
-                    new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage),
-                    PromptSubmissionSnapshot.from(lockedRoom),
-                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated()));
-        }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
+                    if (lockedRoom.getPhase() != GamePhase.GENERATING
+                            || !lockedRoom.isImageGenerationInProgress(playerId)) {
+                        return RoomUpdate.unchanged(null);
+                    }
+                    boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
+                    operation.accept(lockedRoom);
+                    return RoomUpdate.changed(
+                            new ImageGenerationPublication(
+                                    new ImageGenerationEvent(code, status, submittedPrompt, imageUrl, errorMessage),
+                                    PromptSubmissionSnapshot.from(lockedRoom),
+                                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated()
+                            )
+                    );
+                })
+                .ifPresent(result -> publishImageGenerationResult(code, playerId, result));
     }
 
     private void handleImageGenerationFailure(String code, String playerId, String prompt, Exception exception) {
@@ -166,24 +171,53 @@ public class PromptPhaseService {
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
                 return RoomUpdate.unchanged(null);
             }
-            boolean wasAllImagesGenerated = lockedRoom.hasAllImagesGenerated();
-            Instant failedAt = Instant.now();
-            lockedRoom.failImageGeneration(playerId);
-            ImageGenerationEvent event;
-            if (lockedRoom.isPromptExpired(failedAt)) {
-                SamplePrompt sample = lockedRoom.fillFailedImageWithSample(
-                        playerId, samplePromptProvider.getAll(), failedAt);
-                event = new ImageGenerationEvent(
-                        code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl());
-            } else {
-                event = new ImageGenerationEvent(
-                        code, PromptEntryStatus.FAILED, prompt, null, failureMessage(exception));
-            }
-            return RoomUpdate.changed(new ImageGenerationPublication(
-                    event,
-                    PromptSubmissionSnapshot.from(lockedRoom),
-                    !wasAllImagesGenerated && lockedRoom.hasAllImagesGenerated()));
+            return RoomUpdate.changed(applyImageGenerationFailure(lockedRoom, code, playerId, prompt, exception));
         }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
+    }
+
+    private ImageGenerationPublication applyImageGenerationFailure(
+            GameRoom room,
+            String code,
+            String playerId,
+            String prompt,
+            Exception exception
+    ) {
+        boolean wasAllImagesGenerated = room.hasAllImagesGenerated();
+        Instant failedAt = Instant.now();
+        room.failImageGeneration(playerId);
+        ImageGenerationEvent event = createImageGenerationFailureEvent(
+                room, code, playerId, prompt, exception, failedAt);
+        return new ImageGenerationPublication(
+                event,
+                PromptSubmissionSnapshot.from(room),
+                !wasAllImagesGenerated && room.hasAllImagesGenerated());
+    }
+
+    private ImageGenerationEvent createImageGenerationFailureEvent(
+            GameRoom room,
+            String code,
+            String playerId,
+            String prompt,
+            Exception exception,
+            Instant failedAt
+    ) {
+        if (room.isPromptExpired(failedAt)) {
+            return fillFailedImageWithSample(room, code, playerId, failedAt);
+        }
+        return new ImageGenerationEvent(
+                code, PromptEntryStatus.FAILED, prompt, null, failureMessage(exception));
+    }
+
+    private ImageGenerationEvent fillFailedImageWithSample(
+            GameRoom room,
+            String code,
+            String playerId,
+            Instant failedAt
+    ) {
+        SamplePrompt sample = room.fillFailedImageWithSample(
+                playerId, samplePromptProvider.getAll(), failedAt);
+        return new ImageGenerationEvent(
+                code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl());
     }
 
     private void publishImageGenerationResult(String code, String playerId, ImageGenerationPublication result) {
