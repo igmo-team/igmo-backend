@@ -70,7 +70,7 @@ public class GameLobbyService {
         gamePhaseScheduler.scheduleLobbyExpiration(
                 room.getCode(),
                 room.getLobbyDeadline(),
-                () -> gameRoomRepository.removeLobbyIfExpired(room, Instant.now())
+                () -> expireLobbyIfDue(room)
         );
     }
 
@@ -81,11 +81,17 @@ public class GameLobbyService {
                 gamePhaseScheduler.scheduleLobbyExpiration(
                         room.getCode(),
                         room.getLobbyDeadline(),
-                        () -> gameRoomRepository.removeLobbyIfExpired(room, Instant.now())
+                        () -> expireLobbyIfDue(room)
                 );
                 return room;
             }
         }
         throw new RoomCodeGenerationFailedException();
+    }
+
+    private void expireLobbyIfDue(GameRoom room) {
+        if (gameRoomRepository.removeLobbyIfExpired(room, Instant.now())) {
+            eventPublisher.publishLobbyExpired(room.getCode());
+        }
     }
 }

@@ -4,6 +4,7 @@ import com.igmo.web.websocket.message.RoomMessageType;
 
 public enum WebSocketMessageType {
     LOBBY_SNAPSHOT,
+    LOBBY_EXPIRED,
     PROMPT_SUBMISSION_SNAPSHOT,
     ROUND_SNAPSHOT,
     VOTE_SNAPSHOT,

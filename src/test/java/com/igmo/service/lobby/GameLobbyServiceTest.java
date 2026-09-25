@@ -24,13 +24,16 @@ import com.igmo.web.LobbySnapshot;
 import com.igmo.web.PlayerView;
 import com.igmo.web.http.response.CreateGameResponse;
 import com.igmo.web.http.response.JoinGameResponse;
+import com.igmo.web.websocket.message.LobbyExpiredNotice;
 import com.igmo.web.websocket.message.RoomMessage;
+import com.igmo.web.websocket.message.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -97,6 +100,29 @@ class GameLobbyServiceTest {
         );
         assertThat(room.getLobbyDeadline())
                 .isBetween(before.plus(LOBBY_DURATION), after.plus(LOBBY_DURATION));
+    }
+
+    @Test
+    @DisplayName("로비 만료 작업이 방을 제거하면 전체 방 구독자에게 만료 메시지를 보낸다.")
+    void lobbyExpiration_방을제거하고_만료메시지를보낸다() {
+        // given
+        given(roomCodeGenerator.generate()).willReturn("ABCD");
+        gameLobbyService.createGame("호스트");
+        GameRoom room = gameRegistry.find("ABCD").orElseThrow();
+        ArgumentCaptor<Runnable> expirationTask = ArgumentCaptor.forClass(Runnable.class);
+        verify(gamePhaseScheduler).scheduleLobbyExpiration(eq("ABCD"), eq(room.getLobbyDeadline()),
+                expirationTask.capture());
+        ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
+
+        // when
+        expirationTask.getValue().run();
+
+        // then
+        ArgumentCaptor<RoomMessage> message = ArgumentCaptor.forClass(RoomMessage.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/rooms/ABCD"), message.capture());
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+        assertThat(message.getValue().type()).isEqualTo(RoomMessageType.LOBBY_EXPIRED);
+        assertThat(message.getValue().payload()).isEqualTo(new LobbyExpiredNotice("ABCD"));
     }
 
     @Test

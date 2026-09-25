@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.igmo.domain.PromptSubmissionType;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerator;
+import com.igmo.service.lobby.GameLobbyService;
 import com.igmo.support.websocketdocs.AsyncApiGenerator;
 import com.igmo.support.websocketdocs.WebSocketSnippetWriter;
 import com.igmo.web.ErrorResponse;
@@ -20,6 +21,7 @@ import com.igmo.web.http.request.JoinGameRequest;
 import com.igmo.web.http.response.CreateGameResponse;
 import com.igmo.web.http.response.JoinGameResponse;
 import com.igmo.web.websocket.message.ImageGenerationEvent;
+import com.igmo.web.websocket.message.LobbyExpiredNotice;
 import com.igmo.web.websocket.message.OwnVoteOptionNotice;
 import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.message.RoomMessageType;
@@ -68,6 +70,7 @@ import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
@@ -124,6 +127,9 @@ class GameWebSocketE2ETest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private GameLobbyService gameLobbyService;
 
     @MockitoBean
     private ImageGenerator imageGenerator;
@@ -197,6 +203,8 @@ class GameWebSocketE2ETest {
                 .containsExactly("ROUND_SNAPSHOT");
         assertThat(enumValues(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/type/enum")))
                 .containsExactly("LOBBY_SNAPSHOT");
+        assertThat(enumValues(document.at("/components/schemas/LobbyExpiredMessageSchema/properties/type/enum")))
+                .containsExactly("LOBBY_EXPIRED");
         assertThat(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/payload/properties/lobbyDeadline/type")
                 .asText()).isEqualTo("string");
         assertThat(document.at("/components/schemas/LobbySnapshotMessageSchema/properties/payload/properties/lobbyDeadline/format")
@@ -253,6 +261,47 @@ class GameWebSocketE2ETest {
             ));
         } finally {
             scenario.close();
+        }
+    }
+
+    @Test
+    @DisplayName("로비 대기 시간이 만료되면 모든 참가자에게 LOBBY_EXPIRED를 전송한다.")
+    void lobbyExpiration_모든참가자에게_만료알림을보낸다() throws Exception {
+        // given
+        Duration originalLobbyDuration = (Duration) ReflectionTestUtils.getField(gameLobbyService, "lobbyDuration");
+        ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", Duration.ofSeconds(3));
+        GameScenario scenario = null;
+        try {
+            scenario = createScenario();
+            scenario.clearTopic();
+
+            // when
+            JsonNode hostNotice = awaitTopic(scenario, RoomMessageType.LOBBY_EXPIRED.name());
+            JsonNode guestNotice = awaitMessage(
+                    scenario.players().get(1).topicMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.LOBBY_EXPIRED.name()),
+                    "lobby expiration notice for guest");
+            JsonNode otherGuestNotice = awaitMessage(
+                    scenario.players().get(2).topicMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.LOBBY_EXPIRED.name()),
+                    "lobby expiration notice for other guest");
+
+            // then
+            assertThat(hostNotice.path("payload").path("roomCode").asText()).isEqualTo(scenario.roomCode());
+            assertThat(guestNotice.path("payload").path("roomCode").asText()).isEqualTo(scenario.roomCode());
+            assertThat(otherGuestNotice.path("payload").path("roomCode").asText()).isEqualTo(scenario.roomCode());
+            writeSnippet("lobby-expired", eventOnlySnippet(
+                    "lobbyExpired", "로비 만료", List.of("lobby"),
+                    "로비 대기 시간이 만료되면 같은 방 구독자 전체에게 전송됩니다.",
+                    triggered("LobbyExpiredMessage", "LOBBY_EXPIRED", "/topic/rooms/{roomCode}", "BROADCAST",
+                            "SCHEDULED", "로비 대기 만료 알림", "만료 안내 후 방 대기 화면을 종료합니다.",
+                            hostNotice, List.of("lobby"), roomMessage(LobbyExpiredNotice.class))
+            ));
+        } finally {
+            if (scenario != null) {
+                scenario.close();
+            }
+            ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", originalLobbyDuration);
         }
     }
 
@@ -989,6 +1038,25 @@ class GameWebSocketE2ETest {
         for (ObjectNode message : messages) {
             triggered.add(message);
         }
+        return snippet;
+    }
+
+    private ObjectNode eventOnlySnippet(
+            String operationId,
+            String title,
+            List<String> tags,
+            String description,
+            ObjectNode... messages
+    ) {
+        ObjectNode snippet = snippet(
+                operationId,
+                title,
+                tags,
+                description,
+                objectMapper.createObjectNode(),
+                messages
+        );
+        snippet.put("eventOnly", true);
         return snippet;
     }
 
