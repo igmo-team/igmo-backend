@@ -5,7 +5,6 @@ import com.igmo.web.websocket.WebSocketSessionDecoratorFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.TaskScheduler;
@@ -24,9 +23,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final PlayerSessionInterceptor playerSessionInterceptor;
     private final WebSocketSessionDecoratorFactory webSocketSessionDecoratorFactory;
 
-    @Value("${igmo.websocket.preserve-receive-order:true}")
-    private boolean preserveReceiveOrder = true;
-
     private static final String[] ALLOWED_ORIGIN_PATTERNS = {
             "http://localhost:*",
             "https://igmo.co.kr",
@@ -37,7 +33,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.setPreserveReceiveOrder(preserveReceiveOrder);
+        registry.setPreserveReceiveOrder(true);
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns(ALLOWED_ORIGIN_PATTERNS);
     }
