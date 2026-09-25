@@ -7,6 +7,7 @@ import com.igmo.monitoring.WebSocketMessageOutcome;
 import com.igmo.monitoring.WebSocketMessageType;
 import com.igmo.web.LobbySnapshot;
 import com.igmo.web.websocket.message.ImageGenerationEvent;
+import com.igmo.web.websocket.message.LobbyExpiredNotice;
 import com.igmo.web.websocket.message.OwnVoteOptionNotice;
 import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.message.RoomMessageType;
@@ -39,6 +40,10 @@ public class GameEventPublisher {
 
     public void publishLobby(String code, LobbySnapshot snapshot) {
         publish(code, RoomMessage.lobbySnapshot(snapshot));
+    }
+
+    public void publishLobbyExpired(String code) {
+        publish(code, RoomMessage.lobbyExpired(new LobbyExpiredNotice(code)));
     }
 
     public void publishPromptSubmission(String code, PromptSubmissionSnapshot snapshot) {
@@ -157,6 +162,7 @@ public class GameEventPublisher {
     private GamePhase phaseOf(com.igmo.web.websocket.message.RoomMessageType messageType) {
         return switch (messageType) {
             case LOBBY_SNAPSHOT -> GamePhase.LOBBY;
+            case LOBBY_EXPIRED -> GamePhase.LOBBY;
             case PROMPT_SUBMISSION_SNAPSHOT -> GamePhase.GENERATING;
             case ROUND_SNAPSHOT -> GamePhase.PLAYING;
             case VOTE_SNAPSHOT -> GamePhase.VOTING;

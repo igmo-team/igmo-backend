@@ -6,6 +6,7 @@ import com.igmo.domain.Player;
 import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
 import com.igmo.service.GameRoomRestoredEvent;
+import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.store.GameRoomRepository;
@@ -87,5 +88,10 @@ public class GameLobbyService {
             }
         }
         throw new RoomCodeGenerationFailedException();
+    }
+
+    @EventListener
+    public void publishLobbyExpired(LobbyExpiredEvent event) {
+        eventPublisher.publishLobbyExpired(event.roomCode());
     }
 }

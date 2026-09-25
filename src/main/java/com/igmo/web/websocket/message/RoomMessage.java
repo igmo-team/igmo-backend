@@ -17,6 +17,10 @@ public record RoomMessage<T>(
         return new RoomMessage<>(RoomMessageType.LOBBY_SNAPSHOT, payload);
     }
 
+    public static RoomMessage<LobbyExpiredNotice> lobbyExpired(LobbyExpiredNotice payload) {
+        return new RoomMessage<>(RoomMessageType.LOBBY_EXPIRED, payload);
+    }
+
     public static RoomMessage<PromptSubmissionSnapshot> promptSubmissionSnapshot(PromptSubmissionSnapshot payload) {
         return new RoomMessage<>(RoomMessageType.PROMPT_SUBMISSION_SNAPSHOT, payload);
     }

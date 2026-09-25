@@ -2,6 +2,7 @@ package com.igmo.store;
 
 import com.igmo.domain.GameRoom;
 import com.igmo.service.GameRoomRestoredEvent;
+import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.redis.GameRoomStateChangePublisher;
 import com.igmo.store.redis.RedisGameRoomStateRepository;
@@ -127,9 +128,11 @@ public class GameRoomRepository {
         }
 
         GameRoom room = existing.get();
+        if (removeLobbyIfExpired(room, Instant.now())) {
+            return Optional.empty();
+        }
         synchronized (room) {
-            if (room.isLobbyExpired(Instant.now())) {
-                removeAttached(room);
+            if (isDetached(room)) {
                 return Optional.empty();
             }
         }
@@ -146,7 +149,9 @@ public class GameRoomRepository {
 
         GameRoom room = restored.get();
         if (room.isLobbyExpired(Instant.now())) {
-            deleteFromRedisAndPublish(code);
+            if (deleteFromRedisAndPublish(code)) {
+                eventPublisher.publishEvent(new LobbyExpiredEvent(code));
+            }
             return Optional.empty();
         }
         return registerRestoredRoom(room);
@@ -166,9 +171,13 @@ public class GameRoomRepository {
             if (isDetached(room) || !room.isLobbyExpired(now)) {
                 return false;
             }
-            removeAttached(room);
-            return true;
+            try {
+                removeAttached(room);
+            } finally {
+                eventPublisher.publishEvent(new LobbyExpiredEvent(room.getCode()));
+            }
         }
+        return true;
     }
 
     public <T> T update(String code, Function<GameRoom, T> operation) {
@@ -237,11 +246,12 @@ public class GameRoomRepository {
         }
     }
 
-    private void deleteFromRedisAndPublish(String code) {
-        redisStateRepository.ifPresent(repository -> {
-            repository.delete(code);
+    private boolean deleteFromRedisAndPublish(String code) {
+        return redisStateRepository.map(repository -> {
+            boolean deleted = repository.delete(code);
             publishStateChanged(code);
-        });
+            return deleted;
+        }).orElse(false);
     }
 
     private void publishStateChanged(String code) {

@@ -87,7 +87,7 @@ public class AsyncApiGenerator {
         addServer(document, snippets.getFirst());
 
         Map<String, OperationContract> requestOperations = collectRequestOperations(snippets);
-        Map<String, MessageContract> messageContracts = collectMessageContracts(requestOperations.values());
+        Map<String, MessageContract> messageContracts = collectMessageContracts(requestOperations.values(), snippets);
         Map<DestinationKey, DestinationContract> receiveDestinations = collectReceiveDestinations(messageContracts.values());
 
         ObjectNode channels = document.putObject("channels");
@@ -175,18 +175,33 @@ public class AsyncApiGenerator {
         return operations;
     }
 
-    private Map<String, MessageContract> collectMessageContracts(Iterable<OperationContract> operations) {
+    private Map<String, MessageContract> collectMessageContracts(
+            Iterable<OperationContract> operations,
+            List<JsonNode> snippets
+    ) {
         Map<String, MessageContract> messages = new LinkedHashMap<>();
         for (OperationContract operation : operations) {
             for (JsonNode triggered : operation.triggeredMessages) {
-                MessageContract candidate = MessageContract.from(triggered);
-                MessageContract existing = messages.putIfAbsent(candidate.messageId, candidate);
-                if (existing != null) {
-                    existing.merge(candidate);
-                }
+                mergeMessageContract(messages, triggered);
+            }
+        }
+        for (JsonNode snippet : snippets) {
+            if (!snippet.path("eventOnly").asBoolean()) {
+                continue;
+            }
+            for (JsonNode triggered : snippet.path("triggeredMessages")) {
+                mergeMessageContract(messages, triggered);
             }
         }
         return messages;
+    }
+
+    private void mergeMessageContract(Map<String, MessageContract> messages, JsonNode triggered) {
+        MessageContract candidate = MessageContract.from(triggered);
+        MessageContract existing = messages.putIfAbsent(candidate.messageId, candidate);
+        if (existing != null) {
+            existing.merge(candidate);
+        }
     }
 
     private Map<DestinationKey, DestinationContract> collectReceiveDestinations(Iterable<MessageContract> messages) {

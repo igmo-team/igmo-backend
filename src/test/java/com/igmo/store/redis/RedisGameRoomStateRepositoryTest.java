@@ -165,10 +165,12 @@ class RedisGameRoomStateRepositoryTest {
         repository.saveIfAbsent(GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10)));
 
         // when
-        repository.delete("ABCD");
+        boolean deleted = repository.delete("ABCD");
 
         // then
+        assertThat(deleted).isTrue();
         assertThat(repository.find("ABCD")).isEmpty();
+        assertThat(repository.delete("ABCD")).isFalse();
     }
 
     @Test
