@@ -291,6 +291,26 @@ class GameWebSocketE2ETest {
     }
 
     @Test
+    @DisplayName("구독 직후 상태 동기화를 요청해도 현재 방 상태를 받는다.")
+    void syncRoomState_구독직후요청해도_현재상태를받는다() throws Exception {
+        // given
+        GameScenario scenario = createSinglePlayerScenario();
+        try {
+            // when
+            scenario.host().session().send(sendDestination(scenario, "sync"), null);
+
+            // then
+            JsonNode snapshot = awaitMessage(
+                    scenario.host().roomStateMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.LOBBY_SNAPSHOT.name()),
+                    "room state snapshot after subscriptions");
+            assertThat(snapshot.path("payload").path("lobbyDeadline").asText()).isNotBlank();
+        } finally {
+            scenario.close();
+        }
+    }
+
+    @Test
     @DisplayName("투표 상태 동기화 요청 시 요청 플레이어의 개인 투표 상태도 다시 전송한다.")
     void syncRoomState_투표상태와_개인투표상태를_함께_전송한다() throws Exception {
         // given
