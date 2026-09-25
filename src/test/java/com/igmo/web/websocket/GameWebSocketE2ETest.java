@@ -1,6 +1,7 @@
 package com.igmo.web.websocket;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
@@ -8,12 +9,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.igmo.domain.GameRoom;
 import com.igmo.domain.PromptSubmissionType;
 import com.igmo.imagegeneration.GeneratedImage;
 import com.igmo.imagegeneration.ImageGenerator;
+import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.lobby.GameLobbyService;
 import com.igmo.support.websocketdocs.AsyncApiGenerator;
 import com.igmo.support.websocketdocs.WebSocketSnippetWriter;
+import com.igmo.store.GameRegistry;
 import com.igmo.web.ErrorResponse;
 import com.igmo.web.LobbySnapshot;
 import com.igmo.web.http.request.CreateGameRequest;
@@ -130,6 +134,9 @@ class GameWebSocketE2ETest {
 
     @Autowired
     private GameLobbyService gameLobbyService;
+
+    @Autowired
+    private GameRegistry gameRegistry;
 
     @MockitoBean
     private ImageGenerator imageGenerator;
@@ -302,6 +309,39 @@ class GameWebSocketE2ETest {
                 scenario.close();
             }
             ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", originalLobbyDuration);
+        }
+    }
+
+    @Test
+    @DisplayName("요청이 만료된 로비를 먼저 제거해도 전체 참가자에게 만료 알림을 보낸다.")
+    void joinGame_만료로비를제거하면_전체참가자에게알린다() throws Exception {
+        // given
+        GameScenario scenario = createScenario();
+        try {
+            scenario.clearTopic();
+            GameRoom room = gameRegistry.find(scenario.roomCode()).orElseThrow();
+            ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
+
+            // when
+            assertThatThrownBy(() -> gameLobbyService.joinGame(scenario.roomCode(), "추가 참가자"))
+                    .isInstanceOf(RoomNotFoundException.class);
+
+            // then
+            JsonNode hostNotice = awaitTopic(scenario, RoomMessageType.LOBBY_EXPIRED.name());
+            JsonNode guestNotice = awaitMessage(
+                    scenario.players().get(1).topicMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.LOBBY_EXPIRED.name()),
+                    "lobby expiration notice for guest");
+            JsonNode otherGuestNotice = awaitMessage(
+                    scenario.players().get(2).topicMessages(),
+                    message -> message.path("type").asText().equals(RoomMessageType.LOBBY_EXPIRED.name()),
+                    "lobby expiration notice for other guest");
+
+            assertThat(hostNotice.path("payload").path("roomCode").asText()).isEqualTo(scenario.roomCode());
+            assertThat(guestNotice.path("payload").path("roomCode").asText()).isEqualTo(scenario.roomCode());
+            assertThat(otherGuestNotice.path("payload").path("roomCode").asText()).isEqualTo(scenario.roomCode());
+        } finally {
+            scenario.close();
         }
     }
 

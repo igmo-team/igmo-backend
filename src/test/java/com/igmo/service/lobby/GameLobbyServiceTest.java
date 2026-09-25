@@ -15,6 +15,7 @@ import com.igmo.domain.exception.DuplicateNicknameException;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
+import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -29,11 +30,13 @@ import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.message.RoomMessageType;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -45,15 +48,21 @@ class GameLobbyServiceTest {
     private final RoomCodeGenerator roomCodeGenerator = mock(RoomCodeGenerator.class);
     private final SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
     private final GamePhaseScheduler gamePhaseScheduler = mock(GamePhaseScheduler.class);
-    private final GameLobbyService gameLobbyService = new GameLobbyService(
-            new GameRoomRepository(gameRegistry),
-            roomCodeGenerator,
-            new GameEventPublisher(messagingTemplate, gameMetrics),
-            GameStartPolicy.local(),
-            gamePhaseScheduler);
+    private GameLobbyService gameLobbyService;
 
     @BeforeEach
     void 로비_대기_시간을_설정한다() {
+        ApplicationEventPublisher eventPublisher = event -> {
+            if (event instanceof LobbyExpiredEvent lobbyExpiredEvent) {
+                gameLobbyService.publishLobbyExpired(lobbyExpiredEvent);
+            }
+        };
+        gameLobbyService = new GameLobbyService(
+                new GameRoomRepository(gameRegistry, Optional.empty(), eventPublisher),
+                roomCodeGenerator,
+                new GameEventPublisher(messagingTemplate, gameMetrics),
+                GameStartPolicy.local(),
+                gamePhaseScheduler);
         ReflectionTestUtils.setField(gameLobbyService, "lobbyDuration", LOBBY_DURATION);
     }
 

@@ -97,11 +97,12 @@ public class RedisGameRoomStateRepository {
         }
     }
 
-    public void delete(String roomCode) {
+    public boolean delete(String roomCode) {
         long startedAt = System.nanoTime();
         try {
-            redisTemplate.delete(key(roomCode));
+            boolean deleted = Boolean.TRUE.equals(redisTemplate.delete(key(roomCode)));
             recordOperation("delete", "success", startedAt);
+            return deleted;
         } catch (RuntimeException exception) {
             recordOperation("delete", "error", startedAt);
             throw exception;

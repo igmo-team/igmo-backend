@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +15,7 @@ import com.igmo.domain.GameRoom;
 import com.igmo.domain.GameStartPolicy;
 import com.igmo.domain.Player;
 import com.igmo.service.GameRoomRestoredEvent;
+import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.redis.GameRoomStateChangePublisher;
 import com.igmo.store.redis.RedisGameRoomStateRepository;
@@ -38,9 +40,11 @@ class GameRoomRepositoryTest {
         // given
         GameRegistry gameRegistry = new GameRegistry();
         RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
         GameRoomRepository repository = new GameRoomRepository(
                 gameRegistry,
-                Optional.of(redisRepository)
+                Optional.of(redisRepository),
+                eventPublisher
         );
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         gameRegistry.saveIfAbsent(room);
@@ -53,6 +57,7 @@ class GameRoomRepositoryTest {
         assertThat(removed).isTrue();
         assertThat(gameRegistry.find("ABCD")).isEmpty();
         verify(redisRepository).delete("ABCD");
+        verify(eventPublisher).publishEvent(new LobbyExpiredEvent("ABCD"));
     }
 
     @Test
@@ -145,7 +150,8 @@ class GameRoomRepositoryTest {
     void update_만료된로비는게임시작을거절한다() {
         // given
         GameRegistry gameRegistry = new GameRegistry();
-        GameRoomRepository repository = new GameRoomRepository(gameRegistry);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(gameRegistry, Optional.empty(), eventPublisher);
         Player host = new Player("호스트");
         GameRoom room = GameRoom.create("ABCD", host, GameStartPolicy.local(), Duration.ofMinutes(10));
         gameRegistry.saveIfAbsent(room);
@@ -156,7 +162,9 @@ class GameRoomRepositoryTest {
             currentRoom.start(host.getId(), Instant.now(), Duration.ofSeconds(1));
             return null;
         })).isInstanceOf(RoomNotFoundException.class);
+        assertThat(repository.removeLobbyIfExpired(room, Instant.now())).isFalse();
         assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verify(eventPublisher, times(1)).publishEvent(new LobbyExpiredEvent("ABCD"));
     }
 
     @Test
@@ -165,13 +173,43 @@ class GameRoomRepositoryTest {
         // given
         GameRegistry gameRegistry = new GameRegistry();
         RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
         GameRoomRepository repository = new GameRoomRepository(
                 gameRegistry,
-                Optional.of(redisRepository)
+                Optional.of(redisRepository),
+                eventPublisher
         );
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
         when(redisRepository.restore("ABCD")).thenReturn(Optional.of(room));
+        when(redisRepository.delete("ABCD")).thenReturn(true, false);
+
+        // when
+        Optional<GameRoom> restored = repository.restore("ABCD");
+        Optional<GameRoom> restoredAgain = repository.restore("ABCD");
+
+        // then
+        assertThat(restored).isEmpty();
+        assertThat(restoredAgain).isEmpty();
+        assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verify(redisRepository, times(2)).delete("ABCD");
+        verify(eventPublisher, times(1)).publishEvent(new LobbyExpiredEvent("ABCD"));
+    }
+
+    @Test
+    @DisplayName("로컬 복원 중 만료 로비를 제거하면 만료 이벤트를 발행한다.")
+    void restore_로컬의만료로비를제거하면_만료이벤트를발행한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.empty(),
+                eventPublisher
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
+        gameRegistry.saveIfAbsent(room);
 
         // when
         Optional<GameRoom> restored = repository.restore("ABCD");
@@ -179,7 +217,7 @@ class GameRoomRepositoryTest {
         // then
         assertThat(restored).isEmpty();
         assertThat(gameRegistry.find("ABCD")).isEmpty();
-        verify(redisRepository).delete("ABCD");
+        verify(eventPublisher).publishEvent(new LobbyExpiredEvent("ABCD"));
     }
 
     @Test
@@ -289,9 +327,11 @@ class GameRoomRepositoryTest {
         // given
         GameRegistry gameRegistry = new GameRegistry();
         RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
         GameRoomRepository repository = new GameRoomRepository(
                 gameRegistry,
-                Optional.of(redisRepository)
+                Optional.of(redisRepository),
+                eventPublisher
         );
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         gameRegistry.saveIfAbsent(room);
@@ -305,6 +345,7 @@ class GameRoomRepositoryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Redis unavailable");
         assertThat(gameRegistry.find("ABCD")).isEmpty();
+        verify(eventPublisher).publishEvent(new LobbyExpiredEvent("ABCD"));
     }
 
     private static void await(CountDownLatch latch) {
