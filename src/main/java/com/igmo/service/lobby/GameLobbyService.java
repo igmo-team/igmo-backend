@@ -9,12 +9,15 @@ import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomCodeGenerationFailedException;
+import com.igmo.store.GameRoomDelivery;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
 import com.igmo.web.LobbySnapshot;
 import com.igmo.web.http.response.CreateGameResponse;
 import com.igmo.web.http.response.JoinGameResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
@@ -42,23 +45,29 @@ public class GameLobbyService {
     }
 
     public JoinGameResponse joinGame(String code, String nickname) {
-        JoinGameResponse response = gameRoomRepository.update(code, room -> {
+        JoinGameResponse response = gameRoomRepository.updateWithDeliveries(code, room -> {
             Player player = new Player(nickname);
             room.addPlayer(player);
             LobbySnapshot snapshot = LobbySnapshot.from(room);
-            return new JoinGameResponse(player.getId(), player.getSecret(), snapshot);
+            return RoomUpdate.changed(
+                    new JoinGameResponse(player.getId(), player.getSecret(), snapshot),
+                    List.of(GameRoomDelivery.roomSnapshot())
+            );
         });
         eventPublisher.publishLobby(code, response.snapshot());
         return response;
     }
 
     public void changeReady(String code, String playerId, boolean ready) {
-        LobbySnapshot snapshot = gameRoomRepository.update(code, room -> {
+        LobbySnapshot snapshot = gameRoomRepository.updateWithDeliveries(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             room.changePlayerReady(playerId, ready);
-            return LobbySnapshot.from(room);
+            return RoomUpdate.changed(
+                    LobbySnapshot.from(room),
+                    List.of(GameRoomDelivery.roomSnapshot())
+            );
         });
         eventPublisher.publishLobby(code, snapshot);
     }
