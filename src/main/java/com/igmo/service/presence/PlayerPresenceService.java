@@ -1,11 +1,12 @@
 package com.igmo.service.presence;
 
 import com.igmo.domain.GameRoom;
-import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
+import com.igmo.service.GameRoomStateSyncService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
 import com.igmo.service.phase.GamePhaseService;
+import com.igmo.store.GameRoomDelivery;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.store.RoomUpdate;
 import com.igmo.web.LobbySnapshot;
@@ -25,7 +26,7 @@ public class PlayerPresenceService {
     private final GameRoomRepository gameRoomRepository;
     private final GamePhaseScheduler gamePhaseScheduler;
     private final GamePhaseService gamePhaseService;
-    private final GameEventPublisher eventPublisher;
+    private final GameRoomStateSyncService gameRoomStateSyncService;
     private final TaskScheduler disconnectGraceScheduler;
     private final PlayerSessionRegistry playerSessionRegistry;
     private final Map<PlayerKey, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
@@ -37,14 +38,14 @@ public class PlayerPresenceService {
             GameRoomRepository gameRoomRepository,
             GamePhaseScheduler gamePhaseScheduler,
             GamePhaseService gamePhaseService,
-            GameEventPublisher eventPublisher,
+            GameRoomStateSyncService gameRoomStateSyncService,
             @Qualifier("disconnectGraceScheduler") TaskScheduler disconnectGraceScheduler,
             PlayerSessionRegistry playerSessionRegistry
     ) {
         this.gameRoomRepository = gameRoomRepository;
         this.gamePhaseScheduler = gamePhaseScheduler;
         this.gamePhaseService = gamePhaseService;
-        this.eventPublisher = eventPublisher;
+        this.gameRoomStateSyncService = gameRoomStateSyncService;
         this.disconnectGraceScheduler = disconnectGraceScheduler;
         this.playerSessionRegistry = playerSessionRegistry;
     }
@@ -63,17 +64,21 @@ public class PlayerPresenceService {
     public void leaveGame(String code, String playerId, String secret) {
         PlayerKey playerKey = new PlayerKey(code, playerId);
         playerSessionRegistry.withPlayerLock(playerKey, () -> {
-            gameRoomRepository.update(code, room -> {
+            RemovalOutcome outcome = gameRoomRepository.updateWithDeliveries(code, room -> {
                 if (!room.hasPlayer(playerId)) {
                     throw new PlayerNotFoundException();
                 }
                 if (!room.isSecretValid(playerId, secret)) {
                     throw new UnauthorizedPlayerException();
                 }
-                cancelPendingRemoval(playerKey);
-                removePlayer(code, room, playerId);
-                return null;
+                RemovalOutcome result = removePlayer(code, room, playerId);
+                return RoomUpdate.changed(
+                        result,
+                        result.room().isEmpty()
+                                ? java.util.List.of()
+                                : java.util.List.of(GameRoomDelivery.roomSnapshot()));
             });
+            completeRemoval(code, playerKey, outcome);
         });
     }
 
@@ -118,28 +123,45 @@ public class PlayerPresenceService {
                 return;
             }
             gameRoomRepository.updateIfPresent(playerKey.roomCode(), room -> {
-                boolean removed = removePlayer(playerKey.roomCode(), room, playerKey.playerId());
-                return removed ? RoomUpdate.changed(null) : RoomUpdate.unchanged(null);
-            });
+                RemovalOutcome outcome = removePlayer(playerKey.roomCode(), room, playerKey.playerId());
+                if (!outcome.removed()) {
+                    return RoomUpdate.unchanged(null);
+                }
+                return RoomUpdate.changed(
+                        outcome,
+                        outcome.room().isEmpty()
+                                ? java.util.List.of()
+                                : java.util.List.of(GameRoomDelivery.roomSnapshot()));
+            }).ifPresent(outcome -> completeRemoval(playerKey.roomCode(), playerKey, outcome));
         });
     }
 
-    private boolean removePlayer(String code, GameRoom room, String playerId) {
+    private RemovalOutcome removePlayer(String code, GameRoom room, String playerId) {
         if (!room.removePlayer(playerId)) {
-            return false;
+            return new RemovalOutcome(room, false);
         }
-        playerSessionRegistry.clear(new PlayerKey(code, playerId));
         if (room.isEmpty()) {
-            gamePhaseScheduler.cancelAll(code);
             gameRoomRepository.remove(room);
-            return true;
         }
-        if (room.isInLobby()) {
-            eventPublisher.publishLobby(code, LobbySnapshot.from(room));
-            return true;
+        return new RemovalOutcome(room, true);
+    }
+
+    private void completeRemoval(String code, PlayerKey playerKey, RemovalOutcome outcome) {
+        if (!outcome.removed()) {
+            return;
         }
-        gamePhaseService.onPlayerRemoved(code);
-        // 인게임 퇴장에 따른 라운드 재조정과 스냅샷 발행은 #72에서 처리한다.
-        return true;
+        cancelPendingRemoval(playerKey);
+        playerSessionRegistry.clear(playerKey);
+        if (outcome.room().isEmpty()) {
+            gamePhaseScheduler.cancelAll(code);
+            return;
+        }
+        if (!outcome.room().isInLobby()) {
+            gamePhaseService.onPlayerRemoved(code);
+        }
+        gameRoomStateSyncService.publishRoomSnapshot(outcome.room());
+    }
+
+    private record RemovalOutcome(GameRoom room, boolean removed) {
     }
 }
