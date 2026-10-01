@@ -2,8 +2,11 @@ package com.igmo.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.igmo.domain.GameRoom;
@@ -72,6 +75,34 @@ class GameRoomStateSyncServiceTest {
         verify(gameEventPublisher).sendOwnVoteOption(eq(playerId), noticeCaptor.capture());
         assertThat(snapshotCaptor.getValue().type()).isEqualTo(RoomMessageType.VOTE_SNAPSHOT);
         assertThat(noticeCaptor.getValue()).isEqualTo(expectedNotice);
+    }
+
+    @Test
+    @DisplayName("방 스냅샷 방송은 개인 투표 보기 방송과 분리한다.")
+    void publishRoomSnapshot_개인투표보기를_자동방송하지않는다() {
+        // given
+        GameRoom room = createVotingRoom();
+
+        // when
+        service.publishRoomSnapshot(room);
+
+        // then
+        verify(gameEventPublisher).publish(eq(room.getCode()), any(RoomMessage.class));
+        verify(gameEventPublisher, never()).sendOwnVoteOption(eq(room.getPlayers().getFirst().getId()), any());
+    }
+
+    @Test
+    @DisplayName("투표 단계 진입 배송 의도는 각 참가자의 개인 보기를 방송한다.")
+    void publishOwnVoteOptions_각참가자에게개인보기를전달한다() {
+        // given
+        GameRoom room = createVotingRoom();
+
+        // when
+        service.publishOwnVoteOptions(room);
+
+        // then
+        verify(gameEventPublisher, times(room.getPlayers().size()))
+                .sendOwnVoteOption(any(String.class), any(OwnVoteOptionNotice.class));
     }
 
     @Test

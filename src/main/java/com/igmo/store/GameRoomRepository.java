@@ -1,12 +1,15 @@
 package com.igmo.store;
 
+import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
 import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.store.redis.GameRoomStateChangePublisher;
 import com.igmo.store.redis.RedisGameRoomStateRepository;
+import com.igmo.web.websocket.snapshot.GameResultSnapshot;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,7 +76,7 @@ public class GameRoomRepository {
             throw exception;
         }
         if (persisted) {
-            publishStateChanged(room.getCode());
+            publishStateChanged(room.getCode(), room.getVersion(), List.of());
             return true;
         }
         gameRegistry.removeIfSame(room);
@@ -85,7 +88,10 @@ public class GameRoomRepository {
             if (isDetached(room)) {
                 return false;
             }
-            removeAttached(room);
+            List<GameRoomDelivery> deliveries = room.getPhase() == GamePhase.ENDED
+                    ? List.of(GameRoomDelivery.gameResult(GameResultSnapshot.from(room)))
+                    : List.of(GameRoomDelivery.roomRemoved());
+            removeAttached(room, deliveries);
             return true;
         }
     }
@@ -99,26 +105,51 @@ public class GameRoomRepository {
     }
 
     public void synchronizeFromRedis(String code) {
+        synchronizeFromRedisAndGet(code);
+    }
+
+    public Optional<GameRoom> synchronizeFromRedisAndGet(String code) {
+        return synchronizeFromRedisAndGet(code, Long.MAX_VALUE);
+    }
+
+    public Optional<GameRoom> synchronizeFromRedisAndGet(String code, long eventVersion) {
         if (redisStateRepository.isEmpty()) {
-            return;
+            return gameRegistry.find(code);
         }
 
         Optional<GameRoom> restored = redisStateRepository.orElseThrow().restore(code);
         if (restored.isEmpty()) {
-            gameRegistry.remove(code);
-            return;
+            return removeLocalRoomIfNotNewer(code, eventVersion);
         }
 
         GameRoom room = restored.get();
         if (room.isLobbyExpired(Instant.now())) {
-            gameRegistry.remove(code);
-            return;
+            return removeLocalRoomIfNotNewer(code, eventVersion);
         }
         boolean wasAbsent = gameRegistry.find(code).isEmpty();
-        gameRegistry.replace(room);
-        if (wasAbsent) {
-            eventPublisher.publishEvent(new GameRoomRestoredEvent(room));
+        GameRoom currentRoom;
+        if (eventVersion == Long.MAX_VALUE) {
+            gameRegistry.replace(room);
+            currentRoom = room;
+        } else {
+            currentRoom = gameRegistry.replaceIfNewer(room);
         }
+        if (wasAbsent) {
+            eventPublisher.publishEvent(new GameRoomRestoredEvent(currentRoom));
+        }
+        return Optional.of(currentRoom);
+    }
+
+    private Optional<GameRoom> removeLocalRoomIfNotNewer(String code, long eventVersion) {
+        Optional<GameRoom> localRoom = gameRegistry.find(code);
+        if (localRoom.isEmpty()) {
+            return Optional.empty();
+        }
+        GameRoom room = localRoom.get();
+        if (room.getVersion() <= eventVersion && gameRegistry.removeIfSame(room)) {
+            return Optional.empty();
+        }
+        return gameRegistry.find(code);
     }
 
     private Optional<GameRoom> restoreRoomByLocal(String code) {
@@ -149,7 +180,10 @@ public class GameRoomRepository {
 
         GameRoom room = restored.get();
         if (room.isLobbyExpired(Instant.now())) {
-            if (deleteFromRedisAndPublish(code)) {
+            if (deleteFromRedisAndPublish(
+                    code,
+                    room.getVersion() + 1,
+                    List.of(GameRoomDelivery.lobbyExpired()))) {
                 eventPublisher.publishEvent(new LobbyExpiredEvent(code));
             }
             return Optional.empty();
@@ -172,7 +206,7 @@ public class GameRoomRepository {
                 return false;
             }
             try {
-                removeAttached(room);
+                removeAttached(room, List.of(GameRoomDelivery.lobbyExpired()));
             } finally {
                 eventPublisher.publishEvent(new LobbyExpiredEvent(room.getCode()));
             }
@@ -190,8 +224,25 @@ public class GameRoomRepository {
                 throw new RoomNotFoundException();
             }
             T result = operation.apply(room);
-            persist(code, room);
+            persist(code, room, List.of());
             return result;
+        }
+    }
+
+    public <T> T updateWithDeliveries(String code, Function<GameRoom, RoomUpdate<T>> operation) {
+        GameRoom room = findForUpdate(code);
+        synchronized (room) {
+            if (isDetached(code, room)) {
+                throw new RoomNotFoundException();
+            }
+            if (removeLobbyIfExpired(room, Instant.now())) {
+                throw new RoomNotFoundException();
+            }
+            RoomUpdate<T> result = operation.apply(room);
+            if (result.changed()) {
+                persist(code, room, result.deliveries());
+            }
+            return result.value();
         }
     }
 
@@ -200,7 +251,7 @@ public class GameRoomRepository {
                 .orElseGet(() -> restore(code).orElseThrow(RoomNotFoundException::new));
     }
 
-    public <T> Optional<T> updateIfPresent(String code, Function<GameRoom, T> operation) {
+    public <T> Optional<T> updateIfPresent(String code, Function<GameRoom, RoomUpdate<T>> operation) {
         Optional<GameRoom> found = gameRegistry.find(code);
         if (found.isEmpty()) {
             return Optional.empty();
@@ -213,20 +264,22 @@ public class GameRoomRepository {
             if (removeLobbyIfExpired(room, Instant.now())) {
                 return Optional.empty();
             }
-            T result = operation.apply(room);
-            persist(code, room);
-            return Optional.ofNullable(result);
+            RoomUpdate<T> result = operation.apply(room);
+            if (result.changed()) {
+                persist(code, room, result.deliveries());
+            }
+            return Optional.ofNullable(result.value());
         }
     }
 
-    private void persist(String code, GameRoom room) {
+    private void persist(String code, GameRoom room, List<GameRoomDelivery> deliveries) {
         redisStateRepository.ifPresent(repository -> {
             if (isDetached(code, room)) {
                 return;
             }
             room.incrementVersion();
             repository.save(room);
-            publishStateChanged(code);
+            publishStateChanged(code, room.getVersion(), deliveries);
         });
     }
 
@@ -238,23 +291,23 @@ public class GameRoomRepository {
         return isDetached(room.getCode(), room);
     }
 
-    private void removeAttached(GameRoom room) {
+    private void removeAttached(GameRoom room, List<GameRoomDelivery> deliveries) {
         try {
-            deleteFromRedisAndPublish(room.getCode());
+            deleteFromRedisAndPublish(room.getCode(), room.getVersion() + 1, deliveries);
         } finally {
             gameRegistry.removeIfSame(room);
         }
     }
 
-    private boolean deleteFromRedisAndPublish(String code) {
+    private boolean deleteFromRedisAndPublish(String code, long version, List<GameRoomDelivery> deliveries) {
         return redisStateRepository.map(repository -> {
             boolean deleted = repository.delete(code);
-            publishStateChanged(code);
+            publishStateChanged(code, version, deliveries);
             return deleted;
         }).orElse(false);
     }
 
-    private void publishStateChanged(String code) {
-        stateChangePublisher.ifPresent(publisher -> publisher.publish(code));
+    private void publishStateChanged(String code, long version, List<GameRoomDelivery> deliveries) {
+        stateChangePublisher.ifPresent(publisher -> publisher.publish(code, version, deliveries));
     }
 }

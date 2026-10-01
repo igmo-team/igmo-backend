@@ -6,8 +6,9 @@ import com.igmo.service.GameDrainLifecycle;
 import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
 import com.igmo.service.exception.PlayerNotFoundException;
+import com.igmo.store.GameRoomDelivery;
 import com.igmo.store.GameRoomRepository;
-import com.igmo.web.websocket.message.OwnVoteOptionNotice;
+import com.igmo.store.RoomUpdate;
 import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.message.RoomMessageType;
 import com.igmo.web.websocket.snapshot.GameResultSnapshot;
@@ -17,6 +18,7 @@ import com.igmo.web.websocket.snapshot.VoteSkippedSnapshot;
 import com.igmo.web.websocket.snapshot.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -41,7 +43,7 @@ public class VoteResultPhaseService {
     private Duration guessDuration;
 
     public void submitVote(String code, String playerId, String optionId) {
-        RoomMessage<?> message = gameRoomRepository.update(code, room -> {
+        RoomMessage<?> message = gameRoomRepository.updateWithDeliveries(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
@@ -53,10 +55,14 @@ public class VoteResultPhaseService {
                 room.completeVoting(submittedAt, resultDuration);
                 GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
                 scheduleResultExpiration(code, room.getResultDeadline());
-                return RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room));
+                return RoomUpdate.changed(
+                        RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room)),
+                        List.of(GameRoomDelivery.roomSnapshot()));
             }
             GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
-            return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
+            return RoomUpdate.changed(
+                    RoomMessage.voteSnapshot(VoteSnapshot.from(room)),
+                    List.of(GameRoomDelivery.roomSnapshot()));
         });
         eventPublisher.publish(code, message);
     }
@@ -80,14 +86,7 @@ public class VoteResultPhaseService {
             return RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room));
         }
         scheduleVoteExpiration(code, room.getVoteDeadline());
-        sendOwnVoteOptions(code, room);
         return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
-    }
-
-    private void sendOwnVoteOptions(String code, GameRoom room) {
-        int roundNumber = room.getCurrentRound().getRoundNumber();
-        room.getCurrentRoundOwnVoteOptions().forEach((playerId, ownVoteOption) ->
-                eventPublisher.sendOwnVoteOption(playerId, OwnVoteOptionNotice.of(code, roundNumber, ownVoteOption)));
     }
 
     void scheduleVoteExpiration(String code, Instant deadline) {
@@ -97,13 +96,16 @@ public class VoteResultPhaseService {
     private void runVoteExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isVoteExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     GamePhase fromPhase = lockedRoom.getPhase();
                     lockedRoom.completeVoting(Instant.now(), resultDuration);
                     GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
                     scheduleResultExpiration(code, lockedRoom.getResultDeadline());
-                    return RoundResultSnapshot.from(lockedRoom);
+                    RoundResultSnapshot snapshot = RoundResultSnapshot.from(lockedRoom);
+                    return lockedRoom.getPhase() == fromPhase
+                            ? RoomUpdate.unchanged(snapshot)
+                            : RoomUpdate.changed(snapshot, List.of(GameRoomDelivery.roomSnapshot()));
                 })
                 .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
     }
@@ -115,7 +117,7 @@ public class VoteResultPhaseService {
     private void runVoteSkippedExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isVoteSkippedExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
 
                     Instant expiredAt = Instant.now();
@@ -124,7 +126,9 @@ public class VoteResultPhaseService {
                     GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
                     scheduleResultExpiration(code, lockedRoom.getResultDeadline());
 
-                    return RoundResultSnapshot.from(lockedRoom);
+                    return RoomUpdate.changed(
+                            RoundResultSnapshot.from(lockedRoom),
+                            List.of(GameRoomDelivery.roomSnapshot()));
                 })
                 .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
     }
@@ -136,9 +140,10 @@ public class VoteResultPhaseService {
     void runResultExpiration(String code, Instant deadline) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isResultExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
-                    return advanceRoundAndPrepare(code, lockedRoom);
+                    RoundAdvanceResult result = advanceRoundAndPrepare(code, lockedRoom);
+                    return RoomUpdate.changed(result, deliveriesFor(result));
                 })
                 .ifPresent(result -> {
                     eventPublisher.publish(code, result.message());
@@ -161,6 +166,13 @@ public class VoteResultPhaseService {
                 room.getFinalGuessSubmissionDeadline(),
                 this::completeGuessSubmission);
         return new RoundAdvanceResult(room, RoomMessage.roundSnapshot(RoundSnapshot.from(room)));
+    }
+
+    private List<GameRoomDelivery> deliveriesFor(RoundAdvanceResult result) {
+        if (result.message().type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
+            return List.of();
+        }
+        return List.of(GameRoomDelivery.roomSnapshot());
     }
 
     private record RoundAdvanceResult(GameRoom room, RoomMessage<?> message) {

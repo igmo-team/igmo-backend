@@ -10,11 +10,15 @@ import com.igmo.domain.exception.PerfectGuessAlreadyConfirmedException;
 import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
 import com.igmo.service.exception.PlayerNotFoundException;
+import com.igmo.store.GameRoomDelivery;
 import com.igmo.store.GameRoomRepository;
+import com.igmo.store.RoomUpdate;
+import com.igmo.web.websocket.message.OwnVoteOptionNotice;
 import com.igmo.web.websocket.message.RoomMessage;
 import com.igmo.web.websocket.snapshot.GuessSubmissionSnapshot;
 import com.igmo.web.websocket.snapshot.RoundSnapshot;
 import java.time.Instant;
+import java.util.List;
 import java.util.function.BiFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,15 +38,23 @@ public class GuessPhaseService {
             GuessSubmissionType submissionType,
             BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
     ) {
-        GuessSubmissionPublication result = gameRoomRepository.update(
+        GuessSubmissionPublication result = gameRoomRepository.updateWithDeliveries(
                 code,
-                room -> createGuessSubmissionPublication(
-                        code,
-                        room,
-                        playerId,
-                        guess,
-                        submissionType,
-                        completeGuessSubmission));
+                room -> {
+                    GuessSubmissionPublication publication = createGuessSubmissionPublication(
+                            code,
+                            room,
+                            playerId,
+                            guess,
+                            submissionType,
+                            completeGuessSubmission);
+                    if (publication == null || !publication.changed()) {
+                        return RoomUpdate.unchanged(publication);
+                    }
+                    return RoomUpdate.changed(
+                            publication,
+                            deliveriesFor(publication.roomMessage(), publication.ownVoteOptions()));
+                });
         publishGuessSubmission(code, playerId, result);
     }
 
@@ -69,7 +81,9 @@ public class GuessPhaseService {
                 return new GuessSubmissionPublication(
                         GuessSubmissionSnapshot.perfect(room, guess),
                         null,
-                        room.getPhase());
+                        room.getPhase(),
+                        List.of(),
+                        true);
             }
             snapshot = GuessSubmissionSnapshot.submitted(room, guess);
         } catch (DuplicateGuessSubmissionException
@@ -78,7 +92,9 @@ public class GuessPhaseService {
             return new GuessSubmissionPublication(
                     GuessSubmissionSnapshot.rejected(room, guess, exception.getMessage()),
                     null,
-                    room.getPhase());
+                    room.getPhase(),
+                    List.of(),
+                    false);
         }
         return createPublicationAfterSuccessfulGuess(
                 code, room, snapshot, submittedAt, completeGuessSubmission);
@@ -96,18 +112,28 @@ public class GuessPhaseService {
             return new GuessSubmissionPublication(
                     snapshot,
                     completeGuessSubmission.apply(room, submittedAt),
-                    room.getPhase());
+                    room.getPhase(),
+                    ownVoteOptions(room),
+                    true);
         }
         return new GuessSubmissionPublication(
                 snapshot,
                 RoomMessage.roundSnapshot(RoundSnapshot.from(room)),
-                room.getPhase());
+                room.getPhase(),
+                List.of(),
+                true);
     }
 
     private void publishGuessSubmission(String code, String playerId, GuessSubmissionPublication result) {
         if (result == null) {
             return;
         }
+        result.ownVoteOptions()
+                .forEach(publication -> eventPublisher.sendOwnVoteOption(
+                                publication.playerId(),
+                                publication.notice()
+                        )
+                );
         if (result.hasRoomMessage()) {
             eventPublisher.publish(code, result.roomMessage());
         }
@@ -117,11 +143,41 @@ public class GuessPhaseService {
     private record GuessSubmissionPublication(
             GuessSubmissionSnapshot snapshot,
             RoomMessage<?> roomMessage,
-            GamePhase phase
+            GamePhase phase,
+            List<OwnVoteOptionPublication> ownVoteOptions,
+            boolean changed
     ) {
         private boolean hasRoomMessage() {
             return roomMessage != null;
         }
+    }
+
+    private List<OwnVoteOptionPublication> ownVoteOptions(GameRoom room) {
+        if (room.getPhase() != GamePhase.VOTING) {
+            return List.of();
+        }
+        int roundNumber = room.getCurrentRound().getRoundNumber();
+        return room.getCurrentRoundOwnVoteOptions().entrySet().stream()
+                .map(entry -> new OwnVoteOptionPublication(
+                        entry.getKey(),
+                        OwnVoteOptionNotice.of(room.getCode(), roundNumber, entry.getValue())))
+                .toList();
+    }
+
+    private List<GameRoomDelivery> deliveriesFor(
+            RoomMessage<?> roomMessage,
+            List<OwnVoteOptionPublication> ownVoteOptions
+    ) {
+        if (roomMessage == null) {
+            return List.of();
+        }
+        if (ownVoteOptions.isEmpty()) {
+            return List.of(GameRoomDelivery.roomSnapshot());
+        }
+        return List.of(GameRoomDelivery.ownVoteOptions(), GameRoomDelivery.roomSnapshot());
+    }
+
+    private record OwnVoteOptionPublication(String playerId, OwnVoteOptionNotice notice) {
     }
 
     void scheduleGuessExpiration(
@@ -142,7 +198,7 @@ public class GuessPhaseService {
     ) {
         gameRoomRepository.updateIfPresent(code, lockedRoom -> {
                     if (lockedRoom.isGuessExpirationStale(deadline)) {
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     Instant expiredAt = Instant.now();
                     if (!lockedRoom.isFinalGuessSubmissionExpired(expiredAt)) {
@@ -150,12 +206,36 @@ public class GuessPhaseService {
                                 code,
                                 lockedRoom.getFinalGuessSubmissionDeadline(),
                                 completeGuessSubmission);
-                        return null;
+                        return RoomUpdate.unchanged(null);
                     }
                     lockedRoom.autoSubmitGuesses(expiredAt);
-                    return completeGuessSubmission.apply(lockedRoom, expiredAt);
+                    GamePhase fromPhase = lockedRoom.getPhase();
+                    RoomMessage<?> message = completeGuessSubmission.apply(lockedRoom, expiredAt);
+                    GuessExpirationPublication publication = new GuessExpirationPublication(
+                            message,
+                            ownVoteOptions(lockedRoom)
+                    );
+                    return lockedRoom.getPhase() == fromPhase
+                            ? RoomUpdate.unchanged(publication)
+                            : RoomUpdate.changed(
+                                    publication,
+                                    deliveriesFor(publication.roomMessage(), publication.ownVoteOptions()));
                 })
-                .ifPresent(message -> eventPublisher.publish(code, message));
+                .ifPresent(publication -> {
+                    publication.ownVoteOptions()
+                            .forEach(option -> eventPublisher.sendOwnVoteOption(
+                                            option.playerId(),
+                                            option.notice()
+                                    )
+                            );
+                    eventPublisher.publish(code, publication.roomMessage());
+                });
+    }
+
+    private record GuessExpirationPublication(
+            RoomMessage<?> roomMessage,
+            List<OwnVoteOptionPublication> ownVoteOptions
+    ) {
     }
 
 }

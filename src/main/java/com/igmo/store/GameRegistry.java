@@ -20,6 +20,11 @@ public class GameRegistry {
         rooms.put(room.getCode(), room);
     }
 
+    public GameRoom replaceIfNewer(GameRoom candidate) {
+        return rooms.compute(candidate.getCode(), (code, current) ->
+                current == null || candidate.getVersion() >= current.getVersion() ? candidate : current);
+    }
+
     public Optional<GameRoom> find(String code) {
         return Optional.ofNullable(rooms.get(code));
     }

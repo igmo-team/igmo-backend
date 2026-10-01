@@ -20,6 +20,7 @@ import com.igmo.domain.GameStartPolicy;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
+import com.igmo.service.GameRoomStateSyncService;
 import com.igmo.service.exception.PlayerNotFoundException;
 import com.igmo.service.exception.RoomNotFoundException;
 import com.igmo.service.exception.UnauthorizedPlayerException;
@@ -58,21 +59,25 @@ class PlayerPresenceServiceTest {
     private final ScheduledFuture<?> scheduledPlayingTransition = mock(ScheduledFuture.class);
     private final GamePhaseService gamePhaseService = mock(GamePhaseService.class);
     private final PlayerSessionRegistry playerSessionRegistry = new PlayerSessionRegistry();
+    private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
+    private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
+    private final GameRoomStateSyncService gameRoomStateSyncService =
+            new GameRoomStateSyncService(gameRoomRepository, eventPublisher);
     private final GamePhaseScheduler gamePhaseScheduler = spy(new GamePhaseScheduler(
             gamePhaseDeadlineScheduler,
             imageGenerationCompletionScheduler));
     private final GamePhaseScheduler gameLobbyPhaseScheduler = mock(GamePhaseScheduler.class);
     private final GameLobbyService gameLobbyService = new GameLobbyService(
-            new GameRoomRepository(gameRegistry),
+            gameRoomRepository,
             roomCodeGenerator,
-            new GameEventPublisher(messagingTemplate, gameMetrics),
+            eventPublisher,
             GameStartPolicy.standard(),
             gameLobbyPhaseScheduler);
     private final PlayerPresenceService playerPresenceService = new PlayerPresenceService(
-            new GameRoomRepository(gameRegistry),
+            gameRoomRepository,
             gamePhaseScheduler,
             gamePhaseService,
-            new GameEventPublisher(messagingTemplate, gameMetrics),
+            gameRoomStateSyncService,
             disconnectGraceScheduler,
             playerSessionRegistry);
 

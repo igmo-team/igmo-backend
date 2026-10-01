@@ -11,6 +11,7 @@ import com.igmo.domain.GameStartPolicy;
 import com.igmo.monitoring.GameMetrics;
 import com.igmo.service.GameEventPublisher;
 import com.igmo.service.GamePhaseScheduler;
+import com.igmo.service.GameRoomStateSyncService;
 import com.igmo.service.lobby.GameLobbyService;
 import com.igmo.service.lobby.RoomCodeGenerator;
 import com.igmo.service.phase.GamePhaseService;
@@ -49,6 +50,8 @@ class PlayerPresenceServiceConcurrencyTest {
     private final PlayerSessionRegistry playerSessionRegistry = new PlayerSessionRegistry();
     private final GameRoomRepository gameRoomRepository = new GameRoomRepository(gameRegistry);
     private final GameEventPublisher eventPublisher = new GameEventPublisher(messagingTemplate, gameMetrics);
+    private final GameRoomStateSyncService gameRoomStateSyncService =
+            new GameRoomStateSyncService(gameRoomRepository, eventPublisher);
     private final GamePhaseScheduler gamePhaseScheduler =
             new GamePhaseScheduler(gamePhaseDeadlineScheduler, imageGenerationCompletionScheduler);
     private final GamePhaseScheduler gameLobbyPhaseScheduler = mock(GamePhaseScheduler.class);
@@ -64,7 +67,7 @@ class PlayerPresenceServiceConcurrencyTest {
                     gameRoomRepository,
                     gamePhaseScheduler,
                     gamePhaseService,
-                    eventPublisher,
+                    gameRoomStateSyncService,
                     disconnectGraceScheduler,
                     playerSessionRegistry);
 

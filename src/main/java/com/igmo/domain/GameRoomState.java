@@ -29,11 +29,10 @@ public record GameRoomState(
         List<RoundState> rounds
 ) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 2;
-    private static final int LEGACY_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 3;
 
     public GameRoomState {
-        if (schemaVersion != LEGACY_SCHEMA_VERSION && schemaVersion != CURRENT_SCHEMA_VERSION) {
+        if (schemaVersion < 1 || schemaVersion > CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "지원하지 않는 게임방 상태 스키마 버전입니다: " + schemaVersion
             );
@@ -65,7 +64,8 @@ public record GameRoomState(
                             entry.getPrompt(),
                             entry.getSubmittedAt(),
                             entry.getStatus(),
-                            entry.getImageUrl()
+                            entry.getImageUrl(),
+                            entry.getErrorMessage()
                     ))
                     .toList();
 
@@ -145,8 +145,20 @@ public record GameRoomState(
             String prompt,
             Instant submittedAt,
             PromptEntryStatus status,
-            String imageUrl
+            String imageUrl,
+            String errorMessage
     ) {
+
+        public PromptEntryState(
+                String promptId,
+                String playerId,
+                String prompt,
+                Instant submittedAt,
+                PromptEntryStatus status,
+                String imageUrl
+        ) {
+            this(promptId, playerId, prompt, submittedAt, status, imageUrl, null);
+        }
     }
 
     public record RoundState(
