@@ -93,7 +93,7 @@ class RedisGameRoomStateRepositoryTest {
 
         // then
         assertThat(redisTemplate.opsForValue().get("igmo:game-room:ABCD"))
-                .contains("\"schemaVersion\":2")
+                .contains("\"schemaVersion\":3")
                 .contains("\"rounds\"");
         assertThat(found).contains(expected);
         assertThat(restored).isPresent();

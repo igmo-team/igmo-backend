@@ -24,6 +24,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.Getter;
 
@@ -104,7 +105,7 @@ public class GameRoom {
     }
 
     private static void validateSchemaVersion(GameRoomState state) {
-        if (state.schemaVersion() != 1 && state.schemaVersion() != GameRoomState.CURRENT_SCHEMA_VERSION) {
+        if (state.schemaVersion() < 1 || state.schemaVersion() > GameRoomState.CURRENT_SCHEMA_VERSION) {
             throw new IllegalStateException(
                     "지원하지 않는 게임방 상태 스키마 버전입니다: " + state.schemaVersion()
             );
@@ -187,7 +188,8 @@ public class GameRoom {
                     promptState.prompt(),
                     promptState.submittedAt(),
                     promptState.status(),
-                    promptState.imageUrl()
+                    promptState.imageUrl(),
+                    promptState.errorMessage()
             );
             room.promptEntriesByPlayerId.put(promptEntry.getPlayerId(), promptEntry);
             promptsById.put(promptEntry.getPromptId(), promptEntry);
@@ -273,6 +275,10 @@ public class GameRoom {
 
     public synchronized List<PromptEntry> getPromptEntries() {
         return List.copyOf(promptEntriesByPlayerId.values());
+    }
+
+    public synchronized Optional<PromptEntry> findPromptEntry(String playerId) {
+        return Optional.ofNullable(promptEntriesByPlayerId.get(playerId));
     }
 
     public synchronized List<Round> getRounds() {
@@ -378,11 +384,15 @@ public class GameRoom {
     }
 
     public synchronized void failImageGeneration(String playerId) {
+        failImageGeneration(playerId, null);
+    }
+
+    public synchronized void failImageGeneration(String playerId, String errorMessage) {
         PromptEntry entry = promptEntriesByPlayerId.get(playerId);
         if (entry == null) {
             return;
         }
-        entry.failImageGeneration();
+        entry.failImageGeneration(errorMessage);
     }
 
     public synchronized boolean isImageGenerationInProgress(String playerId) {
