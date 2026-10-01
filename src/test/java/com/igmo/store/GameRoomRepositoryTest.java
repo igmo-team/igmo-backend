@@ -3,6 +3,10 @@ package com.igmo.store;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -21,6 +25,7 @@ import com.igmo.store.redis.GameRoomStateChangePublisher;
 import com.igmo.store.redis.RedisGameRoomStateRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -33,6 +38,34 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class GameRoomRepositoryTest {
+
+    @Test
+    @DisplayName("변경 없는 배송 업데이트는 반환값만 돌려주고 Redis 저장과 Pub/Sub을 생략한다.")
+    void updateWithDeliveries_상태가바뀌지않으면_저장과발행을생략한다() {
+        // given
+        GameRegistry gameRegistry = new GameRegistry();
+        RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
+        GameRoomStateChangePublisher stateChangePublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomRepository repository = new GameRoomRepository(
+                gameRegistry,
+                Optional.of(redisRepository),
+                Optional.of(stateChangePublisher),
+                mock(ApplicationEventPublisher.class)
+        );
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        gameRegistry.saveIfAbsent(room);
+        long originalVersion = room.getVersion();
+
+        // when
+        String result = repository.updateWithDeliveries("ABCD", currentRoom ->
+                RoomUpdate.unchanged("검사 결과"));
+
+        // then
+        assertThat(result).isEqualTo("검사 결과");
+        assertThat(room.getVersion()).isEqualTo(originalVersion);
+        verify(redisRepository, never()).save(any(GameRoom.class));
+        verify(stateChangePublisher, never()).publish(anyString(), anyLong(), anyList());
+    }
 
     @Test
     @DisplayName("로비 만료 시 같은 방의 JVM 상태와 Redis 상태를 함께 제거한다.")
@@ -135,7 +168,7 @@ class GameRoomRepositoryTest {
         assertThat(result).contains("검사 결과");
         assertThat(room.getVersion()).isEqualTo(originalVersion);
         verify(redisRepository, never()).save(any(GameRoom.class));
-        verify(stateChangePublisher, never()).publish("ABCD");
+        verify(stateChangePublisher, never()).publish(anyString(), anyLong(), anyList());
     }
 
     @Test
@@ -165,7 +198,7 @@ class GameRoomRepositoryTest {
         assertThat(result).isEmpty();
         assertThat(room.getPlayers().getFirst().isReady()).isTrue();
         verify(redisRepository).save(room);
-        verify(stateChangePublisher).publish("ABCD");
+        verify(stateChangePublisher).publish(eq("ABCD"), eq(room.getVersion()), eq(List.of()));
     }
 
     @Test
@@ -326,7 +359,7 @@ class GameRoomRepositoryTest {
         // then
         assertThat(gameRegistry.find("ABCD")).containsSame(remoteRoom);
         verify(redisRepository, never()).save(any(GameRoom.class));
-        verify(stateChangePublisher, never()).publish("ABCD");
+        verify(stateChangePublisher, never()).publish(anyString(), anyLong(), anyList());
         verify(eventPublisher, never()).publishEvent(any(GameRoomRestoredEvent.class));
     }
 
@@ -376,7 +409,7 @@ class GameRoomRepositoryTest {
         // then
         assertThat(gameRegistry.find("ABCD")).isEmpty();
         verify(redisRepository, never()).delete("ABCD");
-        verify(stateChangePublisher, never()).publish("ABCD");
+        verify(stateChangePublisher, never()).publish(anyString(), anyLong(), anyList());
     }
 
     @Test

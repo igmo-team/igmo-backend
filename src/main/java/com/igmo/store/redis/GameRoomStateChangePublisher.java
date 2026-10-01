@@ -2,6 +2,8 @@ package com.igmo.store.redis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.igmo.store.GameRoomDelivery;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
@@ -19,10 +21,10 @@ public class GameRoomStateChangePublisher {
     private final ObjectMapper objectMapper;
     private final String instanceId = UUID.randomUUID().toString();
 
-    public void publish(String roomCode) {
+    public void publish(String roomCode, long roomVersion, List<GameRoomDelivery> deliveries) {
         try {
             String message = objectMapper.writeValueAsString(
-                    new GameRoomStateChangedMessage(roomCode, instanceId)
+                    new GameRoomStateChangedMessage(roomCode, instanceId, roomVersion, deliveries)
             );
             redisTemplate.convertAndSend(CHANNEL, message);
         } catch (JsonProcessingException exception) {
