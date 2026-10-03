@@ -62,8 +62,8 @@ class GameRoomRepositoryTest {
     }
 
     @Test
-    @DisplayName("변경 없는 배송 업데이트는 반환값만 돌려주고 Redis 저장과 Pub/Sub을 생략한다.")
-    void updateWithDeliveries_상태가바뀌지않으면_저장과발행을생략한다() {
+    @DisplayName("변경 없는 CAS 업데이트는 반환값만 돌려주고 Redis 저장과 Pub/Sub을 생략한다.")
+    void updateWithCas_상태가바뀌지않으면_저장과발행을생략한다() {
         // given
         GameRegistry gameRegistry = new GameRegistry();
         RedisGameRoomStateRepository redisRepository = mock(RedisGameRoomStateRepository.class);
@@ -77,13 +77,15 @@ class GameRoomRepositoryTest {
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         gameRegistry.saveIfAbsent(room);
         long originalVersion = room.getVersion();
+        when(redisRepository.restore("ABCD")).thenReturn(Optional.of(room));
 
         // when
-        String result = repository.updateWithDeliveries("ABCD", currentRoom ->
+        RoomUpdate<String> result = repository.updateWithCas("ABCD", currentRoom ->
                 RoomUpdate.unchanged("검사 결과"));
 
         // then
-        assertThat(result).isEqualTo("검사 결과");
+        assertThat(result.changed()).isFalse();
+        assertThat(result.value()).isEqualTo("검사 결과");
         assertThat(room.getVersion()).isEqualTo(originalVersion);
         verify(redisRepository, never()).save(any(GameRoom.class));
         verify(stateChangePublisher, never()).publish(anyString(), anyLong(), anyList());
@@ -104,6 +106,8 @@ class GameRoomRepositoryTest {
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         gameRegistry.saveIfAbsent(room);
         ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
+        when(redisRepository.compareAndDelete("ABCD", room.getVersion()))
+                .thenReturn(RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED);
 
         // when
         boolean removed = repository.removeLobbyIfExpired(room, Instant.now());
@@ -111,7 +115,7 @@ class GameRoomRepositoryTest {
         // then
         assertThat(removed).isTrue();
         assertThat(gameRegistry.find("ABCD")).isEmpty();
-        verify(redisRepository).delete("ABCD");
+        verify(redisRepository).compareAndDelete("ABCD", room.getVersion());
         verify(eventPublisher).publishEvent(new LobbyExpiredEvent("ABCD"));
     }
 
@@ -137,7 +141,7 @@ class GameRoomRepositoryTest {
         // then
         assertThat(removed).isFalse();
         assertThat(gameRegistry.find("ABCD")).contains(currentRoom);
-        verify(redisRepository, never()).delete("ABCD");
+        verify(redisRepository, never()).compareAndDelete(eq("ABCD"), anyLong());
     }
 
     @Test
@@ -153,6 +157,8 @@ class GameRoomRepositoryTest {
         );
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         repository.saveIfAbsent(room);
+        when(redisRepository.compareAndDelete("ABCD", room.getVersion()))
+                .thenReturn(RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED);
 
         // when
         repository.update("ABCD", currentRoom -> {
@@ -162,7 +168,7 @@ class GameRoomRepositoryTest {
 
         // then
         assertThat(gameRegistry.find("ABCD")).isEmpty();
-        verify(redisRepository).delete("ABCD");
+        verify(redisRepository).compareAndDelete("ABCD", room.getVersion());
     }
 
     @Test
@@ -295,7 +301,11 @@ class GameRoomRepositoryTest {
         GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
         ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
         when(redisRepository.restore("ABCD")).thenReturn(Optional.of(room));
-        when(redisRepository.delete("ABCD")).thenReturn(true, false);
+        when(redisRepository.compareAndDelete("ABCD", room.getVersion()))
+                .thenReturn(
+                        RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED,
+                        RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND
+                );
 
         // when
         Optional<GameRoom> restored = repository.restore("ABCD");
@@ -305,7 +315,7 @@ class GameRoomRepositoryTest {
         assertThat(restored).isEmpty();
         assertThat(restoredAgain).isEmpty();
         assertThat(gameRegistry.find("ABCD")).isEmpty();
-        verify(redisRepository, times(2)).delete("ABCD");
+        verify(redisRepository, times(2)).compareAndDelete("ABCD", room.getVersion());
         verify(eventPublisher, times(1)).publishEvent(new LobbyExpiredEvent("ABCD"));
     }
 
@@ -451,7 +461,7 @@ class GameRoomRepositoryTest {
         ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
         willThrow(new IllegalStateException("Redis unavailable"))
                 .given(redisRepository)
-                .delete("ABCD");
+                .compareAndDelete("ABCD", room.getVersion());
 
         // when // then
         assertThatThrownBy(() -> repository.removeLobbyIfExpired(room, Instant.now()))

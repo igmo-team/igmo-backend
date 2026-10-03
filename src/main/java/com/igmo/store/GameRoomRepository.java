@@ -94,8 +94,7 @@ public class GameRoomRepository {
             List<GameRoomDelivery> deliveries = room.getPhase() == GamePhase.ENDED
                     ? List.of(GameRoomDelivery.gameResult(GameResultSnapshot.from(room)))
                     : List.of(GameRoomDelivery.roomRemoved());
-            removeAttached(room, deliveries);
-            return true;
+            return removeAttached(room, deliveries);
         }
     }
 
@@ -183,10 +182,7 @@ public class GameRoomRepository {
 
         GameRoom room = restored.get();
         if (room.isLobbyExpired(Instant.now())) {
-            if (deleteFromRedisAndPublish(
-                    code,
-                    room.getVersion() + 1,
-                    List.of(GameRoomDelivery.lobbyExpired()))) {
+            if (deleteExpiredRestoredLobby(room)) {
                 eventPublisher.publishEvent(new LobbyExpiredEvent(code));
             }
             return Optional.empty();
@@ -204,17 +200,71 @@ public class GameRoomRepository {
     }
 
     public boolean removeLobbyIfExpired(GameRoom room, Instant now) {
+        if (redisStateRepository.isEmpty()) {
+            synchronized (room) {
+                if (isDetached(room) || !room.isLobbyExpired(now)) {
+                    return false;
+                }
+                if (!removeAttached(room, List.of(GameRoomDelivery.lobbyExpired()))) {
+                    return false;
+                }
+            }
+            eventPublisher.publishEvent(new LobbyExpiredEvent(room.getCode()));
+            return true;
+        }
+
         synchronized (room) {
             if (isDetached(room) || !room.isLobbyExpired(now)) {
                 return false;
             }
-            try {
-                removeAttached(room, List.of(GameRoomDelivery.lobbyExpired()));
-            } finally {
-                eventPublisher.publishEvent(new LobbyExpiredEvent(room.getCode()));
+        }
+        RedisGameRoomStateRepository repository = redisStateRepository.orElseThrow();
+        GameRoom candidate = room;
+        try {
+            for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+                long expectedVersion = candidate.getVersion();
+                RedisGameRoomStateRepository.ConditionalWriteResult deleteResult =
+                        repository.compareAndDelete(candidate.getCode(), expectedVersion);
+                if (deleteResult == RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED) {
+                    removeLocalRoomIfNotNewer(candidate.getCode(), expectedVersion);
+                    publishStateChanged(
+                            candidate.getCode(),
+                            expectedVersion + 1,
+                            List.of(GameRoomDelivery.lobbyExpired())
+                    );
+                    eventPublisher.publishEvent(new LobbyExpiredEvent(candidate.getCode()));
+                    return true;
+                }
+                if (deleteResult == RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND) {
+                    removeLocalRoomIfNotNewer(candidate.getCode(), expectedVersion);
+                    return false;
+                }
+
+                Optional<GameRoom> latestRoom = repository.restore(candidate.getCode());
+                if (latestRoom.isEmpty()) {
+                    removeLocalRoomIfNotNewer(candidate.getCode(), expectedVersion);
+                    return false;
+                }
+                candidate = latestRoom.orElseThrow();
+                gameRegistry.replaceIfNewer(candidate);
+                if (!candidate.isLobbyExpired(now)) {
+                    return false;
+                }
+            }
+        } catch (RuntimeException exception) {
+            removeLocalExpiredLobby(room, now);
+            eventPublisher.publishEvent(new LobbyExpiredEvent(room.getCode()));
+            throw exception;
+        }
+        return false;
+    }
+
+    private void removeLocalExpiredLobby(GameRoom room, Instant now) {
+        synchronized (room) {
+            if (!isDetached(room) && room.isLobbyExpired(now)) {
+                gameRegistry.removeIfSame(room);
             }
         }
-        return true;
     }
 
     public <T> T update(String code, Function<GameRoom, T> operation) {
@@ -232,10 +282,6 @@ public class GameRoomRepository {
         }
     }
 
-    public <T> T updateWithDeliveries(String code, Function<GameRoom, RoomUpdate<T>> operation) {
-        return updateWithDeliveriesResult(code, operation).value();
-    }
-
     private <T> RoomUpdate<T> updateWithDeliveriesResult(
             String code,
             Function<GameRoom, RoomUpdate<T>> operation
@@ -250,7 +296,11 @@ public class GameRoomRepository {
             }
             RoomUpdate<T> result = operation.apply(room);
             if (result.changed()) {
-                persist(code, room, result.deliveries());
+                if (result.deleted()) {
+                    removeAttached(room, result.deliveries());
+                } else {
+                    persist(code, room, result.deliveries());
+                }
             }
             return result;
         }
@@ -297,7 +347,31 @@ public class GameRoomRepository {
         if (!result.changed()) {
             return completeUnchangedOperationOrRetry(code, expectedVersion, result, repository);
         }
+        if (result.deleted()) {
+            return compareAndDeleteCandidate(code, currentRoom, expectedVersion, result, repository);
+        }
         return compareAndSetCandidate(code, currentRoom, candidate, expectedVersion, result, repository);
+    }
+
+    private <T> CasUpdateAttempt<T> compareAndDeleteCandidate(
+            String code,
+            GameRoom currentRoom,
+            long expectedVersion,
+            RoomUpdate<T> result,
+            RedisGameRoomStateRepository repository
+    ) {
+        RedisGameRoomStateRepository.ConditionalWriteResult deleteResult =
+                repository.compareAndDelete(code, expectedVersion);
+        if (deleteResult == RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED) {
+            removeLocalRoomIfNotNewer(code, expectedVersion);
+            publishStateChanged(code, expectedVersion + 1, result.deliveries());
+            return CasUpdateAttempt.completed(result, currentRoom);
+        }
+        if (deleteResult == RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND) {
+            removeLocalRoomIfNotNewer(code, expectedVersion);
+            throw new RoomNotFoundException();
+        }
+        return CasUpdateAttempt.retry(restoreLatestForCas(code, currentRoom, repository));
     }
 
     private <T> CasUpdateAttempt<T> deleteExpiredLobbyOrRetry(
@@ -414,6 +488,17 @@ public class GameRoomRepository {
         }
     }
 
+    public <T> Optional<RoomUpdate<T>> updateIfPresentWithCas(
+            String code,
+            Function<GameRoom, RoomUpdate<T>> operation
+    ) {
+        try {
+            return Optional.of(updateWithCas(code, operation));
+        } catch (RoomNotFoundException exception) {
+            return Optional.empty();
+        }
+    }
+
     private void persist(String code, GameRoom room, List<GameRoomDelivery> deliveries) {
         redisStateRepository.ifPresent(repository -> {
             if (isDetached(code, room)) {
@@ -433,20 +518,57 @@ public class GameRoomRepository {
         return isDetached(room.getCode(), room);
     }
 
-    private void removeAttached(GameRoom room, List<GameRoomDelivery> deliveries) {
-        try {
-            deleteFromRedisAndPublish(room.getCode(), room.getVersion() + 1, deliveries);
-        } finally {
+    private boolean removeAttached(GameRoom room, List<GameRoomDelivery> deliveries) {
+        long expectedVersion = room.getVersion();
+        if (redisStateRepository.isEmpty()) {
+            publishStateChanged(room.getCode(), expectedVersion + 1, deliveries);
             gameRegistry.removeIfSame(room);
+            return true;
         }
+
+        RedisGameRoomStateRepository repository = redisStateRepository.orElseThrow();
+        RedisGameRoomStateRepository.ConditionalWriteResult result =
+                repository.compareAndDelete(room.getCode(), expectedVersion);
+        if (result == RedisGameRoomStateRepository.ConditionalWriteResult.VERSION_MISMATCH) {
+            repository.restore(room.getCode()).ifPresent(gameRegistry::replaceIfNewer);
+            return false;
+        }
+        if (result == RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND) {
+            removeLocalRoomIfNotNewer(room.getCode(), expectedVersion);
+            return false;
+        }
+
+        publishStateChanged(room.getCode(), expectedVersion + 1, deliveries);
+        removeLocalRoomIfNotNewer(room.getCode(), expectedVersion);
+        return true;
     }
 
-    private boolean deleteFromRedisAndPublish(String code, long version, List<GameRoomDelivery> deliveries) {
-        return redisStateRepository.map(repository -> {
-            boolean deleted = repository.delete(code);
-            publishStateChanged(code, version, deliveries);
-            return deleted;
-        }).orElse(false);
+    private boolean deleteExpiredRestoredLobby(GameRoom room) {
+        RedisGameRoomStateRepository repository = redisStateRepository.orElseThrow();
+        GameRoom candidate = room;
+        for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+            long expectedVersion = candidate.getVersion();
+            RedisGameRoomStateRepository.ConditionalWriteResult result =
+                    repository.compareAndDelete(candidate.getCode(), expectedVersion);
+            if (result == RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED) {
+                publishStateChanged(
+                        candidate.getCode(),
+                        expectedVersion + 1,
+                        List.of(GameRoomDelivery.lobbyExpired())
+                );
+                return true;
+            }
+            if (result == RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND) {
+                return false;
+            }
+
+            Optional<GameRoom> latest = repository.restore(candidate.getCode());
+            if (latest.isEmpty() || !latest.orElseThrow().isLobbyExpired(Instant.now())) {
+                return false;
+            }
+            candidate = latest.orElseThrow();
+        }
+        return false;
     }
 
     private void publishStateChanged(String code, long version, List<GameRoomDelivery> deliveries) {

@@ -9,9 +9,9 @@ import com.igmo.service.phase.GamePhaseService;
 import com.igmo.store.GameRoomDelivery;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.store.RoomUpdate;
-import com.igmo.web.LobbySnapshot;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
@@ -64,20 +64,21 @@ public class PlayerPresenceService {
     public void leaveGame(String code, String playerId, String secret) {
         PlayerKey playerKey = new PlayerKey(code, playerId);
         playerSessionRegistry.withPlayerLock(playerKey, () -> {
-            RemovalOutcome outcome = gameRoomRepository.updateWithDeliveries(code, room -> {
+            RemovalOutcome outcome = gameRoomRepository.updateWithCas(code, room -> {
                 if (!room.hasPlayer(playerId)) {
                     throw new PlayerNotFoundException();
                 }
                 if (!room.isSecretValid(playerId, secret)) {
                     throw new UnauthorizedPlayerException();
                 }
-                RemovalOutcome result = removePlayer(code, room, playerId);
+                RemovalOutcome result = removePlayer(room, playerId);
+                if (result.room().isEmpty()) {
+                    return RoomUpdate.deleted(result, List.of());
+                }
                 return RoomUpdate.changed(
                         result,
-                        result.room().isEmpty()
-                                ? java.util.List.of()
-                                : java.util.List.of(GameRoomDelivery.roomSnapshot()));
-            });
+                        List.of(GameRoomDelivery.roomSnapshot()));
+            }).value();
             completeRemoval(code, playerKey, outcome);
         });
     }
@@ -122,26 +123,26 @@ public class PlayerPresenceService {
                     || playerSessionRegistry.hasActiveSession(playerKey)) {
                 return;
             }
-            gameRoomRepository.updateIfPresent(playerKey.roomCode(), room -> {
-                RemovalOutcome outcome = removePlayer(playerKey.roomCode(), room, playerKey.playerId());
-                if (!outcome.removed()) {
-                    return RoomUpdate.unchanged(null);
-                }
-                return RoomUpdate.changed(
-                        outcome,
-                        outcome.room().isEmpty()
-                                ? java.util.List.of()
-                                : java.util.List.of(GameRoomDelivery.roomSnapshot()));
-            }).ifPresent(outcome -> completeRemoval(playerKey.roomCode(), playerKey, outcome));
+            gameRoomRepository.updateIfPresentWithCas(playerKey.roomCode(), room -> {
+                        RemovalOutcome outcome = removePlayer(room, playerKey.playerId());
+                        if (!outcome.removed()) {
+                            return RoomUpdate.unchanged(null);
+                        }
+                        if (outcome.room().isEmpty()) {
+                            return RoomUpdate.deleted(outcome, List.of());
+                        }
+                        return RoomUpdate.changed(
+                                outcome,
+                                List.of(GameRoomDelivery.roomSnapshot()));
+                    }).filter(roomUpdate -> roomUpdate.changed())
+                    .map(RoomUpdate::value)
+                    .ifPresent(outcome -> completeRemoval(playerKey.roomCode(), playerKey, outcome));
         });
     }
 
-    private RemovalOutcome removePlayer(String code, GameRoom room, String playerId) {
+    private RemovalOutcome removePlayer(GameRoom room, String playerId) {
         if (!room.removePlayer(playerId)) {
             return new RemovalOutcome(room, false);
-        }
-        if (room.isEmpty()) {
-            gameRoomRepository.remove(room);
         }
         return new RemovalOutcome(room, true);
     }
