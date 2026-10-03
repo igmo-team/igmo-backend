@@ -2,6 +2,13 @@ package com.igmo.store.redis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.igmo.domain.GamePhase;
@@ -10,19 +17,26 @@ import com.igmo.domain.GameRoomState;
 import com.igmo.domain.Player;
 import com.igmo.domain.Round;
 import com.igmo.monitoring.GameMetrics;
+import com.igmo.store.ConcurrentGameRoomUpdateException;
 import com.igmo.store.GameRegistry;
+import com.igmo.store.GameRoomDelivery;
 import com.igmo.store.GameRoomRepository;
 import com.igmo.store.RoomUpdate;
+import com.igmo.store.redis.GameRoomStateChangePublisher;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -312,6 +326,171 @@ class RedisGameRoomStateRepositoryTest {
     }
 
     @Test
+    @DisplayName("동시 변경 충돌 시 최신 상태에 원래 명령을 재적용하고 성공한 변경만 발행한다.")
+    void updateWithCas_동시충돌시최신상태에명령을재적용한다() throws Exception {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(original);
+        GameRoomStateChangePublisher firstPublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomStateChangePublisher secondPublisher = mock(GameRoomStateChangePublisher.class);
+        GameRegistry firstRegistry = new GameRegistry();
+        GameRegistry secondRegistry = new GameRegistry();
+        firstRegistry.saveIfAbsent(repository.restore("ABCD").orElseThrow());
+        secondRegistry.saveIfAbsent(repository.restore("ABCD").orElseThrow());
+        GameRoomRepository firstInstance = createCasGameRoomRepository(firstRegistry, firstPublisher);
+        GameRoomRepository secondInstance = createCasGameRoomRepository(secondRegistry, secondPublisher);
+        Player firstPlayer = new Player("인스턴스 A 사용자");
+        Player secondPlayer = new Player("인스턴스 B 사용자");
+        AtomicInteger firstAttempts = new AtomicInteger();
+        AtomicInteger secondAttempts = new AtomicInteger();
+        CyclicBarrier firstAttemptBarrier = new CyclicBarrier(2);
+        List<GameRoomDelivery> deliveries = List.of(GameRoomDelivery.roomSnapshot());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        // when
+        Future<RoomUpdate<String>> firstResult = executor.submit(() -> firstInstance.updateWithCas("ABCD", room -> {
+            if (firstAttempts.incrementAndGet() == 1) {
+                await(firstAttemptBarrier);
+            }
+            room.addPlayer(firstPlayer);
+            return RoomUpdate.changed(firstPlayer.getId(), deliveries);
+        }));
+        Future<RoomUpdate<String>> secondResult = executor.submit(() -> secondInstance.updateWithCas("ABCD", room -> {
+            if (secondAttempts.incrementAndGet() == 1) {
+                await(firstAttemptBarrier);
+            }
+            room.addPlayer(secondPlayer);
+            return RoomUpdate.changed(secondPlayer.getId(), deliveries);
+        }));
+        RoomUpdate<String> firstUpdate;
+        RoomUpdate<String> secondUpdate;
+        try {
+            firstUpdate = firstResult.get(5, TimeUnit.SECONDS);
+            secondUpdate = secondResult.get(5, TimeUnit.SECONDS);
+            assertThat(List.of(firstUpdate.value(), secondUpdate.value()))
+                    .containsExactly(firstPlayer.getId(), secondPlayer.getId());
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // then
+        GameRoomState saved = repository.find("ABCD").orElseThrow();
+        assertThat(saved.players()).extracting(GameRoomState.PlayerState::nickname)
+                .contains("인스턴스 A 사용자", "인스턴스 B 사용자");
+        assertThat(saved.version()).isEqualTo(2L);
+        assertThat(List.of(firstUpdate.changed(), secondUpdate.changed())).containsOnly(true);
+        assertThat(List.of(firstAttempts.get(), secondAttempts.get())).containsExactlyInAnyOrder(1, 2);
+        verify(firstPublisher).publish(eq("ABCD"), anyLong(), eq(deliveries));
+        verify(secondPublisher).publish(eq("ABCD"), anyLong(), eq(deliveries));
+    }
+
+    @Test
+    @DisplayName("같은 전환 명령이 경합하면 한 번만 변경하고 한 번만 발행한다.")
+    void updateWithCas_같은전환명령은한번만발행한다() throws Exception {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(original);
+        GameRoomStateChangePublisher firstPublisher = mock(GameRoomStateChangePublisher.class);
+        GameRoomStateChangePublisher secondPublisher = mock(GameRoomStateChangePublisher.class);
+        GameRegistry firstRegistry = new GameRegistry();
+        GameRegistry secondRegistry = new GameRegistry();
+        firstRegistry.saveIfAbsent(repository.restore("ABCD").orElseThrow());
+        secondRegistry.saveIfAbsent(repository.restore("ABCD").orElseThrow());
+        GameRoomRepository firstInstance = createCasGameRoomRepository(firstRegistry, firstPublisher);
+        GameRoomRepository secondInstance = createCasGameRoomRepository(secondRegistry, secondPublisher);
+        AtomicInteger firstAttempts = new AtomicInteger();
+        AtomicInteger secondAttempts = new AtomicInteger();
+        CyclicBarrier firstAttemptBarrier = new CyclicBarrier(2);
+        List<GameRoomDelivery> deliveries = List.of(GameRoomDelivery.roomSnapshot());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        // when
+        Future<RoomUpdate<String>> firstResult = executor.submit(() -> firstInstance.updateWithCas("ABCD", room -> {
+            if (firstAttempts.incrementAndGet() == 1) {
+                await(firstAttemptBarrier);
+            }
+            Player host = room.getPlayers().getFirst();
+            if (host.isReady()) {
+                return RoomUpdate.unchanged("already-ready");
+            }
+            room.changePlayerReady(host.getId(), true);
+            return RoomUpdate.changed("ready", deliveries);
+        }));
+        Future<RoomUpdate<String>> secondResult = executor.submit(() -> secondInstance.updateWithCas("ABCD", room -> {
+            if (secondAttempts.incrementAndGet() == 1) {
+                await(firstAttemptBarrier);
+            }
+            Player host = room.getPlayers().getFirst();
+            if (host.isReady()) {
+                return RoomUpdate.unchanged("already-ready");
+            }
+            room.changePlayerReady(host.getId(), true);
+            return RoomUpdate.changed("ready", deliveries);
+        }));
+        RoomUpdate<String> firstUpdate;
+        RoomUpdate<String> secondUpdate;
+        try {
+            firstUpdate = firstResult.get(5, TimeUnit.SECONDS);
+            secondUpdate = secondResult.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // then
+        GameRoomState saved = repository.find("ABCD").orElseThrow();
+        assertThat(saved.players().getFirst().ready()).isTrue();
+        assertThat(saved.version()).isEqualTo(1L);
+        assertThat(List.of(firstUpdate.changed(), secondUpdate.changed())).containsExactlyInAnyOrder(true, false);
+        assertThat(List.of(firstAttempts.get(), secondAttempts.get())).containsExactlyInAnyOrder(1, 2);
+        if (firstUpdate.changed()) {
+            verify(firstPublisher).publish(eq("ABCD"), anyLong(), eq(deliveries));
+            verify(secondPublisher, never()).publish(anyString(), anyLong(), anyList());
+        } else {
+            verify(firstPublisher, never()).publish(anyString(), anyLong(), anyList());
+            verify(secondPublisher).publish(eq("ABCD"), anyLong(), eq(deliveries));
+        }
+    }
+
+    @Test
+    @DisplayName("CAS 충돌이 세 번 이어지면 저장하지 않고 명령을 실패 처리한다.")
+    void updateWithCas_세번충돌하면저장없이실패한다() {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(original);
+        GameRoomStateChangePublisher publisher = mock(GameRoomStateChangePublisher.class);
+        GameRegistry registry = new GameRegistry();
+        GameRoomRepository instance = createCasGameRoomRepository(registry, publisher);
+        Player requestedPlayer = new Player("요청 참가자");
+        AtomicInteger attempts = new AtomicInteger();
+
+        // when // then
+        assertThatThrownBy(() -> instance.updateWithCas("ABCD", room -> {
+            int attempt = attempts.incrementAndGet();
+            room.addPlayer(requestedPlayer);
+
+            GameRoom competingRoom = repository.restore("ABCD").orElseThrow();
+            competingRoom.addPlayer(new Player("경쟁 변경 " + attempt));
+            long expectedVersion = competingRoom.getVersion();
+            competingRoom.incrementVersion();
+            assertThat(repository.compareAndSet(competingRoom, expectedVersion))
+                    .isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED);
+
+            return RoomUpdate.changed(requestedPlayer.getId(), List.of(GameRoomDelivery.roomSnapshot()));
+        }))
+                .isInstanceOf(ConcurrentGameRoomUpdateException.class)
+                .hasMessage("게임방 상태가 동시에 변경되어 저장하지 못했습니다. roomCode=ABCD, attempts=3");
+
+        GameRoomState saved = repository.find("ABCD").orElseThrow();
+        assertThat(attempts).hasValue(3);
+        assertThat(saved.players()).extracting(GameRoomState.PlayerState::nickname)
+                .contains("경쟁 변경 1", "경쟁 변경 2", "경쟁 변경 3")
+                .doesNotContain("요청 참가자");
+        assertThat(saved.version()).isEqualTo(3L);
+        assertThat(registry.find("ABCD").orElseThrow().getVersion()).isEqualTo(3L);
+        verify(publisher, never()).publish(anyString(), anyLong(), anyList());
+    }
+
+    @Test
     @DisplayName("조건부 저장은 Redis 키가 없으면 새 키를 만들지 않는다.")
     void compareAndSet_키가없으면상태를생성하지않는다() {
         // given
@@ -533,6 +712,30 @@ class RedisGameRoomStateRepositoryTest {
         assertThat(operationInvoked).isTrue();
         assertThat(repository.find("ABCD")).contains(GameRoomState.from(room));
         assertThat(repository.find("ABCD").orElseThrow().version()).isEqualTo(2L);
+    }
+
+    private GameRoomRepository createCasGameRoomRepository(
+            GameRegistry registry,
+            GameRoomStateChangePublisher publisher
+    ) {
+        return new GameRoomRepository(
+                registry,
+                Optional.of(repository),
+                Optional.of(publisher),
+                event -> {
+                }
+        );
+    }
+
+    private void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        } catch (BrokenBarrierException | TimeoutException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private GameRoom createResultsRoom() {

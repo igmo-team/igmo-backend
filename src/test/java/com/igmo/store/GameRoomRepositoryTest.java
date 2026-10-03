@@ -40,6 +40,28 @@ import org.springframework.test.util.ReflectionTestUtils;
 class GameRoomRepositoryTest {
 
     @Test
+    @DisplayName("Redis 미사용 시 CAS 갱신도 로컬 변경 결과를 반환한다.")
+    void updateWithCas_Redis미사용시로컬변경결과를반환한다() {
+        // given
+        GameRegistry registry = new GameRegistry();
+        GameRoomRepository repository = new GameRoomRepository(registry);
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        registry.saveIfAbsent(room);
+        String hostId = room.getHostId();
+
+        // when
+        RoomUpdate<String> result = repository.updateWithCas("ABCD", currentRoom -> {
+            currentRoom.changePlayerReady(hostId, true);
+            return RoomUpdate.changed("준비 완료");
+        });
+
+        // then
+        assertThat(result.changed()).isTrue();
+        assertThat(result.value()).isEqualTo("준비 완료");
+        assertThat(registry.find("ABCD").orElseThrow().getPlayers().getFirst().isReady()).isTrue();
+    }
+
+    @Test
     @DisplayName("변경 없는 배송 업데이트는 반환값만 돌려주고 Redis 저장과 Pub/Sub을 생략한다.")
     void updateWithDeliveries_상태가바뀌지않으면_저장과발행을생략한다() {
         // given

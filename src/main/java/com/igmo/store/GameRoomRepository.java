@@ -2,6 +2,7 @@ package com.igmo.store;
 
 import com.igmo.domain.GamePhase;
 import com.igmo.domain.GameRoom;
+import com.igmo.domain.GameRoomState;
 import com.igmo.service.GameRoomRestoredEvent;
 import com.igmo.service.LobbyExpiredEvent;
 import com.igmo.service.exception.RoomNotFoundException;
@@ -18,6 +19,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class GameRoomRepository {
+
+    private static final int MAX_CAS_ATTEMPTS = 3;
 
     private final GameRegistry gameRegistry;
     private final Optional<RedisGameRoomStateRepository> redisStateRepository;
@@ -230,6 +233,13 @@ public class GameRoomRepository {
     }
 
     public <T> T updateWithDeliveries(String code, Function<GameRoom, RoomUpdate<T>> operation) {
+        return updateWithDeliveriesResult(code, operation).value();
+    }
+
+    private <T> RoomUpdate<T> updateWithDeliveriesResult(
+            String code,
+            Function<GameRoom, RoomUpdate<T>> operation
+    ) {
         GameRoom room = findForUpdate(code);
         synchronized (room) {
             if (isDetached(code, room)) {
@@ -242,8 +252,140 @@ public class GameRoomRepository {
             if (result.changed()) {
                 persist(code, room, result.deliveries());
             }
-            return result.value();
+            return result;
         }
+    }
+
+    public <T> RoomUpdate<T> updateWithCas(String code, Function<GameRoom, RoomUpdate<T>> operation) {
+        if (redisStateRepository.isEmpty()) {
+            return updateWithDeliveriesResult(code, operation);
+        }
+
+        return updateWithRedisCas(code, operation, redisStateRepository.orElseThrow());
+    }
+
+    private <T> RoomUpdate<T> updateWithRedisCas(
+            String code,
+            Function<GameRoom, RoomUpdate<T>> operation,
+            RedisGameRoomStateRepository repository
+    ) {
+        GameRoom currentRoom = findForCas(code, repository);
+        for (int attempt = 1; attempt <= MAX_CAS_ATTEMPTS; attempt++) {
+            CasUpdateAttempt<T> attemptResult = attemptCasUpdate(code, currentRoom, operation, repository);
+            if (attemptResult.completedUpdate().isPresent()) {
+                return attemptResult.completedUpdate().orElseThrow();
+            }
+            currentRoom = attemptResult.currentRoom();
+        }
+
+        throw new ConcurrentGameRoomUpdateException(code, MAX_CAS_ATTEMPTS);
+    }
+
+    private <T> CasUpdateAttempt<T> attemptCasUpdate(
+            String code,
+            GameRoom currentRoom,
+            Function<GameRoom, RoomUpdate<T>> operation,
+            RedisGameRoomStateRepository repository
+    ) {
+        GameRoom candidate = GameRoom.restore(GameRoomState.from(currentRoom));
+        long expectedVersion = candidate.getVersion();
+        if (candidate.isLobbyExpired(Instant.now())) {
+            return deleteExpiredLobbyOrRetry(code, currentRoom, expectedVersion, repository);
+        }
+
+        RoomUpdate<T> result = operation.apply(candidate);
+        if (!result.changed()) {
+            return completeUnchangedOperationOrRetry(code, expectedVersion, result, repository);
+        }
+        return compareAndSetCandidate(code, currentRoom, candidate, expectedVersion, result, repository);
+    }
+
+    private <T> CasUpdateAttempt<T> deleteExpiredLobbyOrRetry(
+            String code,
+            GameRoom currentRoom,
+            long expectedVersion,
+            RedisGameRoomStateRepository repository
+    ) {
+        RedisGameRoomStateRepository.ConditionalWriteResult deleteResult =
+                repository.compareAndDelete(code, expectedVersion);
+        if (deleteResult == RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED) {
+            removeLocalRoomIfNotNewer(code, expectedVersion);
+            publishStateChanged(code, expectedVersion + 1, List.of(GameRoomDelivery.lobbyExpired()));
+            eventPublisher.publishEvent(new LobbyExpiredEvent(code));
+            throw new RoomNotFoundException();
+        }
+        if (deleteResult == RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND) {
+            removeLocalRoomIfNotNewer(code, expectedVersion);
+            throw new RoomNotFoundException();
+        }
+        return CasUpdateAttempt.retry(restoreLatestForCas(code, currentRoom, repository));
+    }
+
+    private <T> CasUpdateAttempt<T> completeUnchangedOperationOrRetry(
+            String code,
+            long expectedVersion,
+            RoomUpdate<T> result,
+            RedisGameRoomStateRepository repository
+    ) {
+        Optional<GameRoom> latestRoom = repository.restore(code);
+        if (latestRoom.isEmpty()) {
+            removeLocalRoomIfNotNewer(code, expectedVersion);
+            throw new RoomNotFoundException();
+        }
+
+        GameRoom currentLatestRoom = latestRoom.orElseThrow();
+        gameRegistry.replaceIfNewer(currentLatestRoom);
+        if (currentLatestRoom.getVersion() != expectedVersion) {
+            return CasUpdateAttempt.retry(currentLatestRoom);
+        }
+        return CasUpdateAttempt.completed(result, currentLatestRoom);
+    }
+
+    private <T> CasUpdateAttempt<T> compareAndSetCandidate(
+            String code,
+            GameRoom currentRoom,
+            GameRoom candidate,
+            long expectedVersion,
+            RoomUpdate<T> result,
+            RedisGameRoomStateRepository repository
+    ) {
+        candidate.incrementVersion();
+        RedisGameRoomStateRepository.ConditionalWriteResult writeResult =
+                repository.compareAndSet(candidate, expectedVersion);
+        if (writeResult == RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED) {
+            gameRegistry.replaceIfNewer(candidate);
+            publishStateChanged(code, candidate.getVersion(), result.deliveries());
+            return CasUpdateAttempt.completed(result, candidate);
+        }
+        if (writeResult == RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND) {
+            removeLocalRoomIfNotNewer(code, expectedVersion);
+            throw new RoomNotFoundException();
+        }
+        return CasUpdateAttempt.retry(restoreLatestForCas(code, currentRoom, repository));
+    }
+
+    private GameRoom findForCas(String code, RedisGameRoomStateRepository repository) {
+        Optional<GameRoom> localRoom = gameRegistry.find(code);
+        if (localRoom.isPresent()) {
+            return localRoom.orElseThrow();
+        }
+        GameRoom restored = repository.restore(code).orElseThrow(RoomNotFoundException::new);
+        return gameRegistry.replaceIfNewer(restored);
+    }
+
+    private GameRoom restoreLatestForCas(
+            String code,
+            GameRoom previousRoom,
+            RedisGameRoomStateRepository repository
+    ) {
+        Optional<GameRoom> restored = repository.restore(code);
+        if (restored.isEmpty()) {
+            removeLocalRoomIfNotNewer(code, previousRoom.getVersion());
+            throw new RoomNotFoundException();
+        }
+        GameRoom latestRoom = restored.orElseThrow();
+        gameRegistry.replaceIfNewer(latestRoom);
+        return latestRoom;
     }
 
     private GameRoom findForUpdate(String code) {
@@ -309,5 +451,16 @@ public class GameRoomRepository {
 
     private void publishStateChanged(String code, long version, List<GameRoomDelivery> deliveries) {
         stateChangePublisher.ifPresent(publisher -> publisher.publish(code, version, deliveries));
+    }
+
+    private record CasUpdateAttempt<T>(Optional<RoomUpdate<T>> completedUpdate, GameRoom currentRoom) {
+
+        private static <T> CasUpdateAttempt<T> completed(RoomUpdate<T> update, GameRoom currentRoom) {
+            return new CasUpdateAttempt<>(Optional.of(update), currentRoom);
+        }
+
+        private static <T> CasUpdateAttempt<T> retry(GameRoom currentRoom) {
+            return new CasUpdateAttempt<>(Optional.empty(), currentRoom);
+        }
     }
 }
