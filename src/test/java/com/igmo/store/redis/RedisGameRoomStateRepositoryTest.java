@@ -43,7 +43,7 @@ class RedisGameRoomStateRepositoryTest {
 
     @Container
     static final GenericContainer<?> redis = new GenericContainer<>(
-            DockerImageName.parse("redis:7-alpine")
+            DockerImageName.parse("redis:7.4-alpine")
     ).withExposedPorts(6379);
 
     private static LettuceConnectionFactory connectionFactory;
@@ -220,6 +220,129 @@ class RedisGameRoomStateRepositoryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Redis 게임 방 상태를 갱신할 수 없습니다.");
         assertThat(repository.find("ABCD")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("기준 버전이 일치하면 새 상태를 저장하고 기존 TTL을 유지한다.")
+    void compareAndSet_기준버전이일치하면저장하고TTL을유지한다() {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(original);
+        GameRoom candidate = GameRoom.restore(GameRoomState.from(original));
+        candidate.addPlayer(new Player("참가자"));
+        candidate.incrementVersion();
+        redisTemplate.expire("igmo:game-room:ABCD", 30, TimeUnit.SECONDS);
+        long ttlBeforeSave = redisTemplate.getExpire("igmo:game-room:ABCD", TimeUnit.SECONDS);
+
+        // when
+        RedisGameRoomStateRepository.ConditionalWriteResult result =
+                repository.compareAndSet(candidate, original.getVersion());
+
+        // then
+        GameRoomState saved = repository.find("ABCD").orElseThrow();
+        long ttlAfterSave = redisTemplate.getExpire("igmo:game-room:ABCD", TimeUnit.SECONDS);
+        assertThat(result).isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED);
+        assertThat(saved.version()).isEqualTo(original.getVersion() + 1);
+        assertThat(saved.players()).hasSize(2);
+        assertThat(ttlAfterSave).isGreaterThan(0L).isLessThanOrEqualTo(ttlBeforeSave);
+    }
+
+    @Test
+    @DisplayName("기준 버전이 오래되면 Redis의 최신 상태를 덮어쓰지 않는다.")
+    void compareAndSet_기준버전이오래되면최신상태를보존한다() {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(original);
+        GameRoom winner = GameRoom.restore(GameRoomState.from(original));
+        winner.addPlayer(new Player("먼저 저장한 참가자"));
+        winner.incrementVersion();
+        repository.compareAndSet(winner, original.getVersion());
+
+        GameRoom staleCandidate = GameRoom.restore(GameRoomState.from(original));
+        staleCandidate.changePlayerReady(staleCandidate.getHostId(), true);
+        staleCandidate.incrementVersion();
+
+        // when
+        RedisGameRoomStateRepository.ConditionalWriteResult result =
+                repository.compareAndSet(staleCandidate, original.getVersion());
+
+        // then
+        assertThat(result).isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.VERSION_MISMATCH);
+        assertThat(repository.find("ABCD")).contains(GameRoomState.from(winner));
+    }
+
+    @Test
+    @DisplayName("기준 버전이 일치하는 한 인스턴스만 동시에 저장한다.")
+    void compareAndSet_동시에저장하면한인스턴스만성공한다() throws Exception {
+        // given
+        GameRoom original = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(original);
+        GameRoom firstCandidate = GameRoom.restore(GameRoomState.from(original));
+        firstCandidate.addPlayer(new Player("첫 번째 참가자"));
+        firstCandidate.incrementVersion();
+        GameRoom secondCandidate = GameRoom.restore(GameRoomState.from(original));
+        secondCandidate.addPlayer(new Player("두 번째 참가자"));
+        secondCandidate.incrementVersion();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CyclicBarrier start = new CyclicBarrier(2);
+        Future<RedisGameRoomStateRepository.ConditionalWriteResult> firstResult = executor.submit(() -> {
+            start.await();
+            return repository.compareAndSet(firstCandidate, original.getVersion());
+        });
+        Future<RedisGameRoomStateRepository.ConditionalWriteResult> secondResult = executor.submit(() -> {
+            start.await();
+            return repository.compareAndSet(secondCandidate, original.getVersion());
+        });
+        RedisGameRoomStateRepository.ConditionalWriteResult first;
+        RedisGameRoomStateRepository.ConditionalWriteResult second;
+        try {
+            first = firstResult.get(5, TimeUnit.SECONDS);
+            second = secondResult.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // then
+        assertThat(java.util.List.of(first, second)).containsExactlyInAnyOrder(
+                RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED,
+                RedisGameRoomStateRepository.ConditionalWriteResult.VERSION_MISMATCH
+        );
+        assertThat(repository.find("ABCD").orElseThrow().version()).isEqualTo(original.getVersion() + 1);
+    }
+
+    @Test
+    @DisplayName("조건부 저장은 Redis 키가 없으면 새 키를 만들지 않는다.")
+    void compareAndSet_키가없으면상태를생성하지않는다() {
+        // given
+        GameRoom candidate = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        candidate.incrementVersion();
+
+        // when
+        RedisGameRoomStateRepository.ConditionalWriteResult result =
+                repository.compareAndSet(candidate, 0L);
+
+        // then
+        assertThat(result).isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND);
+        assertThat(repository.find("ABCD")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("조건부 삭제는 기준 버전이 일치할 때만 방을 삭제한다.")
+    void compareAndDelete_기준버전이일치할때만삭제한다() {
+        // given
+        GameRoom room = GameRoom.create("ABCD", new Player("호스트"), Duration.ofMinutes(10));
+        repository.saveIfAbsent(room);
+
+        // when // then
+        assertThat(repository.compareAndDelete("ABCD", room.getVersion() + 1))
+                .isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.VERSION_MISMATCH);
+        assertThat(repository.find("ABCD")).contains(GameRoomState.from(room));
+        assertThat(repository.compareAndDelete("ABCD", room.getVersion()))
+                .isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.APPLIED);
+        assertThat(repository.find("ABCD")).isEmpty();
+        assertThat(repository.compareAndDelete("ABCD", room.getVersion()))
+                .isEqualTo(RedisGameRoomStateRepository.ConditionalWriteResult.KEY_NOT_FOUND);
     }
 
     @Test
