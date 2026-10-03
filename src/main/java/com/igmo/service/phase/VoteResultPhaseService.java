@@ -19,6 +19,7 @@ import com.igmo.web.websocket.snapshot.VoteSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -43,50 +44,70 @@ public class VoteResultPhaseService {
     private Duration guessDuration;
 
     public void submitVote(String code, String playerId, String optionId) {
-        RoomMessage<?> message = gameRoomRepository.updateWithDeliveries(code, room -> {
+        Instant submittedAt = Instant.now();
+        VoteSubmissionPublication publication = gameRoomRepository.updateWithCas(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
             GamePhase fromPhase = room.getPhase();
-            Instant submittedAt = Instant.now();
             room.submitVote(playerId, optionId, submittedAt);
             if (room.hasAllCurrentRoundVotes()) {
-                gamePhaseScheduler.cancelVote(code);
                 room.completeVoting(submittedAt, resultDuration);
-                GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
-                scheduleResultExpiration(code, room.getResultDeadline());
                 return RoomUpdate.changed(
-                        RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room)),
+                        new VoteSubmissionPublication(
+                                RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room)),
+                                fromPhase,
+                                room.getPhase(),
+                                true,
+                                room.getResultDeadline()),
                         List.of(GameRoomDelivery.roomSnapshot()));
             }
-            GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
             return RoomUpdate.changed(
-                    RoomMessage.voteSnapshot(VoteSnapshot.from(room)),
+                    new VoteSubmissionPublication(
+                            RoomMessage.voteSnapshot(VoteSnapshot.from(room)),
+                            fromPhase,
+                            room.getPhase(),
+                            false,
+                            null),
                     List.of(GameRoomDelivery.roomSnapshot()));
-        });
-        eventPublisher.publish(code, message);
+        }).value();
+        GamePhaseService.logPhaseTransition(code, publication.fromPhase(), publication.toPhase());
+        if (publication.cancelVoteTimer()) {
+            gamePhaseScheduler.cancelVote(code);
+            scheduleResultExpiration(code, publication.resultDeadline());
+        }
+        eventPublisher.publish(code, publication.message());
     }
 
-    RoomMessage<?> completeGuessSubmission(GameRoom room, Instant completedAt) {
+    GuessCompletion completeGuessSubmission(GameRoom room, Instant completedAt) {
         String code = room.getCode();
         GamePhase fromPhase = room.getPhase();
         room.completeGuessSubmission(completedAt, voteDuration, voteSkippedDuration);
-        GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
 
         if (room.getPhase() == GamePhase.VOTE_SKIPPED) {
-            scheduleVoteSkippedExpiration(code, room.getCurrentRound().getVoteSkippedDeadline());
-            return RoomMessage.voteSkippedSnapshot(VoteSkippedSnapshot.from(room));
+            Instant deadline = room.getCurrentRound().getVoteSkippedDeadline();
+            return new GuessCompletion(
+                    RoomMessage.voteSkippedSnapshot(VoteSkippedSnapshot.from(room)),
+                    fromPhase,
+                    room.getPhase(),
+                    () -> scheduleVoteSkippedExpiration(code, deadline));
         }
 
         if (room.hasAllCurrentRoundVotes()) {
-            fromPhase = room.getPhase();
             room.completeVoting(completedAt, resultDuration);
-            GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
-            scheduleResultExpiration(code, room.getResultDeadline());
-            return RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room));
+            Instant deadline = room.getResultDeadline();
+            return new GuessCompletion(
+                    RoomMessage.roundResultSnapshot(RoundResultSnapshot.from(room)),
+                    fromPhase,
+                    room.getPhase(),
+                    () -> scheduleResultExpiration(code, deadline));
         }
-        scheduleVoteExpiration(code, room.getVoteDeadline());
-        return RoomMessage.voteSnapshot(VoteSnapshot.from(room));
+        Instant deadline = room.getVoteDeadline();
+        return new GuessCompletion(
+                RoomMessage.voteSnapshot(VoteSnapshot.from(room)),
+                fromPhase,
+                room.getPhase(),
+                () -> scheduleVoteExpiration(code, deadline));
     }
 
     void scheduleVoteExpiration(String code, Instant deadline) {
@@ -94,20 +115,31 @@ public class VoteResultPhaseService {
     }
 
     private void runVoteExpiration(String code, Instant deadline) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Instant expiredAt = Instant.now();
+        Optional<RoomUpdate<VoteExpirationPublication>> update = gameRoomRepository.updateIfPresentWithCas(
+                code,
+                lockedRoom -> {
                     if (lockedRoom.isVoteExpirationStale(deadline)) {
                         return RoomUpdate.unchanged(null);
                     }
                     GamePhase fromPhase = lockedRoom.getPhase();
-                    lockedRoom.completeVoting(Instant.now(), resultDuration);
-                    GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
-                    scheduleResultExpiration(code, lockedRoom.getResultDeadline());
-                    RoundResultSnapshot snapshot = RoundResultSnapshot.from(lockedRoom);
+                    lockedRoom.completeVoting(expiredAt, resultDuration);
+                    VoteExpirationPublication publication = new VoteExpirationPublication(
+                            RoundResultSnapshot.from(lockedRoom),
+                            fromPhase,
+                            lockedRoom.getPhase(),
+                            lockedRoom.getResultDeadline());
                     return lockedRoom.getPhase() == fromPhase
-                            ? RoomUpdate.unchanged(snapshot)
-                            : RoomUpdate.changed(snapshot, List.of(GameRoomDelivery.roomSnapshot()));
-                })
-                .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
+                            ? RoomUpdate.unchanged(publication)
+                            : RoomUpdate.changed(publication, List.of(GameRoomDelivery.roomSnapshot()));
+                });
+        update.filter(roomUpdate -> roomUpdate.changed()).map(RoomUpdate::value).ifPresent(publication -> {
+            GamePhaseService.logPhaseTransition(code, publication.fromPhase(), publication.toPhase());
+            if (publication.resultDeadline() != null) {
+                scheduleResultExpiration(code, publication.resultDeadline());
+            }
+            eventPublisher.publishRoundResult(code, publication.snapshot());
+        });
     }
 
     void scheduleVoteSkippedExpiration(String code, Instant deadline) {
@@ -115,22 +147,30 @@ public class VoteResultPhaseService {
     }
 
     private void runVoteSkippedExpiration(String code, Instant deadline) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Instant expiredAt = Instant.now();
+        Optional<RoomUpdate<VoteExpirationPublication>> update = gameRoomRepository.updateIfPresentWithCas(
+                code,
+                lockedRoom -> {
                     if (lockedRoom.isVoteSkippedExpirationStale(deadline)) {
                         return RoomUpdate.unchanged(null);
                     }
 
-                    Instant expiredAt = Instant.now();
                     GamePhase fromPhase = lockedRoom.getPhase();
                     lockedRoom.completeVoteSkipped(expiredAt, resultDuration);
-                    GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
-                    scheduleResultExpiration(code, lockedRoom.getResultDeadline());
-
-                    return RoomUpdate.changed(
+                    VoteExpirationPublication publication = new VoteExpirationPublication(
                             RoundResultSnapshot.from(lockedRoom),
-                            List.of(GameRoomDelivery.roomSnapshot()));
-                })
-                .ifPresent(snapshot -> eventPublisher.publishRoundResult(code, snapshot));
+                            fromPhase,
+                            lockedRoom.getPhase(),
+                            lockedRoom.getResultDeadline());
+                    return RoomUpdate.changed(publication, List.of(GameRoomDelivery.roomSnapshot()));
+                });
+        update.filter(roomUpdate -> roomUpdate.changed()).map(RoomUpdate::value).ifPresent(publication -> {
+            GamePhaseService.logPhaseTransition(code, publication.fromPhase(), publication.toPhase());
+            if (publication.resultDeadline() != null) {
+                scheduleResultExpiration(code, publication.resultDeadline());
+            }
+            eventPublisher.publishRoundResult(code, publication.snapshot());
+        });
     }
 
     void scheduleResultExpiration(String code, Instant deadline) {
@@ -138,44 +178,91 @@ public class VoteResultPhaseService {
     }
 
     void runResultExpiration(String code, Instant deadline) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Instant advancedAt = Instant.now();
+        Optional<RoomUpdate<RoundAdvanceResult>> update = gameRoomRepository.updateIfPresentWithCas(
+                code,
+                lockedRoom -> {
                     if (lockedRoom.isResultExpirationStale(deadline)) {
                         return RoomUpdate.unchanged(null);
                     }
-                    RoundAdvanceResult result = advanceRoundAndPrepare(code, lockedRoom);
-                    return RoomUpdate.changed(result, deliveriesFor(result));
-                })
-                .ifPresent(result -> {
-                    eventPublisher.publish(code, result.message());
-                    if (result.message().type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
-                        gameRoomRepository.remove(result.room());
-                        gameDrainLifecycle.onGameEnded(code);
+                    RoundAdvanceResult result = advanceRoundAndPrepare(lockedRoom, advancedAt);
+                    if (result.ended()) {
+                        return RoomUpdate.deleted(result, deliveriesFor(result));
                     }
+                    return RoomUpdate.changed(result, deliveriesFor(result));
                 });
+        update.filter(roomUpdate -> roomUpdate.changed()).map(RoomUpdate::value).ifPresent(result -> {
+            GamePhaseService.logPhaseTransition(code, result.fromPhase(), result.room().getPhase());
+            if (result.guessDeadline() != null) {
+                guessPhaseService.scheduleGuessExpiration(
+                        code,
+                        result.guessDeadline(),
+                        this::completeGuessSubmission);
+            }
+            eventPublisher.publish(code, result.message());
+            if (result.ended()) {
+                gameDrainLifecycle.onGameEnded(code);
+            }
+        });
     }
 
-    private RoundAdvanceResult advanceRoundAndPrepare(String code, GameRoom room) {
+    private RoundAdvanceResult advanceRoundAndPrepare(GameRoom room, Instant advancedAt) {
         GamePhase fromPhase = room.getPhase();
-        room.advanceRound(Instant.now(), guessDuration);
-        GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
+        room.advanceRound(advancedAt, guessDuration);
         if (room.getPhase() == GamePhase.ENDED) {
-            return new RoundAdvanceResult(room, RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room)));
+            return new RoundAdvanceResult(
+                    room,
+                    fromPhase,
+                    RoomMessage.gameResultSnapshot(GameResultSnapshot.from(room)),
+                    null);
         }
-        guessPhaseService.scheduleGuessExpiration(
-                code,
-                room.getFinalGuessSubmissionDeadline(),
-                this::completeGuessSubmission);
-        return new RoundAdvanceResult(room, RoomMessage.roundSnapshot(RoundSnapshot.from(room)));
+        return new RoundAdvanceResult(
+                room,
+                fromPhase,
+                RoomMessage.roundSnapshot(RoundSnapshot.from(room)),
+                room.getFinalGuessSubmissionDeadline());
     }
 
     private List<GameRoomDelivery> deliveriesFor(RoundAdvanceResult result) {
-        if (result.message().type() == RoomMessageType.GAME_RESULT_SNAPSHOT) {
-            return List.of();
+        if (result.ended()) {
+            return List.of(GameRoomDelivery.gameResult(GameResultSnapshot.from(result.room())));
         }
         return List.of(GameRoomDelivery.roomSnapshot());
     }
 
-    private record RoundAdvanceResult(GameRoom room, RoomMessage<?> message) {
+    private record VoteSubmissionPublication(
+            RoomMessage<?> message,
+            GamePhase fromPhase,
+            GamePhase toPhase,
+            boolean cancelVoteTimer,
+            Instant resultDeadline
+    ) {
     }
 
+    private record VoteExpirationPublication(
+            RoundResultSnapshot snapshot,
+            GamePhase fromPhase,
+            GamePhase toPhase,
+            Instant resultDeadline
+    ) {
+    }
+
+    private record RoundAdvanceResult(
+            GameRoom room,
+            GamePhase fromPhase,
+            RoomMessage<?> message,
+            Instant guessDeadline
+    ) {
+        private boolean ended() {
+            return message.type() == RoomMessageType.GAME_RESULT_SNAPSHOT;
+        }
+    }
+
+    record GuessCompletion(
+            RoomMessage<?> message,
+            GamePhase fromPhase,
+            GamePhase toPhase,
+            Runnable scheduleNextTimer
+    ) {
+    }
 }

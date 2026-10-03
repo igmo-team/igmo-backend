@@ -45,21 +45,21 @@ public class GameLobbyService {
     }
 
     public JoinGameResponse joinGame(String code, String nickname) {
-        JoinGameResponse response = gameRoomRepository.updateWithDeliveries(code, room -> {
-            Player player = new Player(nickname);
+        Player player = new Player(nickname);
+        JoinGameResponse response = gameRoomRepository.updateWithCas(code, room -> {
             room.addPlayer(player);
             LobbySnapshot snapshot = LobbySnapshot.from(room);
             return RoomUpdate.changed(
                     new JoinGameResponse(player.getId(), player.getSecret(), snapshot),
                     List.of(GameRoomDelivery.roomSnapshot())
             );
-        });
+        }).value();
         eventPublisher.publishLobby(code, response.snapshot());
         return response;
     }
 
     public void changeReady(String code, String playerId, boolean ready) {
-        LobbySnapshot snapshot = gameRoomRepository.updateWithDeliveries(code, room -> {
+        LobbySnapshot snapshot = gameRoomRepository.updateWithCas(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
@@ -68,7 +68,7 @@ public class GameLobbyService {
                     LobbySnapshot.from(room),
                     List.of(GameRoomDelivery.roomSnapshot())
             );
-        });
+        }).value();
         eventPublisher.publishLobby(code, snapshot);
     }
 

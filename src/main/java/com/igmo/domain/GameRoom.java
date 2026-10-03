@@ -575,7 +575,7 @@ public class GameRoom {
     }
 
     public synchronized boolean isVoteExpirationStale(Instant deadline) {
-        return voteDeadline == null || !voteDeadline.equals(deadline);
+        return !isVoting() || voteDeadline == null || !voteDeadline.equals(deadline);
     }
 
     public synchronized boolean isVoteSkippedExpirationStale(Instant deadline) {
@@ -586,7 +586,7 @@ public class GameRoom {
     }
 
     public synchronized boolean isResultExpirationStale(Instant deadline) {
-        return resultDeadline == null || !resultDeadline.equals(deadline);
+        return !isResults() || resultDeadline == null || !resultDeadline.equals(deadline);
     }
 
     public synchronized boolean hasAllCurrentRoundGuesses() {
@@ -595,7 +595,9 @@ public class GameRoom {
     }
 
     public synchronized boolean isGuessExpirationStale(Instant deadline) {
-        return finalGuessSubmissionDeadline == null || !finalGuessSubmissionDeadline.equals(deadline);
+        return phase != GamePhase.PLAYING
+                || finalGuessSubmissionDeadline == null
+                || !finalGuessSubmissionDeadline.equals(deadline);
     }
 
     public synchronized boolean isFinalGuessSubmissionExpired(Instant now) {
@@ -623,7 +625,9 @@ public class GameRoom {
     }
 
     public synchronized boolean isPromptExpirationStale(Instant deadline) {
-        return finalPromptSubmissionDeadline == null || !finalPromptSubmissionDeadline.equals(deadline);
+        return phase != GamePhase.GENERATING
+                || finalPromptSubmissionDeadline == null
+                || !finalPromptSubmissionDeadline.equals(deadline);
     }
 
     private boolean allOthersReady() {

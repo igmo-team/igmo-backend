@@ -6,12 +6,15 @@ import com.igmo.domain.GameRoom;
 import com.igmo.domain.GameRoomState;
 import com.igmo.monitoring.GameMetrics;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.RedisStringCommands;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.stereotype.Component;
 
@@ -22,10 +25,24 @@ public class RedisGameRoomStateRepository {
 
     private static final String KEY_PREFIX = "igmo:game-room:";
     private static final Duration ROOM_TTL = Duration.ofHours(1);
+    private static final RedisScript<Long> COMPARE_AND_SET_SCRIPT = RedisScript.of(
+            new ClassPathResource("redis/compare-and-set-game-room.lua"),
+            Long.class
+    );
+    private static final RedisScript<Long> COMPARE_AND_DELETE_SCRIPT = RedisScript.of(
+            new ClassPathResource("redis/compare-and-delete-game-room.lua"),
+            Long.class
+    );
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final GameMetrics gameMetrics;
+
+    public enum ConditionalWriteResult {
+        APPLIED,
+        VERSION_MISMATCH,
+        KEY_NOT_FOUND
+    }
 
     public void save(GameRoom room) {
         long startedAt = System.nanoTime();
@@ -37,6 +54,48 @@ public class RedisGameRoomStateRepository {
             throw new IllegalStateException("Redis 게임 방 상태를 저장할 수 없습니다.", exception);
         } catch (RuntimeException exception) {
             recordOperation("save", "error", startedAt);
+            throw exception;
+        }
+    }
+
+    public ConditionalWriteResult compareAndSet(GameRoom candidate, long expectedVersion) {
+        validateCandidateVersion(candidate, expectedVersion);
+        long startedAt = System.nanoTime();
+        try {
+            Long resultCode = redisTemplate.execute(
+                    COMPARE_AND_SET_SCRIPT,
+                    List.of(key(candidate.getCode())),
+                    Long.toString(expectedVersion),
+                    serialize(candidate)
+            );
+            ConditionalWriteResult result = conditionalWriteResult(resultCode);
+            recordOperation("compare_and_set", metricOutcome(result), startedAt);
+            return result;
+        } catch (JsonProcessingException exception) {
+            recordOperation("compare_and_set", "error", startedAt);
+            throw new IllegalStateException("Redis 게임 방 상태를 저장할 수 없습니다.", exception);
+        } catch (RuntimeException exception) {
+            recordOperation("compare_and_set", "error", startedAt);
+            throw exception;
+        }
+    }
+
+    public ConditionalWriteResult compareAndDelete(String roomCode, long expectedVersion) {
+        if (expectedVersion < 0) {
+            throw new IllegalArgumentException("기준 버전은 0 이상이어야 합니다.");
+        }
+        long startedAt = System.nanoTime();
+        try {
+            Long resultCode = redisTemplate.execute(
+                    COMPARE_AND_DELETE_SCRIPT,
+                    List.of(key(roomCode)),
+                    Long.toString(expectedVersion)
+            );
+            ConditionalWriteResult result = conditionalWriteResult(resultCode);
+            recordOperation("compare_and_delete", metricOutcome(result), startedAt);
+            return result;
+        } catch (RuntimeException exception) {
+            recordOperation("compare_and_delete", "error", startedAt);
             throw exception;
         }
     }
@@ -111,6 +170,34 @@ public class RedisGameRoomStateRepository {
 
     private String key(String roomCode) {
         return KEY_PREFIX + roomCode;
+    }
+
+    private void validateCandidateVersion(GameRoom candidate, long expectedVersion) {
+        if (expectedVersion < 0
+                || expectedVersion == Long.MAX_VALUE
+                || candidate.getVersion() != expectedVersion + 1) {
+            throw new IllegalArgumentException("후보 상태 버전은 기준 버전보다 1 커야 합니다.");
+        }
+    }
+
+    private ConditionalWriteResult conditionalWriteResult(Long resultCode) {
+        if (resultCode == null) {
+            throw new IllegalStateException("Redis 조건부 저장 결과가 비어 있습니다.");
+        }
+        return switch (resultCode.intValue()) {
+            case 1 -> ConditionalWriteResult.APPLIED;
+            case 0 -> ConditionalWriteResult.VERSION_MISMATCH;
+            case -1 -> ConditionalWriteResult.KEY_NOT_FOUND;
+            default -> throw new IllegalStateException("Redis 조건부 저장 결과가 올바르지 않습니다.");
+        };
+    }
+
+    private String metricOutcome(ConditionalWriteResult result) {
+        return switch (result) {
+            case APPLIED -> "success";
+            case VERSION_MISMATCH -> "conflict";
+            case KEY_NOT_FOUND -> "miss";
+        };
     }
 
     private void saveKeepingTtl(GameRoom room) throws JsonProcessingException {

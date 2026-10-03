@@ -1696,6 +1696,33 @@ class GameRoomTest {
     }
 
     @Test
+    @DisplayName("단계가 이미 전환된 타이머 작업은 같은 마감 시각이어도 오래된 작업이다.")
+    void phase전환후같은마감시각의타이머도_stale로판단한다() throws Exception {
+        GameRoom promptRoom = createGeneratingRoomWithMissingImages();
+        Instant promptDeadline = promptRoom.getFinalPromptSubmissionDeadline();
+        setPhase(promptRoom, GamePhase.PLAYING);
+
+        GameRoom guessRoom = createRoomInGuessing();
+        Instant guessDeadline = guessRoom.getFinalGuessSubmissionDeadline();
+        setPhase(guessRoom, GamePhase.VOTING);
+
+        GameRoom voteRoom = createRoomInVoting();
+        Instant voteDeadline = voteRoom.getVoteDeadline();
+        setPhase(voteRoom, GamePhase.RESULTS);
+
+        GameRoom resultRoom = createRoomInResults();
+        Instant resultDeadline = resultRoom.getResultDeadline();
+        resultRoom.advanceRound(RESULTS_OPENED_AT.plusSeconds(1), GUESS_DURATION);
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(promptRoom.isPromptExpirationStale(promptDeadline)).isTrue();
+            softly.assertThat(guessRoom.isGuessExpirationStale(guessDeadline)).isTrue();
+            softly.assertThat(voteRoom.isVoteExpirationStale(voteDeadline)).isTrue();
+            softly.assertThat(resultRoom.isResultExpirationStale(resultDeadline)).isTrue();
+        });
+    }
+
+    @Test
     @DisplayName("최종 순위는 누적 점수 내림차순으로 정렬한다.")
     void getFinalRanking_점수_내림차순으로_정렬한다() throws Exception {
         // given
