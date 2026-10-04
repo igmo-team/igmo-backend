@@ -19,6 +19,7 @@ import com.igmo.web.websocket.snapshot.GuessSubmissionSnapshot;
 import com.igmo.web.websocket.snapshot.RoundSnapshot;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,17 +37,18 @@ public class GuessPhaseService {
             String playerId,
             String guess,
             GuessSubmissionType submissionType,
-            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+            BiFunction<GameRoom, Instant, VoteResultPhaseService.GuessCompletion> completeGuessSubmission
     ) {
-        GuessSubmissionPublication result = gameRoomRepository.updateWithDeliveries(
+        Instant submittedAt = Instant.now();
+        RoomUpdate<GuessSubmissionPublication> update = gameRoomRepository.updateWithCas(
                 code,
                 room -> {
                     GuessSubmissionPublication publication = createGuessSubmissionPublication(
-                            code,
                             room,
                             playerId,
                             guess,
                             submissionType,
+                            submittedAt,
                             completeGuessSubmission);
                     if (publication == null || !publication.changed()) {
                         return RoomUpdate.unchanged(publication);
@@ -55,21 +57,29 @@ public class GuessPhaseService {
                             publication,
                             deliveriesFor(publication.roomMessage(), publication.ownVoteOptions()));
                 });
+        GuessSubmissionPublication result = update.value();
+        if (update.changed() && result != null) {
+            GamePhaseService.logPhaseTransition(code, result.fromPhase(), result.phase());
+            if (result.cancelGuessTimer()) {
+                gamePhaseScheduler.cancelGuess(code);
+            }
+            result.completion().ifPresent(completion -> completion.scheduleNextTimer().run());
+        }
         publishGuessSubmission(code, playerId, result);
     }
 
     private GuessSubmissionPublication createGuessSubmissionPublication(
-            String code,
             GameRoom room,
             String playerId,
             String guess,
             GuessSubmissionType submissionType,
-            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+            Instant submittedAt,
+            BiFunction<GameRoom, Instant, VoteResultPhaseService.GuessCompletion> completeGuessSubmission
     ) {
         if (!room.hasPlayer(playerId)) {
             throw new PlayerNotFoundException();
         }
-        Instant submittedAt = Instant.now();
+        GamePhase fromPhase = room.getPhase();
         GuessSubmissionResult guessSubmissionResult;
         GuessSubmissionSnapshot snapshot;
         try {
@@ -83,7 +93,10 @@ public class GuessPhaseService {
                         null,
                         room.getPhase(),
                         List.of(),
-                        true);
+                        true,
+                        fromPhase,
+                        false,
+                        Optional.empty());
             }
             snapshot = GuessSubmissionSnapshot.submitted(room, guess);
         } catch (DuplicateGuessSubmissionException
@@ -94,34 +107,43 @@ public class GuessPhaseService {
                     null,
                     room.getPhase(),
                     List.of(),
-                    false);
+                    false,
+                    fromPhase,
+                    false,
+                    Optional.empty());
         }
         return createPublicationAfterSuccessfulGuess(
-                code, room, snapshot, submittedAt, completeGuessSubmission);
+                room, snapshot, submittedAt, fromPhase, completeGuessSubmission);
     }
 
     private GuessSubmissionPublication createPublicationAfterSuccessfulGuess(
-            String code,
             GameRoom room,
             GuessSubmissionSnapshot snapshot,
             Instant submittedAt,
-            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+            GamePhase fromPhase,
+            BiFunction<GameRoom, Instant, VoteResultPhaseService.GuessCompletion> completeGuessSubmission
     ) {
         if (room.hasAllCurrentRoundGuesses()) {
-            gamePhaseScheduler.cancelGuess(code);
+            VoteResultPhaseService.GuessCompletion completion = completeGuessSubmission.apply(room, submittedAt);
             return new GuessSubmissionPublication(
                     snapshot,
-                    completeGuessSubmission.apply(room, submittedAt),
+                    completion.message(),
                     room.getPhase(),
                     ownVoteOptions(room),
-                    true);
+                    true,
+                    completion.fromPhase(),
+                    true,
+                    Optional.of(completion));
         }
         return new GuessSubmissionPublication(
                 snapshot,
                 RoomMessage.roundSnapshot(RoundSnapshot.from(room)),
                 room.getPhase(),
                 List.of(),
-                true);
+                true,
+                fromPhase,
+                false,
+                Optional.empty());
     }
 
     private void publishGuessSubmission(String code, String playerId, GuessSubmissionPublication result) {
@@ -145,7 +167,10 @@ public class GuessPhaseService {
             RoomMessage<?> roomMessage,
             GamePhase phase,
             List<OwnVoteOptionPublication> ownVoteOptions,
-            boolean changed
+            boolean changed,
+            GamePhase fromPhase,
+            boolean cancelGuessTimer,
+            Optional<VoteResultPhaseService.GuessCompletion> completion
     ) {
         private boolean hasRoomMessage() {
             return roomMessage != null;
@@ -183,7 +208,7 @@ public class GuessPhaseService {
     void scheduleGuessExpiration(
             String code,
             Instant deadline,
-            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+            BiFunction<GameRoom, Instant, VoteResultPhaseService.GuessCompletion> completeGuessSubmission
     ) {
         gamePhaseScheduler.scheduleGuess(
                 code,
@@ -194,47 +219,63 @@ public class GuessPhaseService {
     void runGuessExpiration(
             String code,
             Instant deadline,
-            BiFunction<GameRoom, Instant, RoomMessage<?>> completeGuessSubmission
+            BiFunction<GameRoom, Instant, VoteResultPhaseService.GuessCompletion> completeGuessSubmission
     ) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Instant expiredAt = Instant.now();
+        Optional<RoomUpdate<GuessExpirationPublication>> update = gameRoomRepository.updateIfPresentWithCas(
+                code,
+                lockedRoom -> {
                     if (lockedRoom.isGuessExpirationStale(deadline)) {
                         return RoomUpdate.unchanged(null);
                     }
-                    Instant expiredAt = Instant.now();
                     if (!lockedRoom.isFinalGuessSubmissionExpired(expiredAt)) {
-                        scheduleGuessExpiration(
-                                code,
+                        return RoomUpdate.unchanged(new GuessExpirationPublication(
+                                null,
+                                List.of(),
+                                Optional.empty(),
                                 lockedRoom.getFinalGuessSubmissionDeadline(),
-                                completeGuessSubmission);
-                        return RoomUpdate.unchanged(null);
+                                false));
                     }
                     lockedRoom.autoSubmitGuesses(expiredAt);
-                    GamePhase fromPhase = lockedRoom.getPhase();
-                    RoomMessage<?> message = completeGuessSubmission.apply(lockedRoom, expiredAt);
+                    VoteResultPhaseService.GuessCompletion completion =
+                            completeGuessSubmission.apply(lockedRoom, expiredAt);
                     GuessExpirationPublication publication = new GuessExpirationPublication(
-                            message,
-                            ownVoteOptions(lockedRoom)
+                            completion.message(),
+                            ownVoteOptions(lockedRoom),
+                            Optional.of(completion),
+                            null,
+                            true
                     );
-                    return lockedRoom.getPhase() == fromPhase
-                            ? RoomUpdate.unchanged(publication)
-                            : RoomUpdate.changed(
-                                    publication,
-                                    deliveriesFor(publication.roomMessage(), publication.ownVoteOptions()));
-                })
-                .ifPresent(publication -> {
-                    publication.ownVoteOptions()
-                            .forEach(option -> eventPublisher.sendOwnVoteOption(
-                                            option.playerId(),
-                                            option.notice()
-                                    )
-                            );
-                    eventPublisher.publish(code, publication.roomMessage());
+                    return RoomUpdate.changed(
+                            publication,
+                            deliveriesFor(publication.roomMessage(), publication.ownVoteOptions()));
                 });
+        update.map(RoomUpdate::value).ifPresent(publication -> {
+            if (publication.retryDeadline() != null) {
+                scheduleGuessExpiration(code, publication.retryDeadline(), completeGuessSubmission);
+            }
+            if (publication.shouldPublish()) {
+                publication.completion().ifPresent(completion -> {
+                    GamePhaseService.logPhaseTransition(code, completion.fromPhase(), completion.toPhase());
+                    completion.scheduleNextTimer().run();
+                });
+                publication.ownVoteOptions()
+                        .forEach(option -> eventPublisher.sendOwnVoteOption(
+                                        option.playerId(),
+                                        option.notice()
+                                )
+                        );
+                eventPublisher.publish(code, publication.roomMessage());
+            }
+        });
     }
 
     private record GuessExpirationPublication(
             RoomMessage<?> roomMessage,
-            List<OwnVoteOptionPublication> ownVoteOptions
+            List<OwnVoteOptionPublication> ownVoteOptions,
+            Optional<VoteResultPhaseService.GuessCompletion> completion,
+            Instant retryDeadline,
+            boolean shouldPublish
     ) {
     }
 

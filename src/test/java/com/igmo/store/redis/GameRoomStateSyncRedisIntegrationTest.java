@@ -133,7 +133,7 @@ class GameRoomStateSyncRedisIntegrationTest {
         await(() -> greenRegistry.find("ABCD").isPresent());
 
         // when
-        blueRepository.updateWithDeliveries("ABCD", room -> {
+        blueRepository.updateWithCas("ABCD", room -> {
             room.addPlayer(new Player("Green 참가자"));
             room.addPlayer(new Player("Yellow 참가자"));
             return RoomUpdate.changed("updated", List.of(GameRoomDelivery.roomSnapshot()));
@@ -155,7 +155,7 @@ class GameRoomStateSyncRedisIntegrationTest {
 
         // when: 개인 이미지 결과는 playerId를 유지해 B의 로컬 사용자 큐로 전달한다.
         String hostId = blueRoom.getHostId();
-        blueRepository.updateWithDeliveries("ABCD", room -> {
+        blueRepository.updateWithCas("ABCD", room -> {
             room.getPlayers().stream()
                     .filter(player -> !player.getId().equals(room.getHostId()))
                     .forEach(player -> room.changePlayerReady(player.getId(), true));
@@ -178,7 +178,7 @@ class GameRoomStateSyncRedisIntegrationTest {
                 eq(hostId), eq("/queue/image-generation"), any(ImageGenerationEvent.class));
 
         // when: 실패 사유도 Redis 상태로 보존되어 B에서 복원된다.
-        blueRepository.updateWithDeliveries("ABCD", room -> {
+        blueRepository.updateWithCas("ABCD", room -> {
             room.failImageGeneration(hostId, "이미지 제공자 오류");
             return RoomUpdate.changed("image failed", List.of(GameRoomDelivery.imageResult(hostId)));
         });
@@ -200,12 +200,12 @@ class GameRoomStateSyncRedisIntegrationTest {
                 .isEqualTo("이미지 제공자 오류");
 
         // when: 종료 스냅샷을 저장한 직후 방 키를 삭제한다.
-        GameResultSnapshot finalSnapshot = blueRepository.updateWithDeliveries("ABCD", room -> {
+        GameResultSnapshot finalSnapshot = blueRepository.updateWithCas("ABCD", room -> {
             ReflectionTestUtils.setField(room, "phase", GamePhase.ENDED);
             return RoomUpdate.changed(GameResultSnapshot.from(room), List.of());
-        });
+        }).value();
         blueEventPublisher.publish("ABCD", RoomMessage.gameResultSnapshot(finalSnapshot));
-        blueRepository.remove(blueRoom);
+        blueRepository.remove(blueRegistry.find("ABCD").orElseThrow());
 
         // then: Redis 키가 없어도 삭제 이벤트의 최종 결과를 B가 한 번 방송한다.
         await(() -> org.mockito.Mockito.mockingDetails(greenLocalBroker).getInvocations().size() == 4);

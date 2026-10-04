@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,35 +50,39 @@ public class PromptPhaseService {
     private Duration imageGenerationCompletionDelay;
 
     public void startGame(String code, String playerId) {
-        PromptSubmissionSnapshot promptSnapshot = gameRoomRepository.updateWithDeliveries(code, room -> {
+        Instant startedAt = Instant.now();
+        GameStartResult result = gameRoomRepository.updateWithCas(code, room -> {
             GamePhase fromPhase = room.getPhase();
             room.changePlayerReady(playerId, true);
-            room.start(playerId, Instant.now(), promptDuration);
-            gamePhaseScheduler.cancelLobby(code);
-            GamePhaseService.logPhaseTransition(code, fromPhase, room.getPhase());
-            schedulePromptExpiration(room.getCode(), room.getFinalPromptSubmissionDeadline());
+            room.start(playerId, startedAt, promptDuration);
             return RoomUpdate.changed(
-                    PromptSubmissionSnapshot.from(room),
+                    new GameStartResult(
+                            PromptSubmissionSnapshot.from(room),
+                            fromPhase,
+                            room.getFinalPromptSubmissionDeadline()),
                     List.of(GameRoomDelivery.roomSnapshot())
             );
-        });
-        eventPublisher.publishPromptSubmission(code, promptSnapshot);
+        }).value();
+        GamePhaseService.logPhaseTransition(code, result.fromPhase(), GamePhase.GENERATING);
+        gamePhaseScheduler.cancelLobby(code);
+        schedulePromptExpiration(code, result.promptDeadline());
+        eventPublisher.publishPromptSubmission(code, result.snapshot());
     }
 
     public void submitPrompt(String code, String playerId, String prompt, PromptSubmissionType submissionType) {
         String submittedPrompt = prompt.trim();
+        Instant submittedAt = Instant.now();
 
-        ImageGenerationEvent eventSnapshot = gameRoomRepository.updateWithDeliveries(code, room -> {
+        ImageGenerationEvent eventSnapshot = gameRoomRepository.updateWithCas(code, room -> {
             if (!room.hasPlayer(playerId)) {
                 throw new PlayerNotFoundException();
             }
-            Instant submittedAt = Instant.now();
             room.submitPrompt(playerId, submittedPrompt, submittedAt, submissionType);
             return RoomUpdate.changed(
                     new ImageGenerationEvent(code, PromptEntryStatus.GENERATING, submittedPrompt, null),
                     List.of(GameRoomDelivery.imageResult(playerId))
             );
-        });
+        }).value();
 
         eventPublisher.sendImageGenerationEvent(playerId, eventSnapshot);
         startImageGeneration(code, playerId, submittedPrompt);
@@ -101,12 +106,16 @@ public class PromptPhaseService {
     }
 
     private void runPromptExpiration(String code, Instant deadline) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Instant expiredAt = Instant.now();
+        List<SamplePrompt> samples = List.copyOf(samplePromptProvider.getAll());
+        Optional<RoomUpdate<PromptExpirationResult>> update = gameRoomRepository.updateIfPresentWithCas(
+                code,
+                lockedRoom -> {
                     if (lockedRoom.isPromptExpirationStale(deadline)) {
                         return RoomUpdate.unchanged(null);
                     }
                     Map<String, SamplePrompt> assignments =
-                            lockedRoom.fillMissingImagesWithSamples(samplePromptProvider.getAll(), Instant.now());
+                            lockedRoom.fillMissingImagesWithSamples(samples, expiredAt);
                     PromptExpirationResult result = new PromptExpirationResult(
                             assignments,
                             PromptSubmissionSnapshot.from(lockedRoom),
@@ -119,14 +128,17 @@ public class PromptPhaseService {
                             deliveries.add(GameRoomDelivery.imageResult(playerId)));
                     deliveries.add(GameRoomDelivery.roomSnapshot());
                     return RoomUpdate.changed(result, deliveries);
-                })
-                .ifPresent(result -> {
-                    publishSampleImageResults(code, result.assignments());
-                    eventPublisher.publishPromptSubmission(code, result.snapshot());
-                    if (result.shouldSchedulePlayingTransition()) {
-                        schedulePlayingTransition(code);
-                    }
                 });
+        update.filter(roomUpdate -> roomUpdate.value() != null).ifPresent(roomUpdate -> {
+            PromptExpirationResult result = roomUpdate.value();
+            if (roomUpdate.changed()) {
+                publishSampleImageResults(code, result.assignments());
+                eventPublisher.publishPromptSubmission(code, result.snapshot());
+            }
+            if (result.shouldSchedulePlayingTransition()) {
+                schedulePlayingTransition(code);
+            }
+        });
     }
 
     private void publishSampleImageResults(String code, Map<String, SamplePrompt> assignments) {
@@ -161,7 +173,7 @@ public class PromptPhaseService {
             String imageUrl,
             String errorMessage
     ) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Optional<RoomUpdate<ImageGenerationPublication>> update = gameRoomRepository.updateIfPresentWithCas(code, lockedRoom -> {
                     if (lockedRoom.getPhase() != GamePhase.GENERATING
                             || !lockedRoom.isImageGenerationInProgress(playerId)) {
                         return RoomUpdate.unchanged(null);
@@ -178,20 +190,23 @@ public class PromptPhaseService {
                                     GameRoomDelivery.imageResult(playerId),
                                     GameRoomDelivery.roomSnapshot())
                     );
-                })
-                .ifPresent(result -> publishImageGenerationResult(code, playerId, result));
+                });
+        update.map(RoomUpdate::value).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
     }
 
     private void handleImageGenerationFailure(String code, String playerId, String prompt, Exception exception) {
-        gameRoomRepository.updateIfPresent(code, lockedRoom -> {
+        Instant failedAt = Instant.now();
+        List<SamplePrompt> samples = List.copyOf(samplePromptProvider.getAll());
+        Optional<RoomUpdate<ImageGenerationPublication>> update = gameRoomRepository.updateIfPresentWithCas(code, lockedRoom -> {
             if (lockedRoom.getPhase() != GamePhase.GENERATING
                     || !lockedRoom.isImageGenerationInProgress(playerId)) {
                 return RoomUpdate.unchanged(null);
             }
             return RoomUpdate.changed(
-                    applyImageGenerationFailure(lockedRoom, code, playerId, prompt, exception),
+                    applyImageGenerationFailure(lockedRoom, code, playerId, prompt, exception, failedAt, samples),
                     List.of(GameRoomDelivery.imageResult(playerId), GameRoomDelivery.roomSnapshot()));
-        }).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
+        });
+        update.map(RoomUpdate::value).ifPresent(result -> publishImageGenerationResult(code, playerId, result));
     }
 
     private ImageGenerationPublication applyImageGenerationFailure(
@@ -199,14 +214,15 @@ public class PromptPhaseService {
             String code,
             String playerId,
             String prompt,
-            Exception exception
+            Exception exception,
+            Instant failedAt,
+            List<SamplePrompt> samples
     ) {
         boolean wasAllImagesGenerated = room.hasAllImagesGenerated();
-        Instant failedAt = Instant.now();
         String message = failureMessage(exception);
         room.failImageGeneration(playerId, message);
         ImageGenerationEvent event = createImageGenerationFailureEvent(
-                room, code, playerId, prompt, exception, failedAt);
+                room, code, playerId, prompt, exception, failedAt, samples);
         return new ImageGenerationPublication(
                 event,
                 PromptSubmissionSnapshot.from(room),
@@ -219,10 +235,11 @@ public class PromptPhaseService {
             String playerId,
             String prompt,
             Exception exception,
-            Instant failedAt
+            Instant failedAt,
+            List<SamplePrompt> samples
     ) {
         if (room.isPromptExpired(failedAt)) {
-            return fillFailedImageWithSample(room, code, playerId, failedAt);
+            return fillFailedImageWithSample(room, code, playerId, failedAt, samples);
         }
         return new ImageGenerationEvent(
                 code, PromptEntryStatus.FAILED, prompt, null, room.findPromptEntry(playerId)
@@ -234,10 +251,11 @@ public class PromptPhaseService {
             GameRoom room,
             String code,
             String playerId,
-            Instant failedAt
+            Instant failedAt,
+            List<SamplePrompt> samples
     ) {
         SamplePrompt sample = room.fillFailedImageWithSample(
-                playerId, samplePromptProvider.getAll(), failedAt);
+                playerId, samples, failedAt);
         return new ImageGenerationEvent(
                 code, PromptEntryStatus.READY, sample.prompt(), sample.imageUrl());
     }
@@ -266,28 +284,51 @@ public class PromptPhaseService {
     }
 
     private void runPlayingTransition(String code) {
+        Instant startedAt = Instant.now();
         try {
-            gameRoomRepository.updateIfPresent(code, lockedRoom -> {
-                        GamePhase fromPhase = lockedRoom.getPhase();
-                        lockedRoom.advanceToPlaying();
-                        GamePhaseService.logPhaseTransition(code, fromPhase, lockedRoom.getPhase());
-                        return RoomUpdate.changed(
-                                initializeRounds(code, lockedRoom, Instant.now()),
-                                List.of(GameRoomDelivery.roomSnapshot()));
-                    })
-                    .ifPresent(snapshot -> eventPublisher.publishRound(code, snapshot));
+            Optional<RoomUpdate<RoundTransition>> update = gameRoomRepository.updateIfPresentWithCas(code, room -> {
+                GamePhase fromPhase = room.getPhase();
+                room.advanceToPlaying();
+                RoundSnapshot snapshot = initializeRounds(room, startedAt);
+                return RoomUpdate.changed(
+                        new RoundTransition(
+                                fromPhase,
+                                room.getPhase(),
+                                snapshot,
+                                room.getFinalGuessSubmissionDeadline()),
+                        List.of(GameRoomDelivery.roomSnapshot()));
+            });
+            update.map(RoomUpdate::value).ifPresent(transition -> {
+                GamePhaseService.logPhaseTransition(code, transition.fromPhase(), transition.toPhase());
+                guessPhaseService.scheduleGuessExpiration(
+                        code,
+                        transition.guessDeadline(),
+                        voteResultPhaseService::completeGuessSubmission);
+                eventPublisher.publishRound(code, transition.snapshot());
+            });
         } catch (ImagesNotReadyException | RoundStartNotAllowedException ignored) {
             log.debug("이미지 생성 완료 전환 조건이 충족되지 않아 무시한다. roomCode={}", code);
         }
     }
 
-    private RoundSnapshot initializeRounds(String code, GameRoom room, Instant startedAt) {
+    private RoundSnapshot initializeRounds(GameRoom room, Instant startedAt) {
         room.startRounds(startedAt, guessDuration);
-        guessPhaseService.scheduleGuessExpiration(
-                code,
-                room.getFinalGuessSubmissionDeadline(),
-                voteResultPhaseService::completeGuessSubmission);
         return RoundSnapshot.from(room);
+    }
+
+    private record GameStartResult(
+            PromptSubmissionSnapshot snapshot,
+            GamePhase fromPhase,
+            Instant promptDeadline
+    ) {
+    }
+
+    private record RoundTransition(
+            GamePhase fromPhase,
+            GamePhase toPhase,
+            RoundSnapshot snapshot,
+            Instant guessDeadline
+    ) {
     }
 
     private record PromptExpirationResult(
