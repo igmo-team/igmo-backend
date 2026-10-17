@@ -190,6 +190,54 @@ jobs:
           DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
         run: bash .github/scripts/notify-discord.sh success
 
+      - name: Collect CD failure evidence
+        id: failure_report
+        if: ${{ !cancelled() && failure() && steps.deploy.outcome != 'success' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SETUP_JAVA_OUTCOME: ${{ steps.setup_java.outcome }}
+          SETUP_NODE_OUTCOME: ${{ steps.setup_node.outcome }}
+          BUILD_ARTIFACT_OUTCOME: ${{ steps.build_artifact.outcome }}
+          AWS_AUTH_OUTCOME: ${{ steps.aws_auth.outcome }}
+          ECR_LOGIN_OUTCOME: ${{ steps.ecr-login.outcome }}
+          VERIFY_IMAGE_OUTCOME: ${{ steps.verify_image.outcome }}
+          QEMU_OUTCOME: ${{ steps.qemu.outcome }}
+          BUILDX_OUTCOME: ${{ steps.buildx.outcome }}
+          BUILD_PUSH_OUTCOME: ${{ steps.build_push.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          DEPLOY_FAILURE_STAGE: ${{ steps.deploy.outputs.failure_stage }}
+          DEPLOY_FAILURE_REASON: ${{ steps.deploy.outputs.failure_reason }}
+          DEPLOY_CLEANUP_STATUS: ${{ steps.deploy.outputs.cleanup_status }}
+          DEPLOY_NGINX_RECOVERY_STATUS: ${{ steps.deploy.outputs.nginx_recovery_status }}
+        run: python3 -B .github/scripts/cd_failure_report.py collect --diagnostics "$RUNNER_TEMP/igmo-cd"
+
+      - name: Upload CD failure report
+        id: failure_artifact
+        if: ${{ !cancelled() && failure() && steps.failure_report.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: cd-failure-report
+          path: ${{ runner.temp }}/igmo-cd/report
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Publish CD failure summary
+        if: ${{ !cancelled() && failure() && steps.deploy.outcome != 'success' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          if ! python3 -B .github/scripts/cd_failure_report.py publish \
+            --diagnostics "$RUNNER_TEMP/igmo-cd" \
+            --artifact-url '${{ steps.failure_artifact.outputs.artifact-url }}'; then
+            echo '::warning::Detailed CD summary unavailable; inspect the failed step log.'
+            printf '## CD 실패\n\n상세 리포트 생성에 실패했습니다. 실패한 단계의 실행 로그를 확인해주세요.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # 15. 앞 단계가 실패했을 때 실패 단계와 복구 상태를 Discord에 알립니다.
       - name: Notify Discord of failed deployment
         if: ${{ !cancelled() && failure() && steps.deploy.outcome != 'success' }}
@@ -212,4 +260,4 @@ jobs:
           DEPLOY_FAILURE_REASON: ${{ steps.deploy.outputs.failure_reason }}
           DEPLOY_CLEANUP_STATUS: ${{ steps.deploy.outputs.cleanup_status }}
           DEPLOY_NGINX_RECOVERY_STATUS: ${{ steps.deploy.outputs.nginx_recovery_status }}
-        run: bash .github/scripts/notify-discord.sh failure
+        run: bash .github/scripts/notify-discord.sh failure '${{ steps.failure_artifact.outputs.artifact-url }}'

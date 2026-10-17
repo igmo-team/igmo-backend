@@ -103,6 +103,14 @@ ${RECOVERY_LINE}
 GitHub Actions: ${WORKFLOW_URL}
 EOF
 )
+    if [[ -n "${RUNNER_TEMP:-}" ]]; then
+      if REPORT_CONTENT=$(python3 "$(dirname "$0")/cd_failure_report.py" discord \
+          --diagnostics "$RUNNER_TEMP/igmo-cd" --artifact-url "${2:-}" 2>/dev/null); then
+        CONTENT="$REPORT_CONTENT"
+      else
+        echo '::warning::CD failure report unavailable; using the existing failure notification.'
+      fi
+    fi
     ;;
   *)
     echo "Usage: notify-discord.sh <start|success|failure>" >&2
@@ -110,7 +118,7 @@ EOF
     ;;
 esac
 
-PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content, allowed_mentions: {parse: []}}')
 HTTP_STATUS="000"
 if ! HTTP_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
   --max-time 15 \
@@ -122,4 +130,6 @@ fi
 
 if [[ "$HTTP_STATUS" != 2* ]]; then
   echo "::warning::Discord deployment ${EVENT} notification failed (HTTP ${HTTP_STATUS})."
+else
+  echo "::notice::Discord deployment ${EVENT} notification accepted (HTTP ${HTTP_STATUS})."
 fi
