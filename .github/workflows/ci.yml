@@ -35,6 +35,9 @@ jobs:
       - name: Run monitoring deployment tests
         run: python3 -B -m unittest discover -s deploy/monitoring/tests -p 'test_*.py' -v
 
+      - name: Run CD diagnostics tests
+        run: python3 -B -m unittest discover -s .github/scripts/tests -p 'test_*.py' -v
+
       - name: Create failed test report fallback
         if: failure()
         run: |
