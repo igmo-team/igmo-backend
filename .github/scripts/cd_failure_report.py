@@ -141,12 +141,15 @@ def collect(workspace, diagnostics):
                 for case in suite.findall("testcase"):
                     for failure in list(case.findall("failure")) + list(case.findall("error")):
                         stack = failure.text or ""
-                        location = re.search(r"[\w$]+\.java:\d+", stack)
+                        location = re.search(r"\bat com\.igmo\.[^\n]*?\(([\w$]+\.java:\d+)\)", stack)
+                        project_location = location.group(1) if location else None
+                        fallback_location = re.search(r"[\w$]+\.java:\d+", stack)
                         report["failures"].append({
                             "class": case.get("classname", suite.get("name", "")),
                             "test": case.get("name", ""), "type": failure.get("type", ""),
                             "message": failure.get("message", "")[:2000],
-                            "location": location.group() if location else "확인 불가",
+                            "location": (project_location or
+                                         (fallback_location.group() if fallback_location else "확인 불가")),
                             "stack": stack[:4000],
                         })
             except (OSError, ET.ParseError, ValueError):

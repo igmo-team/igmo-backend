@@ -75,6 +75,17 @@ class FailureReportTest(unittest.TestCase):
         self.assertIn("cannot find symbol", report["observed_error"])
         self.assertTrue(report["warnings"])
 
+    def test_project_stack_location_precedes_junit_internal_location(self):
+        self.build_result()
+        self.xml('''<testsuite tests="1" failures="1"><testcase name="intentionalFailure">
+          <failure type="AssertionFailedError" message="failed">
+            at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
+            at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)
+            at com.igmo.CdDiagnosticsProbeTest.intentionalFailure(CdDiagnosticsProbeTest.java:12)
+          </failure></testcase></testsuite>''')
+        report = self.collect()
+        self.assertEqual("CdDiagnosticsProbeTest.java:12", report["failures"][0]["location"])
+
     def test_npm_failure_does_not_report_stale_tests(self):
         self.build_result("npm", 42, "npm error code ERESOLVE")
         self.xml('<testsuite tests="99" failures="1"/>')
