@@ -2,6 +2,7 @@ package com.igmo.web.websocket;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
@@ -68,10 +69,14 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -137,6 +142,9 @@ class GameWebSocketE2ETest {
 
     @Autowired
     private GameRegistry gameRegistry;
+
+    @Autowired
+    private SimpleBrokerMessageHandler simpleBrokerMessageHandler;
 
     @MockitoBean
     private ImageGenerator imageGenerator;
@@ -318,6 +326,14 @@ class GameWebSocketE2ETest {
         // given
         GameScenario scenario = createScenario();
         try {
+            SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+            headers.setDestination("/topic/rooms/" + scenario.roomCode());
+            var subscriptionLookupMessage = MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders());
+            await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).untilAsserted(() ->
+                    assertThat(simpleBrokerMessageHandler.getSubscriptionRegistry()
+                            .findSubscriptions(subscriptionLookupMessage))
+                            .as("로비 만료 알림을 받을 참가자별 구독")
+                            .hasSize(scenario.players().size()));
             scenario.clearTopic();
             GameRoom room = gameRegistry.find(scenario.roomCode()).orElseThrow();
             ReflectionTestUtils.setField(room, "lobbyDeadline", Instant.MIN);
