@@ -554,6 +554,72 @@ class RoundTest {
     }
 
     @Test
+    @DisplayName("일부만 완벽 정답을 맞히면 출제자는 완벽 정답자당 2점을 받는다.")
+    void settleResult_일부만_PERFECT면_출제자는_인당_2점을_받는다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 피아노를 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.submitGuess("guesser-3", "토끼가 춤추는 장면", SUBMITTED_AT);
+        round.openVoting();
+        round.submitVote("guesser-3", round.getGuesses().get(0).getGuessId(), SUBMITTED_AT.plusSeconds(2));
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(round.getResult().getRoundScore("questioner")).isEqualTo(4);
+            softly.assertThat(round.getResult().getScoreDetails("questioner"))
+                    .containsOnly(entry(ScoreReason.QUESTIONER, 4));
+        });
+    }
+
+    @Test
+    @DisplayName("일부가 완벽 정답과 정답 투표로 맞히면 출제자는 두 인원의 합계당 2점을 받는다.")
+    void settleResult_PERFECT와_정답_투표자를_합산해_출제자_점수를_지급한다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2", "guesser-3");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-1", "강아지가 기타를 치는 장면", SUBMITTED_AT.plusSeconds(1));
+        round.submitGuess("guesser-2", "고양이가 드럼을 치는 장면", SUBMITTED_AT);
+        round.submitGuess("guesser-3", "토끼가 춤추는 장면", SUBMITTED_AT);
+        round.openVoting();
+        round.submitVote("guesser-2", round.getAnswerEntry().getPromptId(), SUBMITTED_AT.plusSeconds(2));
+        round.submitVote("guesser-3", round.getGuesses().get(0).getGuessId(), SUBMITTED_AT.plusSeconds(2));
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        assertThat(round.getResult().getScoreDetails("questioner"))
+                .containsOnly(entry(ScoreReason.QUESTIONER, 4));
+    }
+
+    @Test
+    @DisplayName("비출제자 전원이 완벽 정답을 맞히면 출제자 점수는 0점이다.")
+    void settleResult_전원이_PERFECT면_출제자_점수는_0점이다() {
+        // given
+        Round round = createRound("questioner", "고양이가 피아노를 치는 장면");
+        List<String> participantIds = List.of("questioner", "guesser-1", "guesser-2");
+        round.submitGuess("guesser-1", "고양이가피아노를치는장면", SUBMITTED_AT);
+        round.submitGuess("guesser-2", "고양이가 피아노를 치는 장면", SUBMITTED_AT);
+
+        // when
+        round.settleResult(participantIds);
+
+        // then
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(round.getResult().getRoundScore("questioner")).isZero();
+            softly.assertThat(round.getResult().getScoreDetails("questioner")).isEmpty();
+        });
+    }
+
+    @Test
     @DisplayName("일부만 정답을 맞히면 출제자 점수는 정답 투표수의 2배다.")
     void settleResult_일부만_정답을_맞히면_출제자_점수는_정답_투표수의_2배다() {
         // given
