@@ -27,7 +27,7 @@ public class Round {
 
     private static final int CORRECT_ANSWER_SCORE = 2;
     private static final int PERFECT_GUESS_SCORE = 3;
-    private static final int QUESTIONER_SCORE_PER_CORRECT_VOTE = 2;
+    private static final int QUESTIONER_SCORE_PER_CORRECT_ANSWER = 2;
 
     @Getter
     private final int roundNumber;
@@ -330,21 +330,21 @@ public class Round {
             Map<String, Integer> voteCounts
     ) {
         int correctVoterCount = voteCounts.getOrDefault(answerEntry.getPromptId(), 0);
-        if (isQuestionerRewarded(correctVoterCount, participantIds)) {
+        int perfectGuesserCount = (int) participantIds.stream()
+                .filter(this::isPerfectGuesser)
+                .count();
+        int correctAnswerCount = correctVoterCount + perfectGuesserCount;
+        if (isQuestionerRewarded(correctAnswerCount, participantIds)) {
             scoreDetails.get(questionerId)
-                    .merge(ScoreReason.QUESTIONER, correctVoterCount * QUESTIONER_SCORE_PER_CORRECT_VOTE, Integer::sum);
+                    .merge(ScoreReason.QUESTIONER, correctAnswerCount * QUESTIONER_SCORE_PER_CORRECT_ANSWER, Integer::sum);
         }
     }
 
-    private boolean isQuestionerRewarded(int correctVoterCount, Collection<String> participantIds) {
+    private boolean isQuestionerRewarded(int correctAnswerCount, Collection<String> participantIds) {
         long nonQuestionerCount = participantIds.stream()
                 .filter(participantId -> !questionerId.equals(participantId))
                 .count();
-        long perfectGuesserCount = participantIds.stream()
-                .filter(this::isPerfectGuesser)
-                .count();
-        long answerRecognizerCount = correctVoterCount + perfectGuesserCount;
-        return correctVoterCount > 0 && answerRecognizerCount < nonQuestionerCount;
+        return correctAnswerCount > 0 && correctAnswerCount < nonQuestionerCount;
     }
 
     private boolean isCorrectVote(Vote vote) {
